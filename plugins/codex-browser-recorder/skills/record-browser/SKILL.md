@@ -28,10 +28,13 @@ to record.
 
 ## Preconditions
 
-Require the installed Browser plugin, macOS, Node.js 24 or newer, `ffmpeg` and
-`ffprobe` on `PATH`, a writable temporary directory, and normal site plus
-full-CDP approval. Do not enable Developer mode, change policy, install system
-packages, or broaden the approved origin.
+Require the installed Browser plugin, macOS, `ffmpeg` and `ffprobe` on the
+inherited command path, a writable temporary directory, and normal site plus
+full-CDP approval. The Browser Node execution surface does not expose global
+`process` metadata, so do not read `process.platform`, `process.env`, or
+`process.versions`. Successful import of the installed modules is the runtime
+compatibility check. Do not enable Developer mode, change policy, install
+system packages, or broaden the approved origin.
 
 If the Browser skill is not available, or its plugin root does not contain
 `scripts/browser-client.mjs`, stop with `browser_plugin_unavailable`. Follow the
@@ -74,9 +77,11 @@ fails, report `plugin_module_unavailable` without revealing the internal path.
 2. Obtain the tab's current `cdp` capability after navigation. Let the normal
    site and full-CDP approval UI run. If either approval is denied, report
    `cancelled`; do not retry, bypass approval, change origin, or switch browser.
-3. Run `doctor` with `process.platform`, `process.env.PATH`, the temporary output
-   root, and whether the acquired CDP capability exposes both `send` and
-   `readEvents`. Report all deterministic blockers and stop without mutating the
+3. Run `doctor` with only the temporary output root and whether the acquired CDP
+   capability exposes both `send` and `readEvents`. `doctor` derives the host
+   platform from `node:os`; when PATH metadata is unavailable, it verifies
+   `ffmpeg` and `ffprobe` through bounded, shell-free inherited command
+   resolution. Report all deterministic blockers and stop without mutating the
    environment.
 4. Discard the preflight CDP reference. `createBrowserRecording` deliberately
    reacquires the current capability for the recording session.
@@ -101,9 +106,13 @@ globalThis[activeKey] = handle;
 await handle.ready;
 ```
 
-6. After readiness, use only the Browser documentation's supported page
-   evaluation API to add a visible clock and CSS animation. Perform one scroll
-   and one SPA-style DOM text/state change. These changes belong only to the
+6. After readiness, reacquire the approved `cdp` capability and use bounded
+   `Runtime.evaluate` calls with static quoted expressions to add the visible
+   clock/CSS animation and make the SPA-style DOM text/state change. Require a
+   true return value and no `exceptionDetails`, then discard that capability.
+   Do not pass a JavaScript function object to `freshTab.playwright.evaluate`;
+   that form is not compatible with the Browser Node execution surface. Perform
+   one scroll through the documented tab API. These changes belong only to the
    fresh test tab and are discarded when it closes.
 7. Record for 10–15 seconds. Read `handle.status()` at bounded intervals and
    require fresh `framesReceived`, `framesAcknowledged`, and `outputSamples`

@@ -1,10 +1,36 @@
+import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
+import { platform as hostPlatform } from "node:os";
 import { delimiter, join } from "node:path";
+import { promisify } from "node:util";
 
-async function findExecutable(name, pathValue) {
-  if (typeof pathValue !== "string") {
+const execFileAsync = promisify(execFile);
+
+async function resolveExecutableFromInheritedPath(name) {
+  try {
+    await execFileAsync(name, ["-version"], {
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024,
+      timeout: 5000,
+      windowsHide: true,
+    });
+    return name;
+  } catch {
     return null;
+  }
+}
+
+async function findExecutable(name, pathValue, resolveExecutableByName) {
+  if (typeof pathValue !== "string") {
+    try {
+      const resolved = await resolveExecutableByName(name);
+      return typeof resolved === "string" && resolved.length > 0
+        ? resolved
+        : null;
+    } catch {
+      return null;
+    }
   }
   for (const directory of pathValue.split(delimiter).filter(Boolean)) {
     const candidate = join(directory, name);
@@ -25,11 +51,12 @@ export async function doctor({
   cdpAvailable,
   outputDirectory,
   pathValue,
-  platform,
+  platform = hostPlatform(),
+  resolveExecutableByName = resolveExecutableFromInheritedPath,
 }) {
   const [ffmpegPath, ffprobePath] = await Promise.all([
-    findExecutable("ffmpeg", pathValue),
-    findExecutable("ffprobe", pathValue),
+    findExecutable("ffmpeg", pathValue, resolveExecutableByName),
+    findExecutable("ffprobe", pathValue, resolveExecutableByName),
   ]);
 
   let outputDirectoryWritable = true;

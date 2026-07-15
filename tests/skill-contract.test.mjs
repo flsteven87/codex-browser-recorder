@@ -29,6 +29,9 @@ test("skill reuses the installed Browser runtime and a fresh test tab", () => {
   assert.match(skill, /documentation[(][)]/);
   assert.match(skill, /fresh.{0,40}https:\/\/example[.]com\//is);
   assert.match(skill, /full-CDP approval/i);
+  assert.match(skill, /Runtime[.]evaluate/);
+  assert.match(skill, /exceptionDetails/);
+  assert.match(skill, /do not read.{0,120}process[.]platform/is);
 });
 
 test("skill resolves and owns the installed recorder handle", () => {

@@ -5,6 +5,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+const strictSemver =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const marketplacePath = join(
   repositoryRoot,
   ".agents",
@@ -52,7 +54,7 @@ test("plugin manifest and repository marketplace stay aligned", () => {
   const entry = marketplace.plugins.find(({ name }) => name === plugin.name);
 
   assert.equal(plugin.name, "codex-browser-recorder");
-  assert.match(plugin.version, /^\d+\.\d+\.\d+$/);
+  assert.match(plugin.version, strictSemver);
   assert.equal(marketplace.name, "codex-browser-recorder");
   assert.ok(entry, "marketplace must contain the plugin entry");
   assert.equal(entry.name, plugin.name);

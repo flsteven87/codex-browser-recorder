@@ -80,12 +80,28 @@ test("does not treat executable directories as ffmpeg binaries", async () => {
   assert.deepEqual(result.blockingReasons, ["ffmpeg_missing", "ffprobe_missing"]);
 });
 
-test("treats an unavailable PATH value as missing executables", async () => {
+test("supports the Browser runtime when global process metadata is unavailable", async () => {
+  const result = await doctor({
+    cdpAvailable: true,
+    outputDirectory,
+    pathValue: undefined,
+    resolveExecutableByName: async (name) => name,
+  });
+
+  assert.equal(result.platform, "darwin");
+  assert.equal(result.ffmpegPath, "ffmpeg");
+  assert.equal(result.ffprobePath, "ffprobe");
+  assert.equal(result.supported, true);
+  assert.deepEqual(result.blockingReasons, []);
+});
+
+test("reports missing tools when inherited command resolution fails", async () => {
   const result = await doctor({
     cdpAvailable: true,
     outputDirectory,
     pathValue: undefined,
     platform: "darwin",
+    resolveExecutableByName: async () => null,
   });
 
   assert.equal(result.ffmpegPath, null);

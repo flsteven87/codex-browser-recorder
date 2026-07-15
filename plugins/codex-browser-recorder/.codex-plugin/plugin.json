@@ -1,6 +1,6 @@
 {
   "name": "codex-browser-recorder",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260715074512",
   "description": "Run an explicit local recording gate against one approved Codex Browser test tab.",
   "author": {
     "name": "Steven Wu",
