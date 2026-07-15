@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { describeRecordingFailure } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-artifacts.mjs";
+import {
+  describeRecordingFailure,
+  getRecordingCleanupDetails,
+} from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-artifacts.mjs";
 import {
   createBrowserRecording,
   inspectTopLevelFrame,
@@ -321,7 +324,9 @@ test("preserves the startup error when directory cleanup also fails", async () =
     startError: startupError,
   });
 
+  let publicError;
   await assert.rejects(createHandle(harness), (error) => {
+    publicError = error;
     assert.notEqual(error, startupError);
     assert.equal(error.code, "cdp_unavailable");
     assert.equal(
@@ -330,12 +335,18 @@ test("preserves the startup error when directory cleanup also fails", async () =
     );
     assert.doesNotMatch(
       `${error.message}\n${JSON.stringify(error)}`,
-      /private primary startup secret|private cleanup diagnostic/,
+      /private primary startup secret|private cleanup diagnostic|private\/temporary/,
     );
     return true;
   });
   assert.equal(harness.calls.cleanup, 1);
   assert.equal(harness.cleanupPaths, harness.paths);
+  assert.deepEqual(getRecordingCleanupDetails(publicError), {
+    cleanupIncomplete: true,
+    directory: harness.paths.directory,
+  });
+  assert.equal(Object.keys(publicError).includes("cleanupIncomplete"), false);
+  assert.equal(Object.keys(publicError).includes("directory"), false);
 });
 
 test("returns the public handle before first-frame readiness resolves", async () => {

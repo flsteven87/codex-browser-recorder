@@ -37,10 +37,13 @@ class BrowserRecordingError extends Error {
   }
 }
 
-function sanitizeStartupError(error) {
-  return sanitizeRecordingFailure({
-    code: typeof error?.code === "string" ? error.code : "integration_failed",
-  });
+function sanitizeStartupError(error, cleanupDirectory) {
+  return sanitizeRecordingFailure(
+    {
+      code: typeof error?.code === "string" ? error.code : "integration_failed",
+    },
+    { cleanupDirectory },
+  );
 }
 
 function cancellationFailure() {
@@ -641,12 +644,14 @@ export async function createBrowserRecording({
       tab,
     });
   } catch (error) {
+    let cleanupDirectory;
     try {
       await _dependencies.cleanupRecordingArtifacts(paths);
     } catch {
       // Preserve the bounded startup failure as the primary error.
+      cleanupDirectory = paths.directory;
     }
-    throw sanitizeStartupError(error);
+    throw sanitizeStartupError(error, cleanupDirectory);
   }
 
   let finalizationPromise = null;

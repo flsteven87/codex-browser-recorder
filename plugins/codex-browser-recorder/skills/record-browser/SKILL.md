@@ -21,18 +21,45 @@ import { pathToFileURL } from "node:url";
 
 const installedSkillRoot = "<absolute installed record-browser skill directory from the loaded catalog entry>";
 const temporaryRoot = tmpdir();
-const policyUrl = pathToFileURL(
-  resolve(installedSkillRoot, "scripts/recording-policy.mjs"),
-).href;
-const artifactsUrl = pathToFileURL(
-  resolve(installedSkillRoot, "scripts/recording-artifacts.mjs"),
-).href;
-const { validateRecordingRequest } = await import(policyUrl);
-const {
-  describeRecordingFailure,
-  getRecordingCleanupDetails,
-} = await import(artifactsUrl);
-const request = validateRecordingRequest({ durationMs, targetUrl });
+const moduleFailure = Object.freeze({
+  remediation: "Install or enable the Browser plugin and approve full CDP access, then retry",
+  summary: "The required Browser recording capability is unavailable",
+});
+let describeRecordingFailure;
+let getRecordingCleanupDetails;
+let sanitizeRecordingFailure;
+let validateRecordingRequest;
+const stableFailure = (code) => {
+  if (typeof sanitizeRecordingFailure === "function") {
+    return sanitizeRecordingFailure({ code });
+  }
+  return Object.assign(new Error(moduleFailure.summary), {
+    code: "plugin_module_unavailable",
+    ...moduleFailure,
+  });
+};
+try {
+  const policyUrl = pathToFileURL(
+    resolve(installedSkillRoot, "scripts/recording-policy.mjs"),
+  ).href;
+  const artifactsUrl = pathToFileURL(
+    resolve(installedSkillRoot, "scripts/recording-artifacts.mjs"),
+  ).href;
+  ({ validateRecordingRequest } = await import(policyUrl));
+  ({
+    describeRecordingFailure,
+    getRecordingCleanupDetails,
+    sanitizeRecordingFailure,
+  } = await import(artifactsUrl));
+} catch {
+  throw stableFailure("plugin_module_unavailable");
+}
+let request;
+try {
+  request = validateRecordingRequest({ durationMs, targetUrl });
+} catch (error) {
+  throw stableFailure(error?.code);
+}
 ```
 
 ## Confirm Once Before Browser Activity
@@ -47,26 +74,39 @@ Follow the installed Browser control skill for its exact Node runtime tool and r
 
 ```js
 const browserPluginRoot = "<absolute installed Browser plugin root from the loaded catalog entry>";
-if (globalThis.agent?.browsers == null) {
-  const browserClientUrl = pathToFileURL(
-    resolve(browserPluginRoot, "scripts/browser-client.mjs"),
+let doctor;
+let createRecording;
+try {
+  const doctorUrl = pathToFileURL(
+    resolve(installedSkillRoot, "scripts/doctor.mjs"),
   ).href;
-  const { setupBrowserRuntime } = await import(browserClientUrl);
-  await setupBrowserRuntime({ globals: globalThis });
+  const recordingUrl = pathToFileURL(
+    resolve(installedSkillRoot, "scripts/create-recording.mjs"),
+  ).href;
+  ({ doctor } = await import(doctorUrl));
+  ({ createRecording } = await import(recordingUrl));
+} catch {
+  throw stableFailure("plugin_module_unavailable");
 }
-if (globalThis.browser == null) {
-  globalThis.browser = await agent.browsers.getForUrl(request.targetUrl);
-  nodeRepl.write(await browser.documentation());
+try {
+  if (globalThis.agent?.browsers == null) {
+    const browserClientUrl = pathToFileURL(
+      resolve(browserPluginRoot, "scripts/browser-client.mjs"),
+    ).href;
+    const { setupBrowserRuntime } = await import(browserClientUrl);
+    await setupBrowserRuntime({ globals: globalThis });
+  }
+} catch {
+  throw stableFailure("browser_plugin_unavailable");
 }
-
-const doctorUrl = pathToFileURL(
-  resolve(installedSkillRoot, "scripts/doctor.mjs"),
-).href;
-const recordingUrl = pathToFileURL(
-  resolve(installedSkillRoot, "scripts/create-recording.mjs"),
-).href;
-const { doctor } = await import(doctorUrl);
-const { createRecording } = await import(recordingUrl);
+try {
+  if (globalThis.browser == null) {
+    globalThis.browser = await agent.browsers.getForUrl(request.targetUrl);
+    nodeRepl.write(await browser.documentation());
+  }
+} catch {
+  throw stableFailure("integration_failed");
+}
 ```
 
 ## Run The Recording
@@ -83,6 +123,7 @@ let handle;
 let recordingResult;
 let primaryFailure;
 let incompleteCleanup;
+let freshTabCleanupIncomplete = false;
 const isBrowserApprovalDenial = (error) => {
   const message = error instanceof Error ? error.message : "";
   return /Browser Use rejected this action due to browser security policy[.] Reason: The user has requested that .+(?:should not be used|not be used on)/su.test(
@@ -91,8 +132,7 @@ const isBrowserApprovalDenial = (error) => {
 };
 const mapBrowserRuntimeFailure = (error) => {
   const code = isBrowserApprovalDenial(error) ? "cancelled" : "integration_failed";
-  const failure = describeRecordingFailure(code);
-  return Object.assign(new Error(failure.summary), { code, ...failure });
+  return stableFailure(code);
 };
 const navigateFreshTab = async () => {
   try {
@@ -103,7 +143,13 @@ const navigateFreshTab = async () => {
   }
 };
 const closeFreshTab = async () => {
-  await freshTab?.close();
+  try {
+    await freshTab?.close();
+    freshTab = null;
+  } catch {
+    freshTabCleanupIncomplete = true;
+    throw stableFailure("integration_failed");
+  }
 };
 try {
   await navigateFreshTab(request.targetUrl);
@@ -187,10 +233,10 @@ try {
 
 ## Clean Up
 
-Always call `await handle?.stop()` before closing the fresh tab. Preserve the primary failure if cleanup also fails. Never leave a screencast, frame pump, FFmpeg process, partial output, singleton, or fresh tab active.
+Always call `await handle?.stop()` before attempting to close the fresh tab. Preserve the primary failure if cleanup also fails. Map a close failure to the stable integration failure, retain the bounded manual-cleanup state, and do not resume Browser actions. Never silently leave a screencast, frame pump, FFmpeg process, partial output, singleton, or fresh tab active.
 
 ## Report The Result
 
 On success, require `recordingResult.result.status === "passed"`, then lead with `Recording completed`, duration, VP8 WebM, dimensions, no audio, and `Saved locally: <recordingResult.paths.outputPath>`. Offer bounded capture counters only as diagnostics.
 
-On failure, report the stable failure code plus its allowlisted summary and remediation. Read `getRecordingCleanupDetails(primaryFailure) ?? incompleteCleanup` after the outer cleanup finishes. Only when it returns `{ cleanupIncomplete: true, directory }`, add `Cleanup incomplete; delete locally: <directory>`. This private temporary recording directory is the sole failure-path exception to path suppression. Never report full URLs, page text, raw frames, CDP payloads, FFmpeg stderr, credentials, or internal plugin paths.
+On failure, report the stable failure code plus its allowlisted summary and remediation. Read `getRecordingCleanupDetails(primaryFailure) ?? incompleteCleanup` after the outer cleanup finishes. Only when it returns `{ cleanupIncomplete: true, directory }`, add `Cleanup incomplete; delete locally: <directory>`. When `freshTabCleanupIncomplete` is true, add `Browser cleanup incomplete; close the fresh recording tab manually.` This message must not include its URL. The private temporary recording directory is the sole failure-path exception to path suppression. Never report full URLs, page text, raw frames, CDP payloads, FFmpeg stderr, credentials, or internal plugin paths.

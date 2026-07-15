@@ -192,7 +192,7 @@ export function describeRecordingFailure(code) {
   return USER_MESSAGES.get(code) ?? USER_MESSAGES.get("recording_failed");
 }
 
-export function sanitizeRecordingFailure(error) {
+export function sanitizeRecordingFailure(error, { cleanupDirectory } = {}) {
   const code = USER_MESSAGES.has(error?.code)
     ? error.code
     : "recording_failed";
@@ -202,9 +202,17 @@ export function sanitizeRecordingFailure(error) {
     remediation,
     summary,
   });
-  const cleanupDetails = RECORDING_CLEANUP_DETAILS.get(error);
-  if (cleanupDetails !== undefined) {
-    RECORDING_CLEANUP_DETAILS.set(publicError, cleanupDetails);
+  const inheritedCleanupDetails = RECORDING_CLEANUP_DETAILS.get(error);
+  if (inheritedCleanupDetails !== undefined) {
+    RECORDING_CLEANUP_DETAILS.set(publicError, inheritedCleanupDetails);
+  } else if (
+    typeof cleanupDirectory === "string" &&
+    cleanupDirectory.length > 0
+  ) {
+    RECORDING_CLEANUP_DETAILS.set(
+      publicError,
+      Object.freeze({ cleanupIncomplete: true, directory: cleanupDirectory }),
+    );
   }
   return publicError;
 }

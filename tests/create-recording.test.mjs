@@ -197,6 +197,54 @@ test("rejects a malformed caller signal without retaining the singleton", async 
   await assertSingletonReleased();
 });
 
+for (const property of ["addEventListener", "removeEventListener", "aborted"]) {
+  test(`uses native AbortSignal behavior when ${property} is shadowed`, async () => {
+    const controller = new AbortController();
+    const secret = `private shadowed ${property} diagnostic`;
+    Object.defineProperty(controller.signal, property, {
+      configurable: true,
+      get() {
+        throw new Error(secret);
+      },
+    });
+    const configured = validOptions({ signal: controller.signal });
+
+    const handle = createRecording(configured.options);
+    assert.deepEqual(Object.keys(handle).sort(), ["ready", "status", "stop"]);
+    await handle.ready;
+    await handle.stop();
+    assertPublicStatus(handle, "completed");
+
+    await assertSingletonReleased();
+  });
+}
+
+test("sanitizes a throwing signal accessor without retaining the singleton", async () => {
+  const configured = validOptions();
+  const options = { ...configured.options };
+  Object.defineProperty(options, "signal", {
+    get() {
+      throw new Error("private signal accessor diagnostic");
+    },
+  });
+
+  const handle = createRecording(options);
+  assert.deepEqual(Object.keys(handle).sort(), ["ready", "status", "stop"]);
+  assertPublicStatus(handle, "failed");
+  await assert.rejects(handle.ready, (error) => {
+    assert.equal(error.code, "invalid_configuration");
+    assert.equal(
+      error.message,
+      describeRecordingFailure("invalid_configuration").summary,
+    );
+    assert.doesNotMatch(JSON.stringify(error), /private signal accessor/);
+    return true;
+  });
+  assert.equal(configured.harness.calls.createBrowserRecording, 0);
+
+  await assertSingletonReleased();
+});
+
 test("immediate stop cancels preparation and releases the singleton", async () => {
   const harness = createHarness();
   const handle = createRecording({
