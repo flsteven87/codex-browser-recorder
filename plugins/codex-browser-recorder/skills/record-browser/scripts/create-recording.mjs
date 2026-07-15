@@ -1,4 +1,4 @@
-import { createBrowserRecording } from "./run-browser-recording.mjs";
+import { createBrowserRecording } from "./browser-recording.mjs";
 import {
   describeRecordingFailure,
   sanitizeRecordingFailure,

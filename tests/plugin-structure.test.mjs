@@ -16,10 +16,12 @@ const marketplacePath = join(
 const pluginRoot = join(repositoryRoot, "plugins", "codex-browser-recorder");
 const skillRoot = join(pluginRoot, "skills", "record-browser");
 const requiredScripts = [
+  "browser-recording.mjs",
+  "create-recording.mjs",
   "doctor.mjs",
-  "example-recording-gate.mjs",
-  "run-browser-recording.mjs",
-  "screencast-recorder.mjs",
+  "media-recorder.mjs",
+  "recording-artifacts.mjs",
+  "recording-policy.mjs",
   "validate-video.mjs",
 ];
 
@@ -89,6 +91,19 @@ test("record-browser is an explicit skill with one canonical script tree", () =>
   for (const script of requiredScripts) {
     assert.ok(existsSync(join(skillRoot, "scripts", script)), `${script} must exist`);
   }
+  for (const forbidden of [
+    "example-recording-gate.mjs",
+    "run-browser-recording.mjs",
+    "screencast-recorder.mjs",
+  ]) {
+    assert.equal(existsSync(join(skillRoot, "scripts", forbidden)), false);
+  }
+  assert.deepEqual(
+    readdirSync(join(skillRoot, "scripts"))
+      .filter((path) => extname(path) === ".mjs")
+      .sort(),
+    requiredScripts.toSorted(),
+  );
   const legacyRoot = join(repositoryRoot, "poc");
   assert.ok(
     !existsSync(legacyRoot) || readdirSync(legacyRoot).length === 0,
@@ -111,6 +126,13 @@ test("plugin source does not fall back outside the installed plugin root", () =>
     }
 
     if (extname(path) !== ".mjs") continue;
+    for (const forbidden of [
+      "createExampleRecording",
+      "runBrowserPocGate",
+      "EXAMPLE_PAGE_URL",
+    ]) {
+      assert.doesNotMatch(source, new RegExp(forbidden), relative(repositoryRoot, path));
+    }
     for (const match of source.matchAll(/(?:from\s+|import\()(["'])([^"']+)\1/g)) {
       const specifier = match[2];
       if (!specifier.startsWith(".")) continue;

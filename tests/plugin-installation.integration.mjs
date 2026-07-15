@@ -91,7 +91,7 @@ test("installs from an isolated marketplace and imports only from cache", async 
     assert.match(JSON.stringify(listed), /codex-browser-recorder/);
 
     const cachedFiles = Object.fromEntries(
-      ["doctor.mjs", "example-recording-gate.mjs"].map((filename) => {
+      ["create-recording.mjs", "doctor.mjs"].map((filename) => {
         const matches = findFiles(codexHome, filename);
         assert.equal(
           matches.length,
@@ -110,13 +110,13 @@ test("installs from an isolated marketplace and imports only from cache", async 
     }
 
     rmSync(marketplaceRoot, { force: true, recursive: true });
-    const gate = await import(
-      pathToFileURL(cachedFiles["example-recording-gate.mjs"]).href
+    const coordinator = await import(
+      pathToFileURL(cachedFiles["create-recording.mjs"]).href
     );
     const environmentDoctor = await import(
       pathToFileURL(cachedFiles["doctor.mjs"]).href
     );
-    assert.equal(typeof gate.createExampleRecording, "function");
+    assert.equal(typeof coordinator.createRecording, "function");
     assert.equal(typeof environmentDoctor.doctor, "function");
   } finally {
     rmSync(testRoot, { force: true, recursive: true });

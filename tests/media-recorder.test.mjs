@@ -16,8 +16,8 @@ import {
   estimateDecodedBytes,
   parseScreencastFrame,
   startFramePump,
-} from "../plugins/codex-browser-recorder/skills/record-browser/scripts/screencast-recorder.mjs";
-import { startBrowserPoc } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/run-browser-recording.mjs";
+} from "../plugins/codex-browser-recorder/skills/record-browser/scripts/media-recorder.mjs";
+import { startBrowserRecording } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/browser-recording.mjs";
 import { resolveExecutable } from "./test-tools.mjs";
 
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
@@ -182,7 +182,7 @@ function createNavigationSessionHarness({
     sink,
     sinkStopOptions,
     start() {
-      return startBrowserPoc({
+      return startBrowserRecording({
         approvedOrigin,
         cdp,
         ffmpegPath: "/unused/ffmpeg",
@@ -722,7 +722,7 @@ test("terminates the Browser session when the encoder exits early", async () => 
   sink.completion = new Promise((resolve) => {
     resolveEncoderCompletion = resolve;
   });
-  const session = await startBrowserPoc({
+  const session = await startBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: createLiveCdp(operations),
     ffmpegPath: "/unused/ffmpeg",
@@ -836,7 +836,7 @@ test("rejects a CDP event cursor that moves backwards", async () => {
 
 test("validates the CDP boundary before starting a recording", async () => {
   await assert.rejects(
-    startBrowserPoc({
+    startBrowserRecording({
       approvedOrigin: "https://example.com",
       cdp: {},
       ffmpegPath: "/unused/ffmpeg",
@@ -896,7 +896,7 @@ test("starts from a captured cursor and finalizes every recorder component", asy
   };
   let sinkFactoryOptions;
 
-  const session = await startBrowserPoc({
+  const session = await startBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp,
     ffmpegPath: "/unused/ffmpeg",
@@ -1043,7 +1043,7 @@ test("fails readiness when no screencast frame arrives before the timeout", asyn
       return this.stats;
     },
   };
-  const session = await startBrowserPoc({
+  const session = await startBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp,
     ffmpegPath: "/unused/ffmpeg",
@@ -1125,7 +1125,7 @@ test("excludes startup wait from capture time with a monotonic clock", async () 
       return this.stats;
     },
   };
-  const session = await startBrowserPoc({
+  const session = await startBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp,
     ffmpegPath: "/unused/ffmpeg",
@@ -1163,7 +1163,7 @@ test("stops screencasting when encoder startup fails", async () => {
   };
 
   await assert.rejects(
-    startBrowserPoc({
+    startBrowserRecording({
       approvedOrigin: "https://example.com",
       cdp,
       ffmpegPath: "/unused/ffmpeg",
@@ -1192,7 +1192,7 @@ test("retains cancellation while Page.enable startup is pending", async () => {
   const operations = [];
   let reads = 0;
   let sinkCreations = 0;
-  const starting = startBrowserPoc({
+  const starting = startBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: {
       async readEvents() {
@@ -1259,7 +1259,7 @@ test("keeps cancellation primary after screencast startup cleanup fails", async 
   const cleanupSecret = "private cancelled-startup cleanup diagnostic";
   const operations = [];
   let sinkCreations = 0;
-  const starting = startBrowserPoc({
+  const starting = startBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: {
       async readEvents() {
@@ -1334,7 +1334,7 @@ test("discards a created sink when cancellation lands during startup handoff", a
     sink.stats.encoderExitCode = 0;
     return sink.stats;
   };
-  const starting = startBrowserPoc({
+  const starting = startBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: createLiveCdp(operations),
     ffmpegPath: "/unused/ffmpeg",
@@ -1377,7 +1377,7 @@ test("discards a created sink when cancellation lands during startup handoff", a
 test("cancels and cleans up an active recording through AbortSignal", async () => {
   const operations = [];
   const abortController = new AbortController();
-  const session = await startBrowserPoc({
+  const session = await startBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: createLiveCdp(operations),
     ffmpegPath: "/unused/ffmpeg",
@@ -1408,7 +1408,7 @@ test("cancels and cleans up an active recording through AbortSignal", async () =
 });
 
 test("stops a recording at the configured duration limit", async () => {
-  const session = await startBrowserPoc({
+  const session = await startBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: createLiveCdp(),
     ffmpegPath: "/unused/ffmpeg",
@@ -1431,7 +1431,7 @@ test("stops a recording at the configured duration limit", async () => {
 
 test("arms the duration limit only after the first frame is ready", async () => {
   const cdp = createQueuedCdp();
-  const session = await startBrowserPoc({
+  const session = await startBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp,
     ffmpegPath: "/unused/ffmpeg",
@@ -1458,7 +1458,7 @@ test("arms the duration limit only after the first frame is ready", async () => 
 });
 
 test("stops when the configured output size limit is exceeded", async () => {
-  const session = await startBrowserPoc({
+  const session = await startBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: createLiveCdp(),
     ffmpegPath: "/unused/ffmpeg",
@@ -1483,7 +1483,7 @@ test("stops when the configured output size limit is exceeded", async () => {
 });
 
 test("stops when fresh source frames exceed the configured stall limit", async () => {
-  const session = await startBrowserPoc({
+  const session = await startBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: createLiveCdp(),
     ffmpegPath: "/unused/ffmpeg",
