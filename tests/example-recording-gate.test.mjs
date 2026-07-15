@@ -94,7 +94,7 @@ test("applies the complete fixed recording policy", async () => {
   assert.equal(EXAMPLE_RECORDING_MAX_DURATION_MS, 20_000);
   assert.deepEqual(harness.receivedOptions, {
     _onTerminal: harness.receivedOptions._onTerminal,
-    expectedTopLevelUrl: "https://example.com/",
+    approvedOrigin: "https://example.com",
     ffmpegPath: "/usr/local/bin/ffmpeg",
     ffprobePath: "/usr/local/bin/ffprobe",
     fps: 10,

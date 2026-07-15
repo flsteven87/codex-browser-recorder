@@ -136,8 +136,22 @@ function createMemorySink(operations = []) {
   };
 }
 
-function createNavigationSessionHarness({ approvedOrigin, frameTree }) {
+function createNavigationSessionHarness({
+  approvedOrigin,
+  frameTree,
+  stopScreencastError,
+}) {
   const cdp = createQueuedCdp({ frameTree });
+  const send = cdp.send.bind(cdp);
+  cdp.send = async (method, params) => {
+    if (
+      method === "Page.stopScreencast" &&
+      stopScreencastError !== undefined
+    ) {
+      throw stopScreencastError;
+    }
+    return send(method, params);
+  };
   const sinkStopOptions = {};
   const sink = createMemorySink();
   sink.stop = async (options) => {
@@ -950,6 +964,35 @@ test("discards output after cross-origin top-frame navigation", async () => {
 
   const outcome = await session.completion;
   assert.equal(outcome.error.code, "origin_changed_during_recording");
+  await assert.rejects(
+    session.stop(),
+    (error) => error.code === "origin_changed_during_recording",
+  );
+  assert.equal(harness.sinkStopOptions.discard, true);
+});
+
+test("preserves cross-origin failure when screencast cleanup also fails", async () => {
+  const cleanupSecret = "private stop-screencast diagnostic";
+  const harness = createNavigationSessionHarness({
+    approvedOrigin: "https://example.com",
+    frameTree: {
+      frameTree: {
+        frame: { id: "main", url: "https://example.com/start" },
+      },
+    },
+    stopScreencastError: new Error(cleanupSecret),
+  });
+  const session = await harness.start();
+  harness.publishFrame();
+  await session.ready;
+  harness.publishNavigation({ id: "main", url: "https://other.example/" });
+
+  const outcome = await session.completion;
+  assert.equal(outcome.error.code, "origin_changed_during_recording");
+  assert.doesNotMatch(
+    `${outcome.error.message}\n${JSON.stringify(outcome.error)}`,
+    /private stop-screencast diagnostic/,
+  );
   await assert.rejects(
     session.stop(),
     (error) => error.code === "origin_changed_during_recording",
