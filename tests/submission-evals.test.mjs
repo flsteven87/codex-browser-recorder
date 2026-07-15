@@ -18,13 +18,126 @@ const allowedNegativeOutcomes = new Set([
   "target_credentials_present",
   "origin_changed_during_recording",
 ]);
+const allowedExampleHosts = new Set([
+  "example.com",
+  "example.org",
+  "example.net",
+]);
+const allowedLoopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const topLevelKeys = ["cases", "plugin", "schemaVersion"];
+const caseKeys = ["expected", "id", "kind", "prompt", "setup"];
+const expectedKeys = [
+  "allowedFailureCodes",
+  "browserActivityBeforeConsent",
+  "outcome",
+  "requiredSignals",
+];
 
 async function loadCases() {
   return JSON.parse(await readFile(evalPath, "utf8"));
 }
 
+function assertExactKeys(value, keys, label) {
+  assert.deepEqual(
+    Object.keys(value).toSorted(),
+    keys.toSorted(),
+    `${label} must contain exactly the documented keys`,
+  );
+}
+
+function assertExactCorpusSchema(corpus) {
+  assertExactKeys(corpus, topLevelKeys, "top-level schema");
+  for (const item of corpus.cases) {
+    assertExactKeys(item, caseKeys, `${item.id} case schema`);
+    assertExactKeys(item.expected, expectedKeys, `${item.id} expected schema`);
+  }
+}
+
+function stringsIn(value) {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(stringsIn);
+  if (value != null && typeof value === "object") {
+    return Object.values(value).flatMap(stringsIn);
+  }
+  return [];
+}
+
+function extractUrls(value) {
+  return stringsIn(value).flatMap((source) =>
+    [...source.matchAll(/https?:\/\/[^\s"'<>]+/giu)].map(([match]) =>
+      match.replace(/[),.;!?]+$/u, ""),
+    ),
+  );
+}
+
+function normalizedUrl(url) {
+  return new URL(url).href;
+}
+
+function assertAllowedEvalUrl(url, itemId) {
+  const parsed = new URL(url);
+  const hostname = parsed.hostname.toLowerCase();
+  if (allowedExampleHosts.has(hostname)) {
+    assert.equal(
+      parsed.protocol,
+      "https:",
+      `${itemId} example-domain URLs must use HTTPS`,
+    );
+    return;
+  }
+  if (allowedLoopbackHosts.has(hostname)) {
+    assert.equal(
+      parsed.protocol,
+      "http:",
+      `${itemId} loopback development URLs must use HTTP`,
+    );
+    return;
+  }
+  assert.fail(`${itemId} URL must use an approved example or loopback host`);
+}
+
+function assertCorpusUrlContract(cases) {
+  for (const item of cases) {
+    const promptUrls = extractUrls(item.prompt);
+    const setupUrls = extractUrls(item.setup);
+    assert.ok(promptUrls.length > 0, `${item.id} prompt must declare its target URL`);
+    for (const url of [...promptUrls, ...setupUrls]) {
+      assertAllowedEvalUrl(url, item.id);
+    }
+
+    const targetUrl = normalizedUrl(item.setup.targetUrl);
+    const promptUrlSet = new Set(promptUrls.map(normalizedUrl));
+    assert.ok(
+      promptUrlSet.has(targetUrl),
+      `${item.id} prompt must include setup.targetUrl`,
+    );
+
+    if (item.setup.approvedOrigin != null) {
+      assert.equal(
+        item.setup.approvedOrigin,
+        new URL(item.setup.targetUrl).origin,
+        `${item.id} approvedOrigin must match setup.targetUrl`,
+      );
+    }
+
+    const promptDeclaredSetup = Object.fromEntries(
+      Object.entries(item.setup).filter(([key]) => key !== "approvedOrigin"),
+    );
+    const declaredUrlSet = new Set(
+      extractUrls(promptDeclaredSetup).map(normalizedUrl),
+    );
+    for (const url of promptUrlSet) {
+      assert.ok(
+        declaredUrlSet.has(url),
+        `${item.id} prompt URL must be declared in setup`,
+      );
+    }
+  }
+}
+
 test("defines exactly five positive and three negative submission cases", async () => {
   const corpus = await loadCases();
+  assertExactCorpusSchema(corpus);
   assert.equal(corpus.schemaVersion, 1);
   assert.equal(corpus.plugin, "codex-browser-recorder");
   assert.equal(corpus.cases.filter(({ kind }) => kind === "positive").length, 5);
@@ -33,6 +146,62 @@ test("defines exactly five positive and three negative submission cases", async 
   assert.deepEqual(
     corpus.cases.map(({ id }) => id).toSorted(),
     expectedCaseIds.toSorted(),
+  );
+});
+
+test("keeps prompt and setup URLs aligned on public test hosts", async () => {
+  const { cases } = await loadCases();
+  assertCorpusUrlContract(cases);
+});
+
+test("rejects private, link-local, and non-approved URL mutants", async () => {
+  const corpus = await loadCases();
+  for (const url of [
+    "http://192.168.1.20/",
+    "http://169.254.169.254/latest",
+    "https://not-approved.invalid/",
+  ]) {
+    const mutant = structuredClone(corpus.cases);
+    mutant[0].setup.plannedActions = [`inspect ${url}`];
+    assert.throws(
+      () => assertCorpusUrlContract(mutant),
+      /approved example or loopback host/,
+    );
+  }
+});
+
+test("rejects prompt, origin, and schema mismatch mutants", async () => {
+  const corpus = await loadCases();
+
+  const promptMutant = structuredClone(corpus.cases);
+  promptMutant[0].prompt = promptMutant[0].prompt.replace(
+    "https://example.com/guide",
+    "https://example.org/guide",
+  );
+  assert.throws(
+    () => assertCorpusUrlContract(promptMutant),
+    /prompt must include setup[.]targetUrl/,
+  );
+
+  const originMutant = structuredClone(corpus.cases);
+  originMutant[0].setup.approvedOrigin = "https://example.org";
+  assert.throws(
+    () => assertCorpusUrlContract(originMutant),
+    /approvedOrigin must match setup[.]targetUrl/,
+  );
+
+  const topLevelMutant = structuredClone(corpus);
+  topLevelMutant.unexpected = true;
+  assert.throws(
+    () => assertExactCorpusSchema(topLevelMutant),
+    /top-level schema must contain exactly the documented keys/,
+  );
+
+  const expectedMutant = structuredClone(corpus);
+  expectedMutant.cases[0].expected.unexpected = true;
+  assert.throws(
+    () => assertExactCorpusSchema(expectedMutant),
+    /expected schema must contain exactly the documented keys/,
   );
 });
 
