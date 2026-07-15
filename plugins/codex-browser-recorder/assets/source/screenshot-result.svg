@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Browser Recorder private result</title>
+  <desc id="desc">A sanitized illustration of a successful validated local WebM result.</desc>
+  <rect width="1600" height="900" fill="#111827"/>
+
+  <g transform="translate(92 72)">
+    <rect width="68" height="68" rx="16" fill="#E5484D"/>
+    <rect x="11" y="14" width="46" height="40" rx="7" fill="none" stroke="#F9FAFB" stroke-width="4"/>
+    <path d="M13 25h42" stroke="#F9FAFB" stroke-width="4"/>
+    <circle cx="34" cy="39" r="9" fill="none" stroke="#F9FAFB" stroke-width="4"/>
+    <circle cx="34" cy="39" r="4" fill="#F9FAFB"/>
+  </g>
+  <text x="184" y="117" fill="#F9FAFB" font-family="Arial, Helvetica, sans-serif" font-size="31" font-weight="700">Browser Recorder</text>
+  <rect x="1265" y="78" width="243" height="56" rx="28" fill="#F9FAFB" fill-opacity="0.08" stroke="#F9FAFB" stroke-opacity="0.22" stroke-width="2"/>
+  <circle cx="1302" cy="106" r="8" fill="#E5484D"/>
+  <text x="1323" y="115" fill="#F9FAFB" font-family="Arial, Helvetica, sans-serif" font-size="21">Local only</text>
+
+  <g transform="translate(92 205)">
+    <rect width="1416" height="590" rx="36" fill="#F9FAFB"/>
+    <circle cx="112" cy="112" r="57" fill="#E5484D"/>
+    <path d="m83 111 21 22 40-48" fill="none" stroke="#F9FAFB" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="204" y="100" fill="#111827" font-family="Arial, Helvetica, sans-serif" font-size="51" font-weight="700" letter-spacing="-1">Recording complete</text>
+    <text x="206" y="143" fill="#111827" fill-opacity="0.64" font-family="Arial, Helvetica, sans-serif" font-size="23">Validated before the private local artifact was reported.</text>
+
+    <rect x="64" y="210" width="1288" height="116" rx="22" fill="#111827"/>
+    <path d="M100 238h45l22 22v42h-67z" fill="none" stroke="#F9FAFB" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M145 238v22h22" fill="none" stroke="#F9FAFB" stroke-width="4"/>
+    <text x="198" y="267" fill="#F9FAFB" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700">recording.webm</text>
+    <text x="198" y="298" fill="#F9FAFB" fill-opacity="0.62" font-family="Arial, Helvetica, sans-serif" font-size="19">Validated · VP8 · No audio</text>
+    <rect x="1129" y="241" width="180" height="54" rx="27" fill="#E5484D"/>
+    <text x="1219" y="276" text-anchor="middle" fill="#F9FAFB" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700">Private output</text>
+
+    <g transform="translate(64 372)">
+      <rect width="397" height="140" rx="22" fill="#E5484D" fill-opacity="0.08"/>
+      <text x="28" y="47" fill="#111827" fill-opacity="0.58" font-family="Arial, Helvetica, sans-serif" font-size="19">DURATION</text>
+      <text x="28" y="104" fill="#111827" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="700">15 s</text>
+    </g>
+    <g transform="translate(509 372)">
+      <rect width="397" height="140" rx="22" fill="#111827" fill-opacity="0.05"/>
+      <text x="28" y="47" fill="#111827" fill-opacity="0.58" font-family="Arial, Helvetica, sans-serif" font-size="19">MEDIA</text>
+      <text x="28" y="104" fill="#111827" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="700">VP8 WebM</text>
+    </g>
+    <g transform="translate(954 372)">
+      <rect width="398" height="140" rx="22" fill="#111827" fill-opacity="0.05"/>
+      <text x="28" y="47" fill="#111827" fill-opacity="0.58" font-family="Arial, Helvetica, sans-serif" font-size="19">SCOPE</text>
+      <text x="28" y="104" fill="#111827" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="700">1 origin</text>
+    </g>
+  </g>
+
+  <text x="800" y="850" text-anchor="middle" fill="#F9FAFB" fill-opacity="0.66" font-family="Arial, Helvetica, sans-serif" font-size="21">Protect the artifact. Delete it when it is no longer needed.</text>
+</svg>

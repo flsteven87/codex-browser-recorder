@@ -26,8 +26,20 @@
       "Local Browser test-flow recording"
     ],
     "websiteURL": "https://github.com/flsteven87/codex-browser-recorder",
+    "privacyPolicyURL": "https://github.com/flsteven87/codex-browser-recorder/blob/main/PRIVACY.md",
+    "termsOfServiceURL": "https://github.com/flsteven87/codex-browser-recorder/blob/main/TERMS.md",
     "defaultPrompt": [
-      "Use $record-browser to record an approved Browser test flow."
+      "Use $record-browser to record one approved non-sensitive flow on a public HTTPS test page.",
+      "Use $record-browser to record one approved same-origin navigation flow to a private local WebM.",
+      "Use $record-browser to record one approved loopback development flow to a private local WebM."
+    ],
+    "brandColor": "#E5484D",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/logo.png",
+    "logoDark": "./assets/logo-dark.png",
+    "screenshots": [
+      "./assets/screenshot-workflow.png",
+      "./assets/screenshot-result.png"
     ]
   }
 }

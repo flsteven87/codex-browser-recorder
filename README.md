@@ -13,11 +13,10 @@ profile, and it does not add an upload or sharing path.
 ## Status
 
 This repository implements the public recording runtime and its automated
-acceptance gate. It remains pre-release software: the canonical `v0.1.0` tag,
-public listing materials, submission evals, and final installed-desktop release
-gate belong to a separate release-readiness plan. Do not treat the current
-cachebuster manifest version or mutable `main` branch as a general
-production-ready release.
+acceptance gate, plus the public listing and community baseline for release
+review. It remains pre-release software: the canonical `v0.1.0` tag and final
+installed-desktop release gate do not exist yet. Do not treat the current
+cachebuster manifest version or mutable `main` branch as a supported release.
 
 Authenticated or sensitive flows remain out of scope. Use the plugin only for
 non-sensitive test pages and actions that every affected person has agreed may
@@ -232,6 +231,12 @@ Record only non-sensitive test flows with the informed consent of everyone
 whose data may appear. See [SECURITY.md](SECURITY.md) and report security issues
 through [GitHub private vulnerability reporting](https://github.com/flsteven87/codex-browser-recorder/security/advisories/new),
 not a public issue.
+
+For use conditions, support boundaries, and project participation, see
+[TERMS.md](TERMS.md), [SUPPORT.md](SUPPORT.md),
+[CONTRIBUTING.md](CONTRIBUTING.md), and
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Release-facing changes are tracked in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Record & Replay
 
