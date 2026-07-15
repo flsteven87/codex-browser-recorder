@@ -10,6 +10,7 @@ import { resolveExecutable } from "./test-tools.mjs";
 
 const directory = mkdtempSync(join(tmpdir(), "browser-recorder-validator-"));
 const validPath = join(directory, "valid.webm");
+const multipleVideoPath = join(directory, "multiple-video.webm");
 const emptyPath = join(directory, "empty.webm");
 const corruptPath = join(directory, "corrupt.webm");
 const ffmpegPath = resolveExecutable("ffmpeg");
@@ -30,6 +31,31 @@ execFileSync(ffmpegPath, [
   "yuv420p",
   "-y",
   validPath,
+]);
+execFileSync(ffmpegPath, [
+  "-hide_banner",
+  "-loglevel",
+  "error",
+  "-f",
+  "lavfi",
+  "-i",
+  "color=c=blue:s=320x180:d=0.5",
+  "-f",
+  "lavfi",
+  "-i",
+  "color=c=red:s=160x90:d=0.5",
+  "-map",
+  "0:v:0",
+  "-map",
+  "1:v:0",
+  "-an",
+  "-c:v",
+  "libvpx",
+  "-pix_fmt",
+  "yuv420p",
+  "-shortest",
+  "-y",
+  multipleVideoPath,
 ]);
 writeFileSync(emptyPath, "");
 writeFileSync(corruptPath, "not a video");
@@ -86,5 +112,12 @@ test("rejects a duration inconsistent with the recording session", async () => {
       outputPath: validPath,
     }),
     (error) => error.code === "duration_mismatch",
+  );
+});
+
+test("rejects an output containing multiple video streams", async () => {
+  await assert.rejects(
+    validateVideo({ ...defaults, outputPath: multipleVideoPath }),
+    (error) => error.code === "video_stream_count_invalid",
   );
 });

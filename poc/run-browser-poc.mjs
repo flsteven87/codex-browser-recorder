@@ -1,12 +1,133 @@
+import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
+
 import {
   createFfmpegSink,
   startFramePump,
 } from "./screencast-recorder.mjs";
+import { validateVideo } from "./validate-video.mjs";
 
 const SCREENCAST_EVENT_METHODS = [
   "Page.screencastFrame",
   "Page.screencastVisibilityChanged",
 ];
+
+export async function prepareBrowserPoc({ temporaryRoot }) {
+  const directory = await mkdtemp(join(temporaryRoot, "codex-browser-recorder-"));
+  await chmod(directory, 0o700);
+
+  return {
+    directory,
+    outputPath: join(directory, "recording.webm"),
+    resultPath: join(directory, "result.json"),
+  };
+}
+
+const CAPTURE_RESULT_FIELDS = [
+  "backpressureDrops",
+  "elapsedMs",
+  "encoderExitCode",
+  "framesAcknowledged",
+  "framesDropped",
+  "framesReceived",
+  "invalidFrames",
+  "lastFrameTimestamp",
+  "outputSamples",
+  "truncations",
+  "visibilityChanges",
+  "visibilityState",
+];
+
+const VIDEO_VALIDATION_FAILURE_CODES = new Set([
+  "dimensions_out_of_bounds",
+  "duration_invalid",
+  "duration_mismatch",
+  "ffprobe_failed",
+  "output_missing",
+  "output_too_small",
+  "video_stream_count_invalid",
+  "video_stream_missing",
+]);
+
+const CAPTURE_FAILURE_CODES = new Set([
+  "encoder_failed",
+  "frame_stream_unavailable",
+]);
+
+function sanitizeCaptureResult(capture) {
+  return Object.fromEntries(
+    CAPTURE_RESULT_FIELDS.map((field) => [field, capture[field] ?? null]),
+  );
+}
+
+function captureFailureCode(error) {
+  if (error == null) {
+    return null;
+  }
+  return CAPTURE_FAILURE_CODES.has(error.code)
+    ? error.code
+    : "capture_failed";
+}
+
+export async function finalizeBrowserPoc({
+  captureError,
+  durationToleranceSeconds,
+  ffprobePath,
+  maxHeight,
+  maxWidth,
+  minBytes,
+  outputPath,
+  resultPath,
+  session,
+}) {
+  let failureCode = captureFailureCode(captureError);
+  let capture;
+  try {
+    capture = await session.stop();
+  } catch (error) {
+    capture = {
+      ...session.stats?.framePump,
+      ...session.stats?.sink,
+      elapsedMs: null,
+    };
+    failureCode ??= captureFailureCode(error);
+  }
+
+  let validation = null;
+  if (failureCode === null) {
+    try {
+      validation = await validateVideo({
+        durationToleranceSeconds,
+        expectedDurationSeconds: capture.elapsedMs / 1000,
+        ffprobePath,
+        maxHeight,
+        maxWidth,
+        minBytes,
+        outputPath,
+      });
+    } catch (error) {
+      if (!VIDEO_VALIDATION_FAILURE_CODES.has(error?.code)) {
+        throw error;
+      }
+      failureCode = error.code;
+    }
+  }
+  const result = {
+    capture: sanitizeCaptureResult(capture),
+    failureCode,
+    schemaVersion: 1,
+    status: failureCode === null ? "passed" : "failed",
+    validation,
+    videoFile: basename(outputPath),
+  };
+
+  await writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`, {
+    encoding: "utf8",
+    flag: "wx",
+    mode: 0o600,
+  });
+  return result;
+}
 
 class PocError extends Error {
   constructor(code, message) {

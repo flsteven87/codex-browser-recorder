@@ -58,15 +58,22 @@ export async function validateVideo({
     );
   }
 
-  const video = Array.isArray(probe.streams)
-    ? probe.streams.find((stream) => stream?.codec_type === "video")
-    : undefined;
-  if (video === undefined) {
+  const videoStreams = Array.isArray(probe.streams)
+    ? probe.streams.filter((stream) => stream?.codec_type === "video")
+    : [];
+  if (videoStreams.length === 0) {
     throw new VideoValidationError(
       "video_stream_missing",
       "Video output has no video stream",
     );
   }
+  if (videoStreams.length !== 1) {
+    throw new VideoValidationError(
+      "video_stream_count_invalid",
+      "Video output must contain exactly one video stream",
+    );
+  }
+  const [video] = videoStreams;
 
   const width = Number(video.width);
   const height = Number(video.height);
