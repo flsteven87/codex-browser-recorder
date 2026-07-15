@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { describeRecordingFailure } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-artifacts.mjs";
 import { createBrowserRecording } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/run-browser-recording.mjs";
 
 const captureFields = [
@@ -93,12 +94,12 @@ function createHarness({
   return {
     calls,
     dependencies: {
-      async cleanupPreparedBrowserPoc(preparedPaths) {
+      async cleanupRecordingArtifacts(preparedPaths) {
         calls.cleanup += 1;
         cleanupPaths = preparedPaths;
         if (cleanupError) throw cleanupError;
       },
-      async finalizeBrowserPoc(options) {
+      async finalizeRecordingArtifacts(options) {
         calls.finalize += 1;
         finalizedOptions = options;
         await options.session.stop();
@@ -110,12 +111,12 @@ function createHarness({
           finalResult ?? {
             failureCode: null,
             status: "passed",
-            videoFile: "recording.webm",
+            outputFile: "recording.webm",
           };
         finalized.resolve(result);
         return result;
       },
-      async prepareBrowserPoc() {
+      async prepareRecordingArtifacts() {
         calls.prepare += 1;
         return paths;
       },
@@ -162,7 +163,15 @@ test("cleans the prepared directory when session startup fails", async () => {
   await assert.rejects(createHandle(harness), (error) => {
     assert.notEqual(error, startupError);
     assert.equal(error.code, "cdp_unavailable");
-    assert.equal(error.message, "Recording startup failed");
+    assert.equal(
+      error.message,
+      describeRecordingFailure("cdp_unavailable").summary,
+    );
+    assert.equal(error.summary, error.message);
+    assert.equal(
+      error.remediation,
+      describeRecordingFailure("cdp_unavailable").remediation,
+    );
     assert.equal("cause" in error, false);
     assert.equal("diagnostic" in error, false);
     assert.doesNotMatch(
@@ -192,7 +201,10 @@ test("preserves the startup error when directory cleanup also fails", async () =
   await assert.rejects(createHandle(harness), (error) => {
     assert.notEqual(error, startupError);
     assert.equal(error.code, "cdp_unavailable");
-    assert.equal(error.message, "Recording startup failed");
+    assert.equal(
+      error.message,
+      describeRecordingFailure("cdp_unavailable").summary,
+    );
     assert.doesNotMatch(
       `${error.message}\n${JSON.stringify(error)}`,
       /private primary startup secret|private cleanup diagnostic/,
@@ -246,7 +258,7 @@ test("stop memoizes one finalization promise and completes once", async () => {
     result: {
       failureCode: null,
       status: "passed",
-      videoFile: "recording.webm",
+      outputFile: "recording.webm",
     },
   });
   assert.equal(handle.status().state, "completed");
@@ -262,7 +274,7 @@ test("readiness failure is retained as the primary cleanup error", async () => {
     finalResult: {
       failureCode: readinessError.code,
       status: "failed",
-      videoFile: "recording.webm",
+      outputFile: "recording.webm",
     },
     ready: Promise.reject(readinessError),
   });
@@ -283,7 +295,7 @@ test("an automatic capture failure finalizes without an explicit stop", async ()
     finalResult: {
       failureCode: "frame_stream_stalled",
       status: "failed",
-      videoFile: "recording.webm",
+      outputFile: "recording.webm",
     },
   });
   const handle = await createHandle(harness);
@@ -411,7 +423,10 @@ test("sanitizes every pre-handle Browser and CDP startup failure after rollback"
         }),
         (error) => {
           assert.equal(error.code, variant.code);
-          assert.equal(error.message, "Recording startup failed");
+          assert.equal(
+            error.message,
+            describeRecordingFailure(variant.code).summary,
+          );
           assert.equal("cause" in error, false);
           assert.equal("diagnostic" in error, false);
           assert.doesNotMatch(

@@ -1,7 +1,13 @@
-import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
+import {
+  cleanupRecordingArtifacts,
+  finalizeRecordingArtifacts,
+  prepareRecordingArtifacts,
+  sanitizeCaptureResult,
+  sanitizeRecordingFailure,
+} from "./recording-artifacts.mjs";
 import {
   createFfmpegSink,
   startFramePump,
@@ -16,164 +22,12 @@ import {
   RECORDING_MAX_OUTPUT_BYTES,
   RECORDING_MAX_WIDTH,
 } from "./recording-policy.mjs";
-import { validateVideo } from "./validate-video.mjs";
 
 const SCREENCAST_EVENT_METHODS = [
   "Page.frameNavigated",
   "Page.screencastFrame",
   "Page.screencastVisibilityChanged",
 ];
-
-export async function prepareBrowserPoc({ temporaryRoot }) {
-  const directory = await mkdtemp(join(temporaryRoot, "codex-browser-recorder-"));
-  await chmod(directory, 0o700);
-
-  return {
-    directory,
-    outputPath: join(directory, "recording.webm"),
-    resultPath: join(directory, "result.json"),
-  };
-}
-
-export async function cleanupPreparedBrowserPoc(paths) {
-  if (
-    typeof paths?.directory !== "string" ||
-    paths.directory.length === 0
-  ) {
-    throw new PocError(
-      "invalid_configuration",
-      "Prepared recording paths are invalid",
-    );
-  }
-  await rm(paths.directory, { force: true, recursive: true });
-}
-
-const CAPTURE_RESULT_FIELDS = [
-  "backpressureDrops",
-  "elapsedMs",
-  "encoderExitCode",
-  "framesAcknowledged",
-  "framesDropped",
-  "framesReceived",
-  "invalidFrames",
-  "lastFrameTimestamp",
-  "maxObservedOutputBytes",
-  "outputSamples",
-  "terminationReason",
-  "truncations",
-  "visibilityChanges",
-  "visibilityState",
-];
-
-const VIDEO_VALIDATION_FAILURE_CODES = new Set([
-  "audio_stream_present",
-  "codec_invalid",
-  "container_invalid",
-  "dimensions_out_of_bounds",
-  "duration_invalid",
-  "duration_mismatch",
-  "ffprobe_failed",
-  "invalid_configuration",
-  "output_missing",
-  "output_too_small",
-  "video_stream_count_invalid",
-  "video_stream_missing",
-]);
-
-const CAPTURE_FAILURE_CODES = new Set([
-  "cdp_unavailable",
-  "encoder_failed",
-  "encoder_finalize_failed",
-  "encoder_shutdown_timeout",
-  "event_stream_invalid",
-  "frame_stream_stalled",
-  "frame_stream_unavailable",
-  "integration_failed",
-  "invalid_configuration",
-  "origin_not_allowed",
-  "origin_changed_during_recording",
-  "origin_verification_failed",
-  "output_monitor_failed",
-  "recording_cancelled",
-  "recording_duration_limit",
-  "recording_output_limit",
-]);
-
-function sanitizeCaptureResult(capture) {
-  return Object.fromEntries(
-    CAPTURE_RESULT_FIELDS.map((field) => [field, capture[field] ?? null]),
-  );
-}
-
-function captureFailureCode(error) {
-  if (error == null) {
-    return null;
-  }
-  return CAPTURE_FAILURE_CODES.has(error.code)
-    ? error.code
-    : "capture_failed";
-}
-
-export async function finalizeBrowserPoc({
-  captureError,
-  durationToleranceSeconds,
-  ffprobePath,
-  maxHeight,
-  maxWidth,
-  minBytes,
-  outputPath,
-  resultPath,
-  session,
-}) {
-  let failureCode = captureFailureCode(captureError);
-  let capture;
-  try {
-    capture = await session.stop();
-  } catch (error) {
-    capture = {
-      ...session.stats?.framePump,
-      ...session.stats?.resources,
-      ...session.stats?.sink,
-      elapsedMs: session.stats?.resources?.elapsedMs ?? null,
-    };
-    failureCode ??= captureFailureCode(error);
-  }
-
-  let validation = null;
-  if (failureCode === null) {
-    try {
-      validation = await validateVideo({
-        durationToleranceSeconds,
-        expectedDurationSeconds: capture.elapsedMs / 1000,
-        ffprobePath,
-        maxHeight,
-        maxWidth,
-        minBytes,
-        outputPath,
-      });
-    } catch (error) {
-      if (!VIDEO_VALIDATION_FAILURE_CODES.has(error?.code)) {
-        throw error;
-      }
-      failureCode = error.code;
-    }
-  }
-  const result = {
-    capture: sanitizeCaptureResult(capture),
-    failureCode,
-    schemaVersion: 2,
-    status: failureCode === null ? "passed" : "failed",
-    validation,
-    videoFile: basename(outputPath),
-  };
-
-  await writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`, {
-    encoding: "utf8",
-    flag: "wx",
-    mode: 0o600,
-  });
-  return result;
-}
 
 class PocError extends Error {
   constructor(code, message) {
@@ -184,10 +38,9 @@ class PocError extends Error {
 }
 
 function sanitizeStartupError(error) {
-  const code = CAPTURE_FAILURE_CODES.has(error?.code)
-    ? error.code
-    : "integration_failed";
-  return new PocError(code, "Recording startup failed");
+  return sanitizeRecordingFailure({
+    code: typeof error?.code === "string" ? error.code : "integration_failed",
+  });
 }
 
 function waitForFirstFrame(ready, timeoutMs) {
@@ -655,9 +508,9 @@ export async function startBrowserPocForTab({
 
 export async function createBrowserRecording({
   _dependencies = {
-    cleanupPreparedBrowserPoc,
-    finalizeBrowserPoc,
-    prepareBrowserPoc,
+    cleanupRecordingArtifacts,
+    finalizeRecordingArtifacts,
+    prepareRecordingArtifacts,
     startBrowserPocForTab,
   },
   _onTerminal,
@@ -680,7 +533,9 @@ export async function createBrowserRecording({
   tab,
   temporaryRoot = tmpdir(),
 }) {
-  const paths = await _dependencies.prepareBrowserPoc({ temporaryRoot });
+  const paths = await _dependencies.prepareRecordingArtifacts({
+    temporaryRoot,
+  });
   let session;
   try {
     session = await _dependencies.startBrowserPocForTab({
@@ -700,7 +555,7 @@ export async function createBrowserRecording({
     });
   } catch (error) {
     try {
-      await _dependencies.cleanupPreparedBrowserPoc(paths);
+      await _dependencies.cleanupRecordingArtifacts(paths);
     } catch {
       // Preserve the bounded startup failure as the primary error.
     }
@@ -761,7 +616,7 @@ export async function createBrowserRecording({
     if (state !== "failed") state = "stopping";
 
     finalizationPromise = _dependencies
-      .finalizeBrowserPoc({
+      .finalizeRecordingArtifacts({
         captureError: readinessError,
         durationToleranceSeconds,
         ffprobePath,
@@ -864,7 +719,7 @@ export async function runBrowserPocGate({
     );
   }
 
-  const paths = await prepareBrowserPoc({ temporaryRoot });
+  const paths = await prepareRecordingArtifacts({ temporaryRoot });
   let captureError = null;
   let session;
   try {
@@ -896,7 +751,7 @@ export async function runBrowserPocGate({
     session ??= emptyCaptureSession();
   }
 
-  const result = await finalizeBrowserPoc({
+  const result = await finalizeRecordingArtifacts({
     captureError,
     durationToleranceSeconds,
     ffprobePath,
