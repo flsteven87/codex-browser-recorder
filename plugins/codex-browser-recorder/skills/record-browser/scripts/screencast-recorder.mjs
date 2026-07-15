@@ -55,6 +55,7 @@ export function parseScreencastFrame(event, maxDecodedBytes) {
 }
 
 const SCREENCAST_EVENT_METHODS = [
+  "Page.frameNavigated",
   "Page.screencastFrame",
   "Page.screencastVisibilityChanged",
 ];
@@ -62,8 +63,10 @@ const SCREENCAST_EVENT_METHODS = [
 function validateFramePumpConfiguration({
   cdp,
   initialCursor,
+  mainFrameId,
   maxDecodedBytes,
   onFrame,
+  onTopFrameNavigation,
   readTimeoutMs,
 }) {
   if (
@@ -71,9 +74,12 @@ function validateFramePumpConfiguration({
     typeof cdp?.send !== "function" ||
     (initialCursor !== undefined &&
       (!Number.isInteger(initialCursor) || initialCursor < 0)) ||
+    typeof mainFrameId !== "string" ||
+    mainFrameId.length === 0 ||
     !Number.isInteger(maxDecodedBytes) ||
     maxDecodedBytes <= 0 ||
     typeof onFrame !== "function" ||
+    typeof onTopFrameNavigation !== "function" ||
     !Number.isInteger(readTimeoutMs) ||
     readTimeoutMs < 0
   ) {
@@ -103,15 +109,19 @@ function validateEventBatch(batch, currentCursor) {
 export function startFramePump({
   cdp,
   initialCursor,
+  mainFrameId,
   onFrame,
+  onTopFrameNavigation,
   maxDecodedBytes,
   readTimeoutMs,
 }) {
   validateFramePumpConfiguration({
     cdp,
     initialCursor,
+    mainFrameId,
     maxDecodedBytes,
     onFrame,
+    onTopFrameNavigation,
     readTimeoutMs,
   });
 
@@ -138,8 +148,22 @@ export function startFramePump({
     resolveReady = resolve;
     rejectReady = reject;
   });
+  void ready.catch(() => {
+    // Consumers may choose completion when readiness is no longer relevant.
+  });
 
   async function handleEvent(event) {
+    if (event?.method === "Page.frameNavigated") {
+      const frame = event.params?.frame;
+      if (
+        frame?.id === mainFrameId &&
+        !Object.hasOwn(frame, "parentId") &&
+        typeof frame.url === "string"
+      ) {
+        await onTopFrameNavigation(frame.url);
+      }
+      return;
+    }
     if (event?.method === "Page.screencastVisibilityChanged") {
       const visible = event.params?.visible;
       if (typeof visible === "boolean" && visible !== stats.visibilityState) {
@@ -211,7 +235,10 @@ export function startFramePump({
     }
   });
 
+  const completion = loop.then(() => ({ error: loopError }));
+
   return {
+    completion,
     ready,
     stats,
     async stop() {

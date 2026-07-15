@@ -143,6 +143,7 @@ function createHarness({
 async function createHandle(harness) {
   return createBrowserRecording({
     _dependencies: harness.dependencies,
+    approvedOrigin: "https://example.com",
     ffmpegPath: "/usr/local/bin/ffmpeg",
     ffprobePath: "/usr/local/bin/ffprobe",
     tab: { secretTabState: "must-not-leak" },
@@ -373,6 +374,16 @@ test("sanitizes every pre-handle Browser and CDP startup failure after rollback"
                 },
                 async send(method) {
                   methods.push(method);
+                  if (method === "Page.getFrameTree") {
+                    return {
+                      frameTree: {
+                        frame: {
+                          id: "main-frame",
+                          url: "https://example.com/start",
+                        },
+                      },
+                    };
+                  }
                   if (method === "Page.startScreencast") {
                     throw new Error(secret);
                   }
@@ -392,6 +403,7 @@ test("sanitizes every pre-handle Browser and CDP startup failure after rollback"
     try {
       await assert.rejects(
         createBrowserRecording({
+          approvedOrigin: "https://example.com",
           ffmpegPath: "unused",
           ffprobePath: "unused",
           tab: variant.tab(secret, methods),
@@ -414,6 +426,7 @@ test("sanitizes every pre-handle Browser and CDP startup failure after rollback"
       if (variant.name === "Page.startScreencast") {
         assert.deepEqual(methods, [
           "Page.enable",
+          "Page.getFrameTree",
           "Page.startScreencast",
           "Page.stopScreencast",
         ]);
