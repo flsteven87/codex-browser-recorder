@@ -1,0 +1,4 @@
+coverage/
+*.partial
+*.webm
+result.json

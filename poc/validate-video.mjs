@@ -12,6 +12,36 @@ class VideoValidationError extends Error {
   }
 }
 
+function validateConfiguration({
+  durationToleranceSeconds,
+  expectedDurationSeconds,
+  ffprobePath,
+  maxHeight,
+  maxWidth,
+  minBytes,
+  outputPath,
+}) {
+  const positiveIntegers = [maxHeight, maxWidth, minBytes];
+  if (
+    typeof ffprobePath !== "string" ||
+    ffprobePath.length === 0 ||
+    typeof outputPath !== "string" ||
+    outputPath.length === 0 ||
+    !Number.isFinite(durationToleranceSeconds) ||
+    durationToleranceSeconds < 0 ||
+    !Number.isFinite(expectedDurationSeconds) ||
+    expectedDurationSeconds <= 0 ||
+    positiveIntegers.some(
+      (value) => !Number.isInteger(value) || value <= 0,
+    )
+  ) {
+    throw new VideoValidationError(
+      "invalid_configuration",
+      "Video validation configuration is invalid",
+    );
+  }
+}
+
 export async function validateVideo({
   durationToleranceSeconds,
   expectedDurationSeconds,
@@ -21,6 +51,16 @@ export async function validateVideo({
   minBytes,
   outputPath,
 }) {
+  validateConfiguration({
+    durationToleranceSeconds,
+    expectedDurationSeconds,
+    ffprobePath,
+    maxHeight,
+    maxWidth,
+    minBytes,
+    outputPath,
+  });
+
   let file;
   try {
     file = await stat(outputPath);

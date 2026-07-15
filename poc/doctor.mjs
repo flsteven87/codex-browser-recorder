@@ -1,13 +1,19 @@
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 
 async function findExecutable(name, pathValue) {
+  if (typeof pathValue !== "string") {
+    return null;
+  }
   for (const directory of pathValue.split(delimiter).filter(Boolean)) {
     const candidate = join(directory, name);
     try {
-      await access(candidate, constants.X_OK);
-      return candidate;
+      const candidateStat = await stat(candidate);
+      if (candidateStat.isFile()) {
+        await access(candidate, constants.X_OK);
+        return candidate;
+      }
     } catch {
       // Continue through the configured search path.
     }
@@ -28,6 +34,10 @@ export async function doctor({
 
   let outputDirectoryWritable = true;
   try {
+    const outputStat = await stat(outputDirectory);
+    if (!outputStat.isDirectory()) {
+      throw new Error("Output path is not a directory");
+    }
     await access(outputDirectory, constants.W_OK);
   } catch {
     outputDirectoryWritable = false;

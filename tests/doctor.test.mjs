@@ -61,3 +61,34 @@ test("returns every deterministic blocking reason without changing the system", 
     "output_directory_not_writable",
   ]);
 });
+
+test("does not treat executable directories as ffmpeg binaries", async () => {
+  const directoryBin = join(directory, "directory-bin");
+  mkdirSync(directoryBin);
+  mkdirSync(join(directoryBin, "ffmpeg"), { mode: 0o755 });
+  mkdirSync(join(directoryBin, "ffprobe"), { mode: 0o755 });
+
+  const result = await doctor({
+    cdpAvailable: true,
+    outputDirectory,
+    pathValue: directoryBin,
+    platform: "darwin",
+  });
+
+  assert.equal(result.ffmpegPath, null);
+  assert.equal(result.ffprobePath, null);
+  assert.deepEqual(result.blockingReasons, ["ffmpeg_missing", "ffprobe_missing"]);
+});
+
+test("treats an unavailable PATH value as missing executables", async () => {
+  const result = await doctor({
+    cdpAvailable: true,
+    outputDirectory,
+    pathValue: undefined,
+    platform: "darwin",
+  });
+
+  assert.equal(result.ffmpegPath, null);
+  assert.equal(result.ffprobePath, null);
+  assert.deepEqual(result.blockingReasons, ["ffmpeg_missing", "ffprobe_missing"]);
+});

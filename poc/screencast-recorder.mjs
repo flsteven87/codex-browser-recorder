@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { rename, rm, stat } from "node:fs/promises";
 
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u;
 
@@ -22,6 +23,12 @@ export function estimateDecodedBytes(base64) {
 export function parseScreencastFrame(event, maxDecodedBytes) {
   if (event?.method !== "Page.screencastFrame") {
     return null;
+  }
+  if (!Number.isInteger(maxDecodedBytes) || maxDecodedBytes <= 0) {
+    throw new RecorderError(
+      "invalid_configuration",
+      "Decoded frame size limit is invalid",
+    );
   }
 
   const { data, metadata, sessionId } = event.params ?? {};
@@ -52,6 +59,47 @@ const SCREENCAST_EVENT_METHODS = [
   "Page.screencastVisibilityChanged",
 ];
 
+function validateFramePumpConfiguration({
+  cdp,
+  initialCursor,
+  maxDecodedBytes,
+  onFrame,
+  readTimeoutMs,
+}) {
+  if (
+    typeof cdp?.readEvents !== "function" ||
+    typeof cdp?.send !== "function" ||
+    (initialCursor !== undefined &&
+      (!Number.isInteger(initialCursor) || initialCursor < 0)) ||
+    !Number.isInteger(maxDecodedBytes) ||
+    maxDecodedBytes <= 0 ||
+    typeof onFrame !== "function" ||
+    !Number.isInteger(readTimeoutMs) ||
+    readTimeoutMs < 0
+  ) {
+    throw new RecorderError(
+      "invalid_configuration",
+      "Frame pump configuration is invalid",
+    );
+  }
+}
+
+function validateEventBatch(batch, currentCursor) {
+  if (
+    batch === null ||
+    typeof batch !== "object" ||
+    !Number.isInteger(batch.cursor) ||
+    batch.cursor < 0 ||
+    (currentCursor !== undefined && batch.cursor < currentCursor) ||
+    !Array.isArray(batch.events)
+  ) {
+    throw new RecorderError(
+      "event_stream_invalid",
+      "CDP event stream returned an invalid batch",
+    );
+  }
+}
+
 export function startFramePump({
   cdp,
   initialCursor,
@@ -59,6 +107,14 @@ export function startFramePump({
   maxDecodedBytes,
   readTimeoutMs,
 }) {
+  validateFramePumpConfiguration({
+    cdp,
+    initialCursor,
+    maxDecodedBytes,
+    onFrame,
+    readTimeoutMs,
+  });
+
   let stopped = false;
   let cursor = initialCursor;
   let loopError = null;
@@ -135,6 +191,8 @@ export function startFramePump({
         timeoutMs: readTimeoutMs,
       });
 
+      validateEventBatch(batch, cursor);
+
       if (batch.truncated) {
         stats.truncations += 1;
       }
@@ -167,7 +225,33 @@ export function startFramePump({
   };
 }
 
-export function createFfmpegSink({ ffmpegPath, fps, outputPath }) {
+export function createFfmpegSink({
+  ffmpegPath,
+  fps,
+  maxOutputBytes = 500 * 1024 * 1024,
+  outputPath,
+  shutdownTimeoutMs = 5000,
+}) {
+  if (
+    typeof ffmpegPath !== "string" ||
+    ffmpegPath.length === 0 ||
+    !Number.isFinite(fps) ||
+    fps <= 0 ||
+    !Number.isSafeInteger(maxOutputBytes) ||
+    maxOutputBytes <= 0 ||
+    typeof outputPath !== "string" ||
+    outputPath.length === 0 ||
+    !Number.isInteger(shutdownTimeoutMs) ||
+    shutdownTimeoutMs <= 0
+  ) {
+    throw new RecorderError(
+      "invalid_configuration",
+      "FFmpeg sink configuration is invalid",
+    );
+  }
+
+  const workingOutputPath = `${outputPath}.partial`;
+
   const child = spawn(
     ffmpegPath,
     [
@@ -191,8 +275,10 @@ export function createFfmpegSink({ ffmpegPath, fps, outputPath }) {
       "5",
       "-pix_fmt",
       "yuv420p",
+      "-f",
+      "webm",
       "-y",
-      outputPath,
+      workingOutputPath,
     ],
     { stdio: ["pipe", "ignore", "pipe"] },
   );
@@ -202,9 +288,13 @@ export function createFfmpegSink({ ffmpegPath, fps, outputPath }) {
   let stopped = false;
   let stderrTail = "";
   let stdinError = null;
+  let processExited = false;
+  let stopPromise = null;
+  let timer = null;
   const stats = {
     backpressureDrops: 0,
     encoderExitCode: null,
+    outputBytes: 0,
     outputSamples: 0,
   };
 
@@ -213,9 +303,22 @@ export function createFfmpegSink({ ffmpegPath, fps, outputPath }) {
     stderrTail = `${stderrTail}${chunk}`.slice(-4096);
   });
 
-  const exited = new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", (code, signal) => resolve({ code, signal }));
+  const exited = new Promise((resolve) => {
+    let settled = false;
+    const settle = (result) => {
+      if (!settled) {
+        settled = true;
+        processExited = true;
+        if (timer !== null) {
+          clearInterval(timer);
+        }
+        resolve(result);
+      }
+    };
+    child.once("error", (error) => settle({ code: null, error, signal: null }));
+    child.once("close", (code, signal) =>
+      settle({ code, error: null, signal }),
+    );
   });
 
   child.stdin.on("drain", () => {
@@ -225,8 +328,8 @@ export function createFfmpegSink({ ffmpegPath, fps, outputPath }) {
     stdinError = error;
   });
 
-  const timer = setInterval(() => {
-    if (stopped || latestFrame === null) {
+  timer = setInterval(() => {
+    if (stopped || processExited || latestFrame === null) {
       return;
     }
 
@@ -249,27 +352,103 @@ export function createFfmpegSink({ ffmpegPath, fps, outputPath }) {
       latestFrame = Buffer.from(jpeg);
       return true;
     },
+    completion: exited,
     stats,
-    async stop() {
-      if (!stopped) {
-        stopped = true;
-        clearInterval(timer);
-        child.stdin.end();
-      }
-
-      const { code, signal } = await exited;
-      stats.encoderExitCode = code;
-      if (code !== 0 || stdinError !== null) {
-        const error = new RecorderError(
-          "encoder_failed",
-          code !== 0
-            ? `FFmpeg exited unsuccessfully (${signal ?? code})`
-            : "FFmpeg input stream failed",
+    workingOutputPath,
+    stop({ discard = false } = {}) {
+      if (typeof discard !== "boolean") {
+        return Promise.reject(
+          new RecorderError(
+            "invalid_configuration",
+            "FFmpeg stop configuration is invalid",
+          ),
         );
-        error.diagnostic = stderrTail;
-        throw error;
       }
-      return stats;
+      stopPromise ??= (async () => {
+        if (!stopped) {
+          stopped = true;
+          clearInterval(timer);
+          child.stdin.end();
+        }
+
+        let timeout;
+        const timedResult = await Promise.race([
+          exited,
+          new Promise((resolve) => {
+            timeout = setTimeout(
+              () => resolve({ shutdownTimedOut: true }),
+              shutdownTimeoutMs,
+            );
+          }),
+        ]);
+        clearTimeout(timeout);
+
+        if (timedResult.shutdownTimedOut) {
+          child.kill("SIGKILL");
+          let killTimer;
+          await Promise.race([
+            exited,
+            new Promise((resolve) => {
+              killTimer = setTimeout(resolve, shutdownTimeoutMs);
+            }),
+          ]);
+          clearTimeout(killTimer);
+          await rm(workingOutputPath, { force: true });
+          throw new RecorderError(
+            "encoder_shutdown_timeout",
+            "FFmpeg did not stop within the configured timeout",
+          );
+        }
+
+        const { code, error: processError, signal } = timedResult;
+        stats.encoderExitCode = code;
+        if (processError !== null || code !== 0 || stdinError !== null) {
+          await rm(workingOutputPath, { force: true });
+          const error = new RecorderError(
+            "encoder_failed",
+            processError !== null
+              ? "FFmpeg could not be started"
+              : code !== 0
+                ? `FFmpeg exited unsuccessfully (${signal ?? code})`
+                : "FFmpeg input stream failed",
+          );
+          error.diagnostic = stderrTail;
+          throw error;
+        }
+
+        try {
+          stats.outputBytes = (await stat(workingOutputPath)).size;
+        } catch {
+          await rm(workingOutputPath, { force: true });
+          throw new RecorderError(
+            "encoder_finalize_failed",
+            "Encoded output could not be inspected before finalization",
+          );
+        }
+        if (stats.outputBytes > maxOutputBytes) {
+          await rm(workingOutputPath, { force: true });
+          throw new RecorderError(
+            "recording_output_limit",
+            "Encoded output exceeds the configured size limit",
+          );
+        }
+
+        if (discard) {
+          await rm(workingOutputPath, { force: true });
+        } else {
+          try {
+            await rename(workingOutputPath, outputPath);
+          } catch {
+            await rm(workingOutputPath, { force: true });
+            throw new RecorderError(
+              "encoder_finalize_failed",
+              "Encoded output could not be finalized atomically",
+            );
+          }
+        }
+        return stats;
+      })();
+      return stopPromise;
     },
   };
 }

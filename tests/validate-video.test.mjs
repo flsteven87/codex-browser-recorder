@@ -121,3 +121,25 @@ test("rejects an output containing multiple video streams", async () => {
     (error) => error.code === "video_stream_count_invalid",
   );
 });
+
+test("rejects non-finite validation configuration", async () => {
+  await assert.rejects(
+    validateVideo({
+      ...defaults,
+      expectedDurationSeconds: Number.NaN,
+      outputPath: validPath,
+    }),
+    (error) => error.code === "invalid_configuration",
+  );
+});
+
+test("rejects invalid configured bounds before probing the output", async () => {
+  await assert.rejects(
+    validateVideo({
+      ...defaults,
+      maxWidth: 0,
+      outputPath: join(directory, "does-not-exist.webm"),
+    }),
+    (error) => error.code === "invalid_configuration",
+  );
+});

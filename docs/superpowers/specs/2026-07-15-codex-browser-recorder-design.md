@@ -8,6 +8,7 @@
 - Initial license: MIT
 - Initial platform: macOS Codex desktop app
 - Design date: 2026-07-15
+- Phase 0 decision: **Go**
 
 ## Objective
 
@@ -42,7 +43,7 @@ The initial release succeeds when it can:
 
 ## Feasibility Gate
 
-The primary design depends on Chrome DevTools Protocol screencast support exposed through Codex Browser Developer mode. This is promising but not yet proven in the hidden in-app Browser state.
+The primary design depends on Chrome DevTools Protocol screencast support exposed through Codex Browser Developer mode. Phase 0 proved that the tested in-app Browser environment continues delivering fresh screencast frames while its Browser surface is hidden for two minutes.
 
 Implementation must begin with a bounded proof of concept. The project is a **Go** only if all five gates pass:
 
@@ -55,6 +56,8 @@ Implementation must begin with a bounded proof of concept. The project is a **Go
 | Finalization | Stop, encode, and inspect the output | The file is playable and its reported duration is plausible |
 
 If hidden capture fails, the exact-session headless design is a **No-Go**. The project must not disguise a separate Playwright browser as the in-app Browser. A Playwright fallback requires a separate design review.
+
+The 2026-07-15 feasibility run passed all five gates. The implementation remains a hardened proof of concept until the Phase 1 state machine, consent workflow, sensitive-flow refusal, crash recovery, and plugin packaging are implemented.
 
 ## Architecture
 
@@ -141,6 +144,7 @@ The controller operates on exactly one selected in-app Browser tab. Its responsi
 - Preserve CDP timestamps and visibility events in a local diagnostic trace.
 - Stop screencasting in a `finally` path.
 - Expose health information such as last-frame time, frame count, dropped frames, and visibility state.
+- Reacquire the tab's CDP capability for each new recording session after navigation; a retained pre-navigation binding can silently stop delivering events.
 
 CDP event payloads are untrusted input. The controller validates event shape and bounds base64 payload size before decoding.
 
@@ -154,7 +158,7 @@ The encoder must:
 - Use timestamps to preserve real elapsed time.
 - Repeat the most recent frame during idle intervals so the output duration remains correct.
 - Use a unique temporary directory and output name per recording ID.
-- Write to a temporary file and atomically rename only after successful finalization.
+- Write to a temporary file, validate its final size, and atomically rename only after successful finalization; failed and cancelled captures discard the partial file.
 - Terminate FFmpeg on cancellation and bounded shutdown timeout.
 
 The project does not redistribute an FFmpeg binary in version 0.1. The doctor detects a user-installed executable and gives a bounded setup message if it is unavailable.

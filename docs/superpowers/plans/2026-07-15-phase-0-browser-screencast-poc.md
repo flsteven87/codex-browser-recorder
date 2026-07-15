@@ -136,15 +136,15 @@ Expected: all tests pass; the smoke test produces a parseable short WebM under a
 
 Start the page domain and JPEG screencast, start the pump, and guarantee screencast shutdown in a finalization path.
 
-- [ ] **Step 2: Connect to a fresh in-app Browser tab**
+- [x] **Step 2: Connect to a fresh in-app Browser tab**
 
 Navigate to `https://example.com/`, obtain normal full-CDP approval, and inject a clearly visible clock and CSS animation using page-runtime evaluation. Close the tab after testing so the modification is not retained.
 
-- [ ] **Step 3: Record at least 15 visible seconds**
+- [x] **Step 3: Record at least 15 visible seconds**
 
 Pass condition: frames arrive continuously, all valid frame session IDs are acknowledged, the event buffer is not truncated, and FFmpeg exits successfully.
 
-- [ ] **Step 4: Validate with FFprobe**
+- [x] **Step 4: Validate with FFprobe**
 
 Run FFprobe with JSON output and require one video stream, positive dimensions no larger than 1280×720, and duration within three seconds of the measured recording interval.
 
@@ -157,19 +157,19 @@ Run FFprobe with JSON output and require one video stream, positive dimensions n
 - Consumes: the same fresh test tab and recorder composition used by Task 4.
 - Produces: a second validated WebM and sanitized result JSON.
 
-- [ ] **Step 1: Start recording while the test animation is visible**
+- [x] **Step 1: Start recording while the test animation is visible**
 
 Wait for the first frame and establish baseline frame and sample counts.
 
-- [ ] **Step 2: Hide the in-app Browser for 120 seconds**
+- [x] **Step 2: Hide the in-app Browser for 120 seconds**
 
 Keep polling events and sample the latest frame. Poll status in intervals shorter than 60 seconds so progress remains observable.
 
-- [ ] **Step 3: Restore visibility and stop recording**
+- [x] **Step 3: Restore visibility and stop recording**
 
 Pass condition: no unrecoverable stall, output sample count continues increasing for the full interval, and at least one fresh source frame arrives during the hidden interval.
 
-- [ ] **Step 4: Validate output and write the result JSON**
+- [x] **Step 4: Validate output and write the result JSON**
 
 Require a positive video stream and duration within five seconds of the measured session. Record a No-Go if hidden source frames cease entirely, even when repeated output frames keep the video duration plausible.
 
@@ -210,8 +210,24 @@ Use Go only when all executed gates pass. Use No-Go when hidden capture is prove
 | Sanitized result finalization | PASS | Successful, readiness-failed, encoder-failed, and validation-failed sessions write a private `0600` JSON result without absolute paths, raw diagnostics, or extra capture fields. |
 | Single video stream | PASS | FFprobe validation rejects outputs containing zero or multiple video streams. |
 | Environment doctor | PASS | Supported and multi-blocker results are deterministic and read-only. |
-| Browser CDP availability | BLOCKED | The fresh in-app Browser test tab advertises only the page-assets capability; raw CDP is not available in the current Browser configuration. |
-| Visible capture | BLOCKED | Requires raw CDP availability. |
-| Hidden capture | BLOCKED | Requires raw CDP availability and a passing visible-capture gate. |
+| Browser CDP availability | PASS | A fresh post-navigation capability supported `Page.enable`, `Page.startScreencast`, frame acknowledgement, and event reads. |
+| Visible capture | PASS | 15.611 s elapsed; 804 received and acknowledged frames; 154 samples; zero drops, invalid frames, backpressure drops, or truncations; VP8 output 15.4 s at 357×720. |
+| Hidden capture | PASS | 122.183 s elapsed with a 120 s hidden interval; 5,916 received and acknowledged frames; 1,218 samples; zero drops, invalid frames, backpressure drops, or truncations; VP8 output 121.8 s at 357×720. |
+| Interaction fidelity | PASS | Typing, scrolling, SPA state change, and cross-page navigation were captured; 52 received and acknowledged frames; VP8 output 10.5 s at 357×720. |
+| Hardened hidden regression | PASS | After lifecycle hardening: 35.072 s elapsed with a 30 s hidden interval; 2,580 received and acknowledged frames; 350 samples; zero drops or truncations; schema 2 VP8 output 35.0 s at 1280×720. |
+| Hardened interaction regression | PASS | After per-session CDP reacquisition and atomic output: typing, scrolling, SPA update, and navigation passed; 19 received and acknowledged frames; 100 samples; zero drops or truncations; schema 2 VP8 output 10.0 s at 357×720. |
 
-Current decision: **Blocked**, not No-Go. Enable **Settings → Browser → Developer mode → Enable full CDP access**, if workspace policy permits it, then rerun the Browser gates.
+Current decision: **Go** for the exact-session Phase 0 architecture. This does not make the repository a production-ready plugin; Phase 1 controls and packaging remain separate work.
+
+## Implementation hardening completed — 2026-07-15
+
+- FFmpeg spawn errors are contained until the caller observes `stop()`.
+- Encoder startup and early-exit failures proactively terminate the Browser session; shutdown is bounded and escalates to `SIGKILL`.
+- Successful output is size-checked after encoder flush and atomically published from a `.partial` file; failed, cancelled, and oversized captures remove the partial output.
+- Readiness failure automatically stops screencasting, the frame pump, and the encoder.
+- Recording sessions support AbortSignal cancellation, a 20-minute default hard limit, a 500 MiB default output limit, and optional fresh-frame stall detection.
+- Elapsed time uses a monotonic clock and excludes encoder flush time.
+- Every new tab recording reacquires the current CDP capability after navigation.
+- CDP batches, cursors, public configuration, executable paths, and video validation inputs are bounded and validated.
+- The reusable `runBrowserPocGate` path performs prepare, fresh capability acquisition, recording, cleanup, FFprobe validation, and sanitized result persistence end to end.
+- Page-level `Page.screencastVisibilityChanged` remained `true` while the Browser surface was hidden; frame freshness and the Browser visibility capability are the reliable hidden-state evidence.
