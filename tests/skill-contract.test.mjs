@@ -181,6 +181,54 @@ function assertOperationalWorkflow(source) {
   );
 }
 
+function assertBrowserRuntimeFailureMapping(source) {
+  const lifecycle = [...source.matchAll(/```js\n([\s\S]*?)\n```/g)]
+    .map(([, block]) => block)
+    .find(
+      (block) =>
+        block.includes("navigateFreshTab") &&
+        block.includes('freshTab.capabilities.get("cdp")'),
+    );
+  assert.ok(lifecycle, "missing Browser recording lifecycle");
+  assert.match(
+    lifecycle,
+    /const isBrowserApprovalDenial = \(error\) =>/,
+    "workflow must classify Browser approval denial explicitly",
+  );
+  assert.match(
+    lifecycle,
+    /The user has requested that/,
+    "denial classifier must use the Browser runtime's documented error convention",
+  );
+  assert.match(
+    lifecycle,
+    /isBrowserApprovalDenial\(error\)\s*\?\s*"cancelled"\s*:\s*"integration_failed"/,
+    "Browser denial and non-denial failures must map to distinct allowlisted codes",
+  );
+
+  const navigation = readBracedBlockAfter(
+    lifecycle,
+    "const navigateFreshTab = async () =>",
+  );
+  assert.match(navigation.body, /freshTab = await browser[.]tabs[.]new\(\)/);
+  assert.match(navigation.body, /await freshTab[.]goto\(request[.]targetUrl\)/);
+  assert.match(
+    navigation.body,
+    /catch \(error\)\s*{\s*throw mapBrowserRuntimeFailure\(error\);\s*}/,
+    "tab creation and navigation must sanitize Browser runtime failures",
+  );
+
+  const preflight = lifecycle.slice(
+    lifecycle.indexOf("let preflightCdp;"),
+    lifecycle.indexOf("const cdpAvailable"),
+  );
+  assert.match(
+    preflight,
+    /catch \(error\)\s*{\s*throw mapBrowserRuntimeFailure\(error\);\s*}/,
+    "CDP preflight must use the same denial-aware sanitized mapping",
+  );
+}
+
 function readBracedBlockAfter(source, marker, fromIndex = 0) {
   const markerIndex = source.indexOf(marker, fromIndex);
   assert.notEqual(markerIndex, -1, `missing ${marker} block`);
@@ -324,6 +372,7 @@ test("skill validates before Browser activity and delegates recording to product
 
 test("skill defines an operational Browser binding, preflight, and result workflow", () => {
   assertOperationalWorkflow(skill);
+  assertBrowserRuntimeFailureMapping(skill);
 });
 
 test("operational workflow guard rejects missing preflight and result branches", () => {
@@ -346,12 +395,39 @@ test("operational workflow guard rejects missing preflight and result branches",
   );
 });
 
+test("Browser runtime mapping guard rejects removed navigation and denial branches", () => {
+  assert.throws(
+    () =>
+      assertBrowserRuntimeFailureMapping(
+        skill.replace(
+          "throw mapBrowserRuntimeFailure(error);",
+          "throw error;",
+        ),
+      ),
+    /tab creation and navigation must sanitize Browser runtime failures/,
+  );
+  assert.throws(
+    () =>
+      assertBrowserRuntimeFailureMapping(
+        skill.replace(
+          'isBrowserApprovalDenial(error) ? "cancelled" : "integration_failed"',
+          '"integration_failed"',
+        ),
+      ),
+    /denial and non-denial failures must map to distinct allowlisted codes/,
+  );
+});
+
 test("skill keeps one outer-scoped handle through deterministic cleanup", () => {
   const lifecycle = javascriptBlocks.find(
     (source) => source.includes("createRecording") && source.includes("finally"),
   );
   assert.ok(lifecycle, "skill must show the complete recording lifecycle");
-  const outerTry = readBracedBlockAfter(lifecycle, "try");
+  const recordingTryIndex = lifecycle.indexOf(
+    "try {\n  await navigateFreshTab(request.targetUrl);",
+  );
+  assert.notEqual(recordingTryIndex, -1, "missing outer recording try block");
+  const outerTry = readBracedBlockAfter(lifecycle, "try", recordingTryIndex);
   const cleanup = readBracedBlockAfter(lifecycle, "finally", outerTry.end);
 
   assert.match(lifecycle, /let handle\s*;/);

@@ -177,6 +177,26 @@ test("returns a preparing handle and validates before allocating Browser resourc
   await handle.stop();
 });
 
+test("rejects a malformed caller signal without retaining the singleton", async () => {
+  const malformed = validOptions({ signal: {} });
+  const handle = createRecording(malformed.options);
+
+  assert.deepEqual(Object.keys(handle).sort(), ["ready", "status", "stop"]);
+  assertPublicStatus(handle, "failed");
+  await assert.rejects(handle.ready, (error) => {
+    assert.equal(error.code, "invalid_configuration");
+    assert.equal(
+      error.message,
+      describeRecordingFailure("invalid_configuration").summary,
+    );
+    assert.doesNotMatch(error.message, /TypeError|addEventListener/);
+    return true;
+  });
+  assert.equal(malformed.harness.calls.createBrowserRecording, 0);
+
+  await assertSingletonReleased();
+});
+
 test("immediate stop cancels preparation and releases the singleton", async () => {
   const harness = createHarness();
   const handle = createRecording({

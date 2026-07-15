@@ -83,9 +83,24 @@ let handle;
 let recordingResult;
 let primaryFailure;
 let incompleteCleanup;
+const isBrowserApprovalDenial = (error) => {
+  const message = error instanceof Error ? error.message : "";
+  return /Browser Use rejected this action due to browser security policy[.] Reason: The user has requested that .+(?:should not be used|not be used on)/su.test(
+    message,
+  );
+};
+const mapBrowserRuntimeFailure = (error) => {
+  const code = isBrowserApprovalDenial(error) ? "cancelled" : "integration_failed";
+  const failure = describeRecordingFailure(code);
+  return Object.assign(new Error(failure.summary), { code, ...failure });
+};
 const navigateFreshTab = async () => {
-  freshTab = await browser.tabs.new();
-  await freshTab.goto(request.targetUrl);
+  try {
+    freshTab = await browser.tabs.new();
+    await freshTab.goto(request.targetUrl);
+  } catch (error) {
+    throw mapBrowserRuntimeFailure(error);
+  }
 };
 const closeFreshTab = async () => {
   await freshTab?.close();
@@ -96,12 +111,8 @@ try {
   let preflightCdp;
   try {
     preflightCdp = await freshTab.capabilities.get("cdp");
-  } catch {
-    const denied = describeRecordingFailure("cancelled");
-    throw Object.assign(new Error(denied.summary), {
-      code: "cancelled",
-      ...denied,
-    });
+  } catch (error) {
+    throw mapBrowserRuntimeFailure(error);
   }
   const cdpAvailable =
     typeof preflightCdp?.send === "function" &&
