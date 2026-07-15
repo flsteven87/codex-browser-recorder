@@ -493,26 +493,30 @@ export async function startBrowserPoc({
     clearTimeout(durationTimer);
     clearInterval(resourceTimer);
     signal?.removeEventListener("abort", abortListener);
-    let firstError = null;
+    let cleanupError = null;
+    let pumpError = null;
 
     try {
       await cdp.send("Page.stopScreencast");
     } catch (error) {
-      firstError = error;
+      cleanupError = error;
     }
 
     try {
       await pump.stop();
     } catch (error) {
-      firstError ??= error;
+      pumpError = error;
     }
 
     try {
       await sink.stop({
-        discard: firstError !== null || terminationError !== null,
+        discard:
+          cleanupError !== null ||
+          pumpError !== null ||
+          terminationError !== null,
       });
     } catch (error) {
-      firstError ??= error;
+      cleanupError ??= error;
     } finally {
       resourceStats.maxObservedOutputBytes = Math.max(
         resourceStats.maxObservedOutputBytes,
@@ -520,11 +524,14 @@ export async function startBrowserPoc({
       );
     }
 
-    if (firstError !== null) {
-      throw firstError;
-    }
     if (terminationError !== null) {
       throw terminationError;
+    }
+    if (pumpError !== null) {
+      throw pumpError;
+    }
+    if (cleanupError !== null) {
+      throw cleanupError;
     }
 
     return {

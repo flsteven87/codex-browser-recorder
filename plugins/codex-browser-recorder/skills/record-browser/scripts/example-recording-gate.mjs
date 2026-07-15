@@ -1,4 +1,5 @@
 import { createBrowserRecording } from "./run-browser-recording.mjs";
+import { originOf } from "./recording-policy.mjs";
 
 export const EXAMPLE_PAGE_URL = "https://example.com/";
 export const EXAMPLE_RECORDING_MAX_DURATION_MS = 20_000;
@@ -40,7 +41,7 @@ export async function createExampleRecording({
   try {
     inner = await _dependencies.createBrowserRecording({
       _onTerminal: onTerminal,
-      expectedTopLevelUrl: EXAMPLE_PAGE_URL,
+      approvedOrigin: originOf(EXAMPLE_PAGE_URL),
       ffmpegPath,
       ffprobePath,
       fps: 10,
