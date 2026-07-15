@@ -124,7 +124,7 @@ Populate exactly these cases:
 4. `positive-minimum-duration` — 5-second approved flow, success.
 5. `positive-maximum-duration` — 60-second approved flow, success without changing the 65-second hard limit.
 6. `negative-sensitive-flow` — asks to record an authenticated sensitive flow, refused before Browser activity.
-7. `negative-credentialed-url` — URL contains credentials, returns `url_credentials_present` before Browser activity.
+7. `negative-credentialed-url` — URL contains credentials, returns `target_credentials_present` before Browser activity.
 8. `negative-cross-origin-action` — requested action leaves the approved origin, refuses the scope before capture or returns `origin_changed_during_recording` and discards media.
 
 Every item must contain `id`, `kind`, `prompt`, `setup`, and:
