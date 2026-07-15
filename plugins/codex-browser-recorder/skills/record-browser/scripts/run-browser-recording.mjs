@@ -160,59 +160,88 @@ export async function startBrowserPoc({
     signal,
     sinkFactory,
   });
-  if (signal?.aborted) {
-    throw new PocError("recording_cancelled", "Recording was cancelled");
-  }
-
-  await cdp.send("Page.enable");
-  const baseline = await cdp.readEvents({
-    limit: 1,
-    methods: SCREENCAST_EVENT_METHODS,
-    timeoutMs: 0,
-  });
-  if (
-    baseline === null ||
-    typeof baseline !== "object" ||
-    !Number.isInteger(baseline.cursor) ||
-    baseline.cursor < 0
-  ) {
-    throw new PocError(
-      "event_stream_invalid",
-      "CDP event stream returned an invalid baseline",
+  let startupCancellation = null;
+  const startupAbortListener = () => {
+    startupCancellation ??= new PocError(
+      "recording_cancelled",
+      "Recording was cancelled",
     );
+  };
+  signal?.addEventListener("abort", startupAbortListener, { once: true });
+  if (signal?.aborted) startupAbortListener();
+
+  function throwIfStartupCancelled() {
+    if (startupCancellation !== null) throw startupCancellation;
   }
 
-  const { frameId: mainFrameId } = await inspectTopLevelFrame({
-    approvedOrigin,
-    cdp,
-  });
-  try {
-    await cdp.send("Page.startScreencast", {
-      everyNthFrame: 1,
-      format: "jpeg",
-      maxHeight: RECORDING_MAX_HEIGHT,
-      maxWidth: RECORDING_MAX_WIDTH,
-      quality: RECORDING_JPEG_QUALITY,
-    });
-  } catch (error) {
+  async function awaitStartup(operation) {
     try {
-      await cdp.send("Page.stopScreencast");
-    } catch {
-      // The sanitized startup failure remains primary.
+      const result = await operation;
+      throwIfStartupCancelled();
+      return result;
+    } catch (error) {
+      throw startupCancellation ?? error;
     }
-    throw error;
   }
 
+  let baseline;
+  let mainFrameId;
+  let screencastAttempted = false;
   let sink;
   try {
-    sink = sinkFactory({ ffmpegPath, fps, maxOutputBytes, outputPath });
-  } catch (error) {
-    try {
-      await cdp.send("Page.stopScreencast");
-    } catch {
-      // Preserve the encoder startup failure as the primary error.
+    throwIfStartupCancelled();
+    await awaitStartup(cdp.send("Page.enable"));
+    baseline = await awaitStartup(
+      cdp.readEvents({
+        limit: 1,
+        methods: SCREENCAST_EVENT_METHODS,
+        timeoutMs: 0,
+      }),
+    );
+    if (
+      baseline === null ||
+      typeof baseline !== "object" ||
+      !Number.isInteger(baseline.cursor) ||
+      baseline.cursor < 0
+    ) {
+      throw new PocError(
+        "event_stream_invalid",
+        "CDP event stream returned an invalid baseline",
+      );
     }
-    throw error;
+
+    ({ frameId: mainFrameId } = await awaitStartup(
+      inspectTopLevelFrame({ approvedOrigin, cdp }),
+    ));
+    screencastAttempted = true;
+    await awaitStartup(
+      cdp.send("Page.startScreencast", {
+        everyNthFrame: 1,
+        format: "jpeg",
+        maxHeight: RECORDING_MAX_HEIGHT,
+        maxWidth: RECORDING_MAX_WIDTH,
+        quality: RECORDING_JPEG_QUALITY,
+      }),
+    );
+    sink = sinkFactory({ ffmpegPath, fps, maxOutputBytes, outputPath });
+    throwIfStartupCancelled();
+  } catch (error) {
+    if (screencastAttempted) {
+      try {
+        await cdp.send("Page.stopScreencast");
+      } catch {
+        // Preserve the bounded startup failure as primary.
+      }
+    }
+    if (sink !== undefined) {
+      try {
+        await sink.stop({ discard: true });
+      } catch {
+        // Preserve the bounded startup failure as primary.
+      }
+    }
+    signal?.removeEventListener("abort", startupAbortListener);
+    throw startupCancellation ?? error;
   }
   let lastFrameAt = null;
   let startedAt = null;
@@ -323,9 +352,14 @@ export async function startBrowserPoc({
   resourceTimer.unref?.();
 
   const abortListener = () => {
-    terminate(new PocError("recording_cancelled", "Recording was cancelled"));
+    terminate(
+      startupCancellation ??
+        new PocError("recording_cancelled", "Recording was cancelled"),
+    );
   };
   signal?.addEventListener("abort", abortListener, { once: true });
+  signal?.removeEventListener("abort", startupAbortListener);
+  if (startupCancellation !== null || signal?.aborted) abortListener();
   if (typeof sink.completion?.then === "function") {
     void sink.completion.then(() => {
       if (stopPromise === null) {

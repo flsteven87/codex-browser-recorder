@@ -24,6 +24,16 @@ const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
 const ffmpegPath = resolveExecutable("ffmpeg");
 const ffprobePath = resolveExecutable("ffprobe");
 
+function deferred() {
+  let reject;
+  let resolve;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    reject = rejectPromise;
+    resolve = resolvePromise;
+  });
+  return { promise, reject, resolve };
+}
+
 function frameEvent(overrides = {}) {
   return {
     method: "Page.screencastFrame",
@@ -1174,6 +1184,194 @@ test("stops screencasting when encoder startup fails", async () => {
     "Page.startScreencast",
     "Page.stopScreencast",
   ]);
+});
+
+test("retains cancellation while Page.enable startup is pending", async () => {
+  const abortController = new AbortController();
+  const enableGate = deferred();
+  const operations = [];
+  let reads = 0;
+  let sinkCreations = 0;
+  const starting = startBrowserPoc({
+    approvedOrigin: "https://example.com",
+    cdp: {
+      async readEvents() {
+        reads += 1;
+        if (reads === 1) {
+          return { cursor: 1, events: [], hasMore: false, truncated: false };
+        }
+        return {
+          cursor: 2,
+          events: [frameEvent()],
+          hasMore: false,
+          truncated: false,
+        };
+      },
+      async send(method) {
+        operations.push(method);
+        if (method === "Page.enable") await enableGate.promise;
+        if (method === "Page.getFrameTree") {
+          return {
+            frameTree: {
+              frame: { id: "main-frame", url: "https://example.com/start" },
+            },
+          };
+        }
+      },
+    },
+    ffmpegPath: "/unused/ffmpeg",
+    firstFrameTimeoutMs: 10,
+    fps: 10,
+    maxDecodedBytes: 1024,
+    outputPath: "/tmp/unused.webm",
+    readTimeoutMs: 1,
+    signal: abortController.signal,
+    sinkFactory: () => {
+      sinkCreations += 1;
+      return createMemorySink(operations);
+    },
+  });
+
+  await Promise.resolve();
+  assert.deepEqual(operations, ["Page.enable"]);
+  abortController.abort();
+  enableGate.resolve();
+
+  let leakedSession;
+  try {
+    await assert.rejects(
+      starting,
+      (error) => error.code === "recording_cancelled",
+    );
+  } finally {
+    leakedSession = await starting.catch(() => null);
+    const leakedReady = leakedSession?.ready.catch(() => {});
+    await leakedSession?.stop();
+    await leakedReady;
+  }
+  assert.equal(sinkCreations, 0);
+  assert.deepEqual(operations, ["Page.enable"]);
+});
+
+test("keeps cancellation primary after screencast startup cleanup fails", async () => {
+  const abortController = new AbortController();
+  const screencastGate = deferred();
+  const cleanupSecret = "private cancelled-startup cleanup diagnostic";
+  const operations = [];
+  let sinkCreations = 0;
+  const starting = startBrowserPoc({
+    approvedOrigin: "https://example.com",
+    cdp: {
+      async readEvents() {
+        return { cursor: 1, events: [], hasMore: false, truncated: false };
+      },
+      async send(method) {
+        operations.push(method);
+        if (method === "Page.getFrameTree") {
+          return {
+            frameTree: {
+              frame: { id: "main-frame", url: "https://example.com/start" },
+            },
+          };
+        }
+        if (method === "Page.startScreencast") {
+          await screencastGate.promise;
+        }
+        if (method === "Page.stopScreencast") {
+          throw new Error(cleanupSecret);
+        }
+      },
+    },
+    ffmpegPath: "/unused/ffmpeg",
+    firstFrameTimeoutMs: 10,
+    fps: 10,
+    maxDecodedBytes: 1024,
+    outputPath: "/tmp/unused.webm",
+    readTimeoutMs: 1,
+    signal: abortController.signal,
+    sinkFactory: () => {
+      sinkCreations += 1;
+      return createMemorySink(operations);
+    },
+  });
+
+  while (!operations.includes("Page.startScreencast")) await Promise.resolve();
+  abortController.abort();
+  screencastGate.resolve();
+
+  let leakedSession;
+  try {
+    await assert.rejects(starting, (error) => {
+      assert.equal(error.code, "recording_cancelled");
+      assert.doesNotMatch(
+        `${error.message}\n${JSON.stringify(error)}`,
+        /private cancelled-startup cleanup diagnostic/,
+      );
+      return true;
+    });
+  } finally {
+    leakedSession = await starting.catch(() => null);
+    const leakedReady = leakedSession?.ready.catch(() => {});
+    await leakedSession?.stop().catch(() => {});
+    await leakedReady;
+  }
+  assert.equal(sinkCreations, 0);
+  assert.equal(
+    operations.filter((operation) => operation === "Page.stopScreencast")
+      .length,
+    1,
+  );
+});
+
+test("discards a created sink when cancellation lands during startup handoff", async () => {
+  const abortController = new AbortController();
+  const operations = [];
+  const sinkStopOptions = [];
+  const sink = createMemorySink(operations);
+  sink.stop = async (options) => {
+    sinkStopOptions.push(options);
+    operations.push("sink.stop");
+    sink.stats.encoderExitCode = 0;
+    return sink.stats;
+  };
+  const starting = startBrowserPoc({
+    approvedOrigin: "https://example.com",
+    cdp: createLiveCdp(operations),
+    ffmpegPath: "/unused/ffmpeg",
+    firstFrameTimeoutMs: 10,
+    fps: 10,
+    maxDecodedBytes: 1024,
+    outputPath: "/tmp/unused.webm",
+    readTimeoutMs: 1,
+    signal: abortController.signal,
+    sinkFactory: () => {
+      abortController.abort();
+      return sink;
+    },
+  });
+
+  let leakedSession;
+  try {
+    await assert.rejects(
+      starting,
+      (error) => error.code === "recording_cancelled",
+    );
+  } finally {
+    leakedSession = await starting.catch(() => null);
+    const leakedReady = leakedSession?.ready.catch(() => {});
+    await leakedSession?.stop();
+    await leakedReady;
+  }
+  assert.equal(
+    operations.filter((operation) => operation === "Page.stopScreencast")
+      .length,
+    1,
+  );
+  assert.equal(
+    operations.filter((operation) => operation === "sink.stop").length,
+    1,
+  );
+  assert.deepEqual(sinkStopOptions, [{ discard: true }]);
 });
 
 test("cancels and cleans up an active recording through AbortSignal", async () => {
