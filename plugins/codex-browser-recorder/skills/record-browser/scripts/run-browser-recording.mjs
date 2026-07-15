@@ -65,6 +65,8 @@ const CAPTURE_FAILURE_CODES = new Set([
   "frame_stream_stalled",
   "frame_stream_unavailable",
   "invalid_configuration",
+  "origin_not_allowed",
+  "origin_verification_failed",
   "output_monitor_failed",
   "recording_cancelled",
   "recording_duration_limit",
@@ -506,7 +508,49 @@ export async function startBrowserPoc({
   }
 }
 
-export async function startBrowserPocForTab({ tab, ...options }) {
+export async function assertTopLevelUrl({ cdp, expectedUrl }) {
+  if (
+    typeof cdp?.send !== "function" ||
+    typeof expectedUrl !== "string" ||
+    expectedUrl.length === 0
+  ) {
+    throw new PocError(
+      "invalid_configuration",
+      "Top-level URL verification configuration is invalid",
+    );
+  }
+
+  let frameTree;
+  try {
+    frameTree = await cdp.send("Page.getFrameTree");
+  } catch {
+    throw new PocError(
+      "origin_verification_failed",
+      "The recording page origin could not be verified",
+    );
+  }
+
+  const actualUrl = frameTree?.frameTree?.frame?.url;
+  if (typeof actualUrl !== "string") {
+    throw new PocError(
+      "origin_verification_failed",
+      "The recording page origin could not be verified",
+    );
+  }
+  if (actualUrl !== expectedUrl) {
+    throw new PocError(
+      "origin_not_allowed",
+      "The recording page is outside the approved fixed origin",
+    );
+  }
+  return true;
+}
+
+export async function startBrowserPocForTab({
+  expectedTopLevelUrl,
+  tab,
+  ...options
+}) {
   if (typeof tab?.capabilities?.get !== "function") {
     throw new PocError(
       "cdp_unavailable",
@@ -525,6 +569,9 @@ export async function startBrowserPocForTab({ tab, ...options }) {
     );
   }
 
+  if (expectedTopLevelUrl !== undefined) {
+    await assertTopLevelUrl({ cdp, expectedUrl: expectedTopLevelUrl });
+  }
   return startBrowserPoc({ ...options, cdp });
 }
 
@@ -535,6 +582,7 @@ export async function createBrowserRecording({
     startBrowserPocForTab,
   },
   durationToleranceSeconds = 5,
+  expectedTopLevelUrl,
   ffmpegPath,
   ffprobePath,
   firstFrameTimeoutMs = 5000,
@@ -554,6 +602,7 @@ export async function createBrowserRecording({
 }) {
   const paths = await _dependencies.prepareBrowserPoc({ temporaryRoot });
   const session = await _dependencies.startBrowserPocForTab({
+    expectedTopLevelUrl,
     ffmpegPath,
     firstFrameTimeoutMs,
     fps,

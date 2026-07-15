@@ -6,6 +6,7 @@ import { basename, dirname, join } from "node:path";
 import test from "node:test";
 
 import {
+  assertTopLevelUrl,
   finalizeBrowserPoc,
   prepareBrowserPoc,
   runBrowserPocGate,
@@ -309,16 +310,82 @@ test("persists every strict media-contract failure code", async () => {
   }
 });
 
+test("accepts only the exact approved top-level URL", async () => {
+  const methods = [];
+  const cdp = {
+    async send(method) {
+      methods.push(method);
+      return {
+        frameTree: { frame: { url: "https://example.com/" } },
+      };
+    },
+  };
+
+  assert.equal(
+    await assertTopLevelUrl({
+      cdp,
+      expectedUrl: "https://example.com/",
+    }),
+    true,
+  );
+  assert.deepEqual(methods, ["Page.getFrameTree"]);
+});
+
+test("rejects a different URL without exposing it", async () => {
+  const secretUrl = "https://example.com/?token=must-not-leak";
+  const cdp = {
+    async send() {
+      return { frameTree: { frame: { url: secretUrl } } };
+    },
+  };
+
+  await assert.rejects(
+    assertTopLevelUrl({ cdp, expectedUrl: "https://example.com/" }),
+    (error) =>
+      error.code === "origin_not_allowed" &&
+      !error.message.includes(secretUrl) &&
+      !JSON.stringify(error).includes(secretUrl),
+  );
+});
+
+test("maps missing or failed frame-tree inspection to a stable error", async () => {
+  for (const send of [
+    async () => ({}),
+    async () => {
+      throw new Error("raw CDP diagnostic");
+    },
+  ]) {
+    await assert.rejects(
+      assertTopLevelUrl({
+        cdp: { send },
+        expectedUrl: "https://example.com/",
+      }),
+      (error) =>
+        error.code === "origin_verification_failed" &&
+        !error.message.includes("raw CDP diagnostic"),
+    );
+  }
+});
+
 test("acquires a fresh CDP capability for every recording session", async () => {
   const acquired = [];
+  const commandOrders = [];
   const createdCdps = [];
   const tab = {
     capabilities: {
       async get(name) {
         acquired.push(name);
+        const methods = [];
         let reads = 0;
         const cdp = {
-          async send() {},
+          async send(method) {
+            methods.push(method);
+            if (method === "Page.getFrameTree") {
+              return {
+                frameTree: { frame: { url: "https://example.com/" } },
+              };
+            }
+          },
           async readEvents() {
             reads += 1;
             if (reads === 1) {
@@ -357,6 +424,7 @@ test("acquires a fresh CDP capability for every recording session", async () => 
             };
           },
         };
+        commandOrders.push(methods);
         createdCdps.push(cdp);
         return cdp;
       },
@@ -365,6 +433,7 @@ test("acquires a fresh CDP capability for every recording session", async () => 
 
   for (let index = 0; index < 2; index += 1) {
     const session = await startBrowserPocForTab({
+      expectedTopLevelUrl: "https://example.com/",
       ffmpegPath: "/unused/ffmpeg",
       fps: 10,
       maxDecodedBytes: 1024,
@@ -393,6 +462,13 @@ test("acquires a fresh CDP capability for every recording session", async () => 
 
   assert.deepEqual(acquired, ["cdp", "cdp"]);
   assert.notEqual(createdCdps[0], createdCdps[1]);
+  assert.deepEqual(
+    commandOrders.map((methods) => methods.slice(0, 3)),
+    [
+      ["Page.getFrameTree", "Page.enable", "Page.startScreencast"],
+      ["Page.getFrameTree", "Page.enable", "Page.startScreencast"],
+    ],
+  );
 });
 
 test("runs a complete recording gate and writes a validated result", async () => {
