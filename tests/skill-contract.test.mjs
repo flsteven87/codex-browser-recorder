@@ -313,6 +313,54 @@ function assertFreshTabCleanupBoundary(source) {
   );
 }
 
+function assertActionFailureBoundary(source) {
+  const lifecycle = [...source.matchAll(/```js\n([\s\S]*?)\n```/g)]
+    .map(([, block]) => block)
+    .find(
+      (block) =>
+        block.includes("const sanitizeActionFailure = (error) =>") &&
+        block.includes("createRecording"),
+    );
+  assert.ok(lifecycle, "missing approved-action failure boundary");
+
+  const sanitizer = readBracedBlockAfter(
+    lifecycle,
+    "const sanitizeActionFailure = (error) =>",
+  );
+  assert.match(
+    sanitizer.body,
+    /if \(!isBrowserApprovalDenial\(error\)\)\s*{\s*return sanitizeRecordingFailure\(error\);\s*}/,
+    "raw and already-sanitized action failures must cross the allowlist sanitizer",
+  );
+  assert.match(
+    sanitizer.body,
+    /const cleanup = getRecordingCleanupDetails\(error\);/,
+    "action failure sanitization must read only trusted cleanup metadata",
+  );
+  assert.match(
+    sanitizer.body,
+    /sanitizeRecordingFailure\(\s*{ code: "cancelled" },\s*cleanup[?][.]cleanupIncomplete === true\s*[?]\s*{ cleanupDirectory: cleanup[.]directory }\s*:\s*undefined,?\s*\)/,
+    "action-time Browser approval denial must map to cancelled without losing trusted cleanup metadata",
+  );
+
+  const recordingTryIndex = lifecycle.indexOf(
+    "try {\n  await navigateFreshTab(request.targetUrl);",
+  );
+  const outerTry = readBracedBlockAfter(lifecycle, "try", recordingTryIndex);
+  const cleanup = readBracedBlockAfter(lifecycle, "finally", outerTry.end);
+  const outerCatch = lifecycle.slice(outerTry.end, cleanup.markerIndex);
+  assert.match(
+    outerCatch,
+    /catch \(error\)\s*{\s*primaryFailure = sanitizeActionFailure\(error\);\s*throw primaryFailure;\s*}/,
+    "the outer approved-action boundary must never retain or throw a raw error",
+  );
+  assert.doesNotMatch(
+    outerCatch,
+    /primaryFailure\s*=\s*error|throw\s+error/,
+    "the outer approved-action boundary must not expose raw action diagnostics",
+  );
+}
+
 function readBracedBlockAfter(source, marker, fromIndex = 0) {
   const markerIndex = source.indexOf(marker, fromIndex);
   assert.notEqual(markerIndex, -1, `missing ${marker} block`);
@@ -351,6 +399,15 @@ test("README documents the public recording contract", () => {
   assert.doesNotMatch(
     readme,
     /(?:run|invoke|use|start)[^\n.]{0,80}integration gate/i,
+  );
+  assert.match(
+    readme,
+    /fresh tab in the browser selected\s+by the installed Browser plugin/i,
+  );
+  assert.doesNotMatch(readme, /fresh Codex in-app Browser tab/i);
+  assert.match(
+    readme,
+    /attempts to close the fresh tab\s+on every path[^.]*reports bounded manual cleanup instructions/i,
   );
 });
 
@@ -402,6 +459,14 @@ test("skill requires explicit user recording intent and one consolidated consent
   assert.match(skill, /before any Browser action/i);
   assert.match(frontmatter, /^license: MIT$/m);
   assert.doesNotMatch(frontmatter, /^compatibility:/m);
+  assert.match(
+    frontmatter,
+    /fresh approved tab in the browser selected by the installed Browser plugin/i,
+  );
+  assert.match(
+    skill,
+    /Create one fresh blank Browser tab in the browser selected by the installed Browser plugin/,
+  );
 });
 
 test("skill keeps local validation, consent, and Browser activity in exact order", () => {
@@ -459,6 +524,7 @@ test("skill defines an operational Browser binding, preflight, and result workfl
   assertBrowserRuntimeFailureMapping(skill);
   assertSetupFailureBoundaries(skill);
   assertFreshTabCleanupBoundary(skill);
+  assertActionFailureBoundary(skill);
 });
 
 test("operational workflow guard rejects missing preflight and result branches", () => {
@@ -567,6 +633,39 @@ test("fresh-tab cleanup guard rejects raw cleanup and missing manual action", ()
   );
 });
 
+test("approved-action guard rejects raw errors and action-time approval denial mutants", () => {
+  assert.throws(
+    () =>
+      assertActionFailureBoundary(
+        skill.replace(
+          "primaryFailure = sanitizeActionFailure(error);\n  throw primaryFailure;",
+          "primaryFailure = error;\n  throw error;",
+        ),
+      ),
+    /never retain or throw a raw error|must not expose raw action diagnostics/,
+  );
+  assert.throws(
+    () =>
+      assertActionFailureBoundary(
+        skill.replace(
+          "if (!isBrowserApprovalDenial(error))",
+          "if (true)",
+        ),
+      ),
+    /approval denial must map to cancelled|must cross the allowlist sanitizer/,
+  );
+  assert.throws(
+    () =>
+      assertActionFailureBoundary(
+        skill.replace(
+          "const cleanup = getRecordingCleanupDetails(error);",
+          "const cleanup = null;",
+        ),
+      ),
+    /trusted cleanup metadata/,
+  );
+});
+
 test("skill keeps one outer-scoped handle through deterministic cleanup", () => {
   const lifecycle = javascriptBlocks.find(
     (source) => source.includes("createRecording") && source.includes("finally"),
@@ -591,7 +690,7 @@ test("skill keeps one outer-scoped handle through deterministic cleanup", () => 
   );
   assert.match(
     lifecycle.slice(outerTry.end, cleanup.markerIndex),
-    /catch [(]error[)]\s*{\s*primaryFailure\s*=\s*error;\s*throw error;\s*}/,
+    /catch [(]error[)]\s*{\s*primaryFailure\s*=\s*sanitizeActionFailure[(]error[)];\s*throw primaryFailure;\s*}/,
   );
   assert.match(cleanup.body, /^\s*let cleanupFailure;/);
   assert.match(
