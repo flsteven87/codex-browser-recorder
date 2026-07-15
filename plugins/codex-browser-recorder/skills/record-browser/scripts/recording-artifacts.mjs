@@ -209,11 +209,26 @@ function captureFailureCode(error) {
     : "capture_failed";
 }
 
-export async function prepareRecordingArtifacts({ temporaryRoot }) {
-  const directory = await mkdtemp(
-    join(temporaryRoot, "codex-browser-recorder-"),
-  );
-  await chmod(directory, 0o700);
+export async function prepareRecordingArtifacts({
+  _dependencies = { chmod, mkdtemp, rm },
+  temporaryRoot,
+}) {
+  let directory = null;
+  try {
+    directory = await _dependencies.mkdtemp(
+      join(temporaryRoot, "codex-browser-recorder-"),
+    );
+    await _dependencies.chmod(directory, 0o700);
+  } catch {
+    if (directory !== null) {
+      try {
+        await _dependencies.rm(directory, { force: true, recursive: true });
+      } catch {
+        // The bounded preparation failure remains primary.
+      }
+    }
+    throw sanitizeRecordingFailure({ code: "artifact_persistence_failed" });
+  }
 
   return {
     directory,

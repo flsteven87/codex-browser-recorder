@@ -8,7 +8,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import test from "node:test";
@@ -146,6 +146,22 @@ function finalizeOptions(paths, session, overrides = {}) {
   };
 }
 
+function assertBoundedPersistenceFailure(error, privateDiagnostics) {
+  const expected = describeRecordingFailure("artifact_persistence_failed");
+  const serialized = `${error.message}\n${JSON.stringify(error)}`;
+
+  assert.equal(error.code, "artifact_persistence_failed");
+  assert.equal(error.message, expected.summary);
+  assert.equal(error.summary, expected.summary);
+  assert.equal(error.remediation, expected.remediation);
+  assert.equal("cause" in error, false);
+  assert.equal("diagnostic" in error, false);
+  for (const diagnostic of privateDiagnostics) {
+    assert.equal(serialized.includes(diagnostic), false);
+  }
+  return true;
+}
+
 test("describes and sanitizes every known recording failure deterministically", () => {
   const injectedDiagnostic = "private injected failure diagnostic";
 
@@ -205,6 +221,87 @@ test("prepares unique private paths under the configured temporary root", async 
   assert.equal(basename(first.resultPath), "result.json");
   assert.equal(first.directory.startsWith(`${temporaryRoot}/`), true);
   assert.equal(statSync(first.directory).mode & 0o077, 0);
+});
+
+test("bounds a temporary-directory creation failure", async () => {
+  const privateDiagnostic = `${temporaryRoot}/private-mkdtemp-diagnostic`;
+  let chmodCalled = false;
+  let rmCalled = false;
+
+  await assert.rejects(
+    prepareRecordingArtifacts({
+      _dependencies: {
+        chmod: async () => {
+          chmodCalled = true;
+        },
+        mkdtemp: async () => {
+          throw new Error(privateDiagnostic);
+        },
+        rm: async () => {
+          rmCalled = true;
+        },
+      },
+      temporaryRoot,
+    }),
+    (error) => assertBoundedPersistenceFailure(error, [privateDiagnostic]),
+  );
+  assert.equal(chmodCalled, false);
+  assert.equal(rmCalled, false);
+});
+
+test("removes a created directory when permission hardening fails", async () => {
+  const privateDiagnostic = "private chmod diagnostic";
+  let createdDirectory;
+
+  await assert.rejects(
+    prepareRecordingArtifacts({
+      _dependencies: {
+        chmod: async () => {
+          throw new Error(privateDiagnostic);
+        },
+        mkdtemp: async (prefix) => {
+          createdDirectory = await mkdtemp(prefix);
+          return createdDirectory;
+        },
+        rm,
+      },
+      temporaryRoot,
+    }),
+    (error) => assertBoundedPersistenceFailure(error, [privateDiagnostic]),
+  );
+  assert.equal(existsSync(createdDirectory), false);
+});
+
+test("keeps preparation failure primary when directory rollback fails", async () => {
+  const createdDirectory = `${temporaryRoot}/private-created-directory`;
+  const chmodDiagnostic = "private chmod failure";
+  const rollbackDiagnostic = "private preparation rollback failure";
+  const rmCalls = [];
+
+  await assert.rejects(
+    prepareRecordingArtifacts({
+      _dependencies: {
+        chmod: async () => {
+          throw new Error(chmodDiagnostic);
+        },
+        mkdtemp: async () => createdDirectory,
+        rm: async (...args) => {
+          rmCalls.push(args);
+          throw new Error(rollbackDiagnostic);
+        },
+      },
+      temporaryRoot,
+    }),
+    (error) =>
+      assertBoundedPersistenceFailure(error, [
+        createdDirectory,
+        chmodDiagnostic,
+        rollbackDiagnostic,
+      ]),
+  );
+  assert.deepEqual(rmCalls, [
+    [createdDirectory, { force: true, recursive: true }],
+  ]);
 });
 
 test("removes a prepared recording directory as one cleanup unit", async () => {
