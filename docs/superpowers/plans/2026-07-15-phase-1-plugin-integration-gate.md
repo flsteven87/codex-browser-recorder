@@ -221,7 +221,7 @@ git commit -m "feat: enforce VP8 WebM output contract"
 - Repeated `stop()` calls return the same promise and finalize exactly once.
 - State is one of `recording`, `stopping`, `completed`, or `failed`.
 
-- [ ] **Step 1: Write failing adapter lifecycle tests**
+- [x] **Step 1: Write failing adapter lifecycle tests**
 
 Use dependency injection rather than real Browser/FFmpeg processes. Cover:
 
@@ -235,7 +235,7 @@ test("finalization failure moves status to failed", async () => {});
 
 Assert deep equality for allowed status keys so paths, tab objects, CDP objects, URLs, diagnostics, and frames cannot leak accidentally.
 
-- [ ] **Step 2: Run adapter tests and verify RED**
+- [x] **Step 2: Run adapter tests and verify RED**
 
 Run:
 
@@ -245,7 +245,7 @@ node --test tests/browser-recording-adapter.test.mjs
 
 Expected: FAIL because `createBrowserRecording` is not exported.
 
-- [ ] **Step 3: Implement the minimal adapter**
+- [x] **Step 3: Implement the minimal adapter**
 
 Allow internal test injection through an undocumented `_dependencies` option defaulting to the production functions. Memoize the exact finalization promise:
 
@@ -264,7 +264,7 @@ function stop() {
 
 The adapter must reuse `prepareBrowserPoc`, `startBrowserPocForTab`, and `finalizeBrowserPoc`; it must not duplicate the recorder pipeline. Its default output root is `tmpdir()`. A failed `ready` path records the primary error and ensures a later `stop()` performs cleanup.
 
-- [ ] **Step 4: Run adapter and regression tests**
+- [x] **Step 4: Run adapter and regression tests**
 
 Run:
 
@@ -276,7 +276,7 @@ git diff --check
 
 Expected: all tests PASS with no leaked handles.
 
-- [ ] **Step 5: Commit the integration adapter**
+- [x] **Step 5: Commit the integration adapter**
 
 ```bash
 git add plugins/codex-browser-recorder/skills/record-browser/scripts/run-browser-recording.mjs tests/browser-recording-adapter.test.mjs

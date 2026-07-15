@@ -1,5 +1,6 @@
 import { chmod, mkdtemp, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { tmpdir } from "node:os";
 
 import {
   createFfmpegSink,
@@ -525,6 +526,114 @@ export async function startBrowserPocForTab({ tab, ...options }) {
   }
 
   return startBrowserPoc({ ...options, cdp });
+}
+
+export async function createBrowserRecording({
+  _dependencies = {
+    finalizeBrowserPoc,
+    prepareBrowserPoc,
+    startBrowserPocForTab,
+  },
+  durationToleranceSeconds = 5,
+  ffmpegPath,
+  ffprobePath,
+  firstFrameTimeoutMs = 5000,
+  fps = 10,
+  maxDecodedBytes = 5 * 1024 * 1024,
+  maxDurationMs = 20 * 60 * 1000,
+  maxFrameStallMs = 5000,
+  maxHeight = 720,
+  maxOutputBytes = 500 * 1024 * 1024,
+  maxWidth = 1280,
+  minBytes = 100,
+  readTimeoutMs = 1000,
+  resourceCheckIntervalMs = 1000,
+  signal,
+  tab,
+  temporaryRoot = tmpdir(),
+}) {
+  const paths = await _dependencies.prepareBrowserPoc({ temporaryRoot });
+  const session = await _dependencies.startBrowserPocForTab({
+    ffmpegPath,
+    firstFrameTimeoutMs,
+    fps,
+    maxDecodedBytes,
+    maxDurationMs,
+    maxFrameStallMs,
+    maxOutputBytes,
+    outputPath: paths.outputPath,
+    readTimeoutMs,
+    resourceCheckIntervalMs,
+    signal,
+    tab,
+  });
+
+  let finalizationPromise = null;
+  let readinessError = null;
+  let state = "recording";
+  const ready = Promise.resolve(session.ready).catch((error) => {
+    readinessError = error;
+    state = "failed";
+    throw error;
+  });
+  if (typeof session.completion?.then === "function") {
+    void session.completion.then(
+      (outcome) => {
+        if (outcome?.error) {
+          readinessError ??= outcome.error;
+          state = "failed";
+        } else if (state === "recording") {
+          state = "stopping";
+        }
+      },
+      (error) => {
+        readinessError ??= error;
+        state = "failed";
+      },
+    );
+  }
+
+  function status() {
+    return {
+      capture: sanitizeCaptureResult({
+        ...session.stats?.framePump,
+        ...session.stats?.resources,
+        ...session.stats?.sink,
+      }),
+      state,
+    };
+  }
+
+  function stop() {
+    if (finalizationPromise !== null) return finalizationPromise;
+    if (state !== "failed") state = "stopping";
+
+    finalizationPromise = _dependencies
+      .finalizeBrowserPoc({
+        captureError: readinessError,
+        durationToleranceSeconds,
+        ffprobePath,
+        maxHeight,
+        maxWidth,
+        minBytes,
+        outputPath: paths.outputPath,
+        resultPath: paths.resultPath,
+        session,
+      })
+      .then(
+        (result) => {
+          state = result.status === "passed" ? "completed" : "failed";
+          return { paths, result };
+        },
+        (error) => {
+          state = "failed";
+          throw error;
+        },
+      );
+    return finalizationPromise;
+  }
+
+  return { ready, status, stop };
 }
 
 function createRecordingWindow(durationMs, signal) {
