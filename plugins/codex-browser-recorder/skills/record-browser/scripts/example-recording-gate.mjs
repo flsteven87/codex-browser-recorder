@@ -23,21 +23,32 @@ export async function createExampleRecording({
     throw recordingAlreadyActiveError();
   }
 
-  const inner = await _dependencies.createBrowserRecording({
-    expectedTopLevelUrl: EXAMPLE_PAGE_URL,
-    ffmpegPath,
-    ffprobePath,
-    fps: 10,
-    maxDecodedBytes: 5 * 1024 * 1024,
-    maxDurationMs: EXAMPLE_RECORDING_MAX_DURATION_MS,
-    maxFrameStallMs: 5_000,
-    maxHeight: 720,
-    maxOutputBytes: 500 * 1024 * 1024,
-    maxWidth: 1280,
-    signal,
-    tab,
-    temporaryRoot,
-  });
+  const reservation = {};
+  globalThis[ACTIVE_RECORDING_KEY] = reservation;
+
+  let inner;
+  try {
+    inner = await _dependencies.createBrowserRecording({
+      expectedTopLevelUrl: EXAMPLE_PAGE_URL,
+      ffmpegPath,
+      ffprobePath,
+      fps: 10,
+      maxDecodedBytes: 5 * 1024 * 1024,
+      maxDurationMs: EXAMPLE_RECORDING_MAX_DURATION_MS,
+      maxFrameStallMs: 5_000,
+      maxHeight: 720,
+      maxOutputBytes: 500 * 1024 * 1024,
+      maxWidth: 1280,
+      signal,
+      tab,
+      temporaryRoot,
+    });
+  } catch (error) {
+    if (globalThis[ACTIVE_RECORDING_KEY] === reservation) {
+      delete globalThis[ACTIVE_RECORDING_KEY];
+    }
+    throw error;
+  }
 
   let stopPromise = null;
   const handle = {

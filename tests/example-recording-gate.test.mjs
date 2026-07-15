@@ -19,7 +19,11 @@ function deferred() {
   return { promise, reject, resolve };
 }
 
-function createHarness({ ready = Promise.resolve() } = {}) {
+function createHarness({
+  create,
+  ready = Promise.resolve(),
+  stopError,
+} = {}) {
   const calls = { create: 0, stop: 0 };
   let receivedOptions;
   const inner = {
@@ -29,6 +33,9 @@ function createHarness({ ready = Promise.resolve() } = {}) {
     },
     async stop() {
       calls.stop += 1;
+      if (stopError !== undefined) {
+        throw stopError;
+      }
       return { result: { status: "passed" } };
     },
   };
@@ -38,9 +45,13 @@ function createHarness({ ready = Promise.resolve() } = {}) {
       async createBrowserRecording(options) {
         calls.create += 1;
         receivedOptions = options;
+        if (create !== undefined) {
+          return create(inner);
+        }
         return inner;
       },
     },
+    inner,
     get receivedOptions() {
       return receivedOptions;
     },
@@ -103,6 +114,58 @@ test("rejects a concurrent recording before allocating another session", async (
   assert.equal(harness.calls.create, 1);
 });
 
+test("reserves the singleton while adapter creation is pending", async () => {
+  const creation = deferred();
+  const harness = createHarness({ create: () => creation.promise });
+  const options = {
+    _dependencies: harness.dependencies,
+    ffmpegPath: "ffmpeg",
+    ffprobePath: "ffprobe",
+    tab: {},
+  };
+
+  const first = createExampleRecording(options);
+  const second = createExampleRecording(options);
+  const allocationsBeforeResolve = harness.calls.create;
+  creation.resolve(harness.inner);
+  const [firstResult, secondResult] = await Promise.allSettled([first, second]);
+
+  assert.equal(allocationsBeforeResolve, 1);
+  assert.equal(harness.calls.create, 1);
+  assert.equal(firstResult.status, "fulfilled");
+  assert.equal(secondResult.status, "rejected");
+  assert.equal(secondResult.reason.code, "recording_already_active");
+
+  const handle = firstResult.value;
+  await handle.stop();
+});
+
+test("releases the singleton when adapter creation rejects", async () => {
+  const failure = new Error("Adapter creation failed");
+  const failingHarness = createHarness({
+    create: async () => {
+      throw failure;
+    },
+  });
+  const options = {
+    _dependencies: failingHarness.dependencies,
+    ffmpegPath: "ffmpeg",
+    ffprobePath: "ffprobe",
+    tab: {},
+  };
+
+  await assert.rejects(createExampleRecording(options), (error) => error === failure);
+
+  const nextHarness = createHarness();
+  const next = await createExampleRecording({
+    ...options,
+    _dependencies: nextHarness.dependencies,
+  });
+  await next.stop();
+  assert.equal(failingHarness.calls.create, 1);
+  assert.equal(nextHarness.calls.create, 1);
+});
+
 test("memoizes stop and releases the singleton in a finally path", async () => {
   const harness = createHarness();
   const options = {
@@ -122,6 +185,31 @@ test("memoizes stop and releases the singleton in a finally path", async () => {
   const next = await createExampleRecording(options);
   await next.stop();
   assert.equal(harness.calls.create, 2);
+});
+
+test("memoizes a rejected stop and releases the singleton", async () => {
+  const failure = new Error("Finalization failed");
+  const harness = createHarness({ stopError: failure });
+  const options = {
+    _dependencies: harness.dependencies,
+    ffmpegPath: "ffmpeg",
+    ffprobePath: "ffprobe",
+    tab: {},
+  };
+  const handle = await createExampleRecording(options);
+
+  const firstStop = handle.stop();
+  const secondStop = handle.stop();
+  assert.equal(firstStop, secondStop);
+  await assert.rejects(firstStop, (error) => error === failure);
+  assert.equal(harness.calls.stop, 1);
+
+  const nextHarness = createHarness();
+  const next = await createExampleRecording({
+    ...options,
+    _dependencies: nextHarness.dependencies,
+  });
+  await next.stop();
 });
 
 test("automatically stops and releases the singleton after readiness failure", async () => {
