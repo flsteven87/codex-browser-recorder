@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { access, readFile, stat } from "node:fs/promises";
 import { dirname, posix, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -8,6 +9,8 @@ const execFileAsync = promisify(execFile);
 const manifestPath = "plugins/codex-browser-recorder/.codex-plugin/plugin.json";
 const evalPath = "evals/plugin-submission-cases.json";
 const ciPath = ".github/workflows/ci.yml";
+const canonicalCiSha256 =
+  "0a51afb66ea4b764dc49c46f6f19486afb8374113f25eac6bc4e84ec2bdd3d79";
 const workflowPaths = [ciPath, ".github/workflows/codeql.yml"];
 const publicTextPaths = [
   "README.md",
@@ -291,7 +294,12 @@ function requiredCiStepsAreUnconditional(source) {
 
 async function validateCi(repositoryRoot, existing, failures) {
   if (!existing.has(ciPath)) return;
-  const source = await readFile(repositoryPath(repositoryRoot, ciPath), "utf8");
+  const contents = await readFile(repositoryPath(repositoryRoot, ciPath));
+  const source = contents.toString("utf8");
+  const sha256 = createHash("sha256").update(contents).digest("hex");
+  if (sha256 !== canonicalCiSha256) {
+    addFailure(failures, "CI_WORKFLOW_HASH_INVALID", ciPath);
+  }
   const codexCommandsPresent = [
     "npm install --global @openai/codex@0.144.4",
     "npm run test:plugin-install",
