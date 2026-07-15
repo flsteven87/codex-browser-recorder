@@ -10,7 +10,7 @@ import {
   prepareBrowserPoc,
   runBrowserPocGate,
   startBrowserPocForTab,
-} from "../poc/run-browser-poc.mjs";
+} from "../plugins/codex-browser-recorder/skills/record-browser/scripts/run-browser-recording.mjs";
 import { resolveExecutable } from "./test-tools.mjs";
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), "browser-poc-result-test-"));

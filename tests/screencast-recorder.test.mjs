@@ -16,8 +16,8 @@ import {
   estimateDecodedBytes,
   parseScreencastFrame,
   startFramePump,
-} from "../poc/screencast-recorder.mjs";
-import { startBrowserPoc } from "../poc/run-browser-poc.mjs";
+} from "../plugins/codex-browser-recorder/skills/record-browser/scripts/screencast-recorder.mjs";
+import { startBrowserPoc } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/run-browser-recording.mjs";
 import { resolveExecutable } from "./test-tools.mjs";
 
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);

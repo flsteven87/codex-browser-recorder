@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { validateVideo } from "../poc/validate-video.mjs";
+import { validateVideo } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/validate-video.mjs";
 import { resolveExecutable } from "./test-tools.mjs";
 
 const directory = mkdtempSync(join(tmpdir(), "browser-recorder-validator-"));

@@ -47,7 +47,7 @@
 - Skill identity: `record-browser`, explicit invocation only.
 - Canonical module root: `plugins/codex-browser-recorder/skills/record-browser/scripts/`.
 
-- [ ] **Step 1: Write the failing plugin structure test**
+- [x] **Step 1: Write the failing plugin structure test**
 
 Add `tests/plugin-structure.test.mjs` using only Node built-ins. It must parse the two JSON manifests and skill frontmatter, then assert:
 
@@ -69,7 +69,7 @@ assert.equal(agent.policy.allow_implicit_invocation, false);
 
 Also assert that every required script exists, `poc/` no longer exists after migration, and no plugin source contains imports that escape the plugin root or references `poc/`, `.codex/plugins/cache`, or `~/.codex`.
 
-- [ ] **Step 2: Run the structure test and verify RED**
+- [x] **Step 2: Run the structure test and verify RED**
 
 Run:
 
@@ -79,7 +79,7 @@ node --test tests/plugin-structure.test.mjs
 
 Expected: FAIL because the repository marketplace and plugin do not exist.
 
-- [ ] **Step 3: Generate the official scaffold**
+- [x] **Step 3: Generate the official scaffold**
 
 Run the official generator from the system skill:
 
@@ -95,7 +95,7 @@ python3 /Users/po-chi/.codex/skills/.system/plugin-creator/scripts/create_basic_
 
 Treat generated JSON and placeholder skill files as scaffold output, then reduce them to the approved skill-only layout. Do not add speculative capabilities.
 
-- [ ] **Step 4: Move the recorder implementation and update imports**
+- [x] **Step 4: Move the recorder implementation and update imports**
 
 Move the four Phase 0 modules to the skill's `scripts/` directory, rename `run-browser-poc.mjs` to `run-browser-recording.mjs`, update its local imports, and update all test imports. Delete the empty `poc/` directory. Preserve behavior in this task.
 
@@ -105,11 +105,11 @@ Update `package.json` so syntax checks cover the canonical scripts and tests:
 "check:syntax": "for file in plugins/codex-browser-recorder/skills/record-browser/scripts/*.mjs tests/*.mjs; do node --check \"$file\"; done"
 ```
 
-- [ ] **Step 5: Fill minimal valid plugin metadata**
+- [x] **Step 5: Fill minimal valid plugin metadata**
 
 Use professional English metadata, keep the plugin private-data neutral, and declare no MCP servers or apps. Set marketplace policy fields to `AVAILABLE`, `ON_INSTALL`, and the schema's developer-tools category value. Set skill frontmatter to explicit invocation only and keep the workflow body minimal until Task 4.
 
-- [ ] **Step 6: Validate the scaffold and regression suite**
+- [x] **Step 6: Validate the scaffold and regression suite**
 
 Run:
 
@@ -123,7 +123,7 @@ git diff --check
 
 Expected: all commands PASS and no test imports `poc/`.
 
-- [ ] **Step 7: Commit the canonical plugin skeleton**
+- [x] **Step 7: Commit the canonical plugin skeleton**
 
 ```bash
 git add .agents/plugins/marketplace.json plugins/codex-browser-recorder package.json tests

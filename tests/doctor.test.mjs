@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import test from "node:test";
 
-import { doctor } from "../poc/doctor.mjs";
+import { doctor } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/doctor.mjs";
 
 const directory = mkdtempSync(join(tmpdir(), "browser-recorder-doctor-"));
 const binDirectory = join(directory, "bin");
