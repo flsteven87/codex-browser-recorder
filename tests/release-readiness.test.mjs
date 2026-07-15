@@ -84,6 +84,18 @@ async function replaceText(repositoryRoot, relativePath, pattern, replacement) {
   await writeFile(path, source.replace(pattern, replacement));
 }
 
+async function mutateWorkflowStep(repositoryRoot, name, mutate) {
+  const path = join(repositoryRoot, ".github/workflows/ci.yml");
+  const source = await readFile(path, "utf8");
+  const marker = `      - name: ${name}`;
+  const start = source.indexOf(marker);
+  assert.notEqual(start, -1, `workflow fixture must contain ${name}`);
+  const next = source.indexOf("\n      - name: ", start + marker.length);
+  const end = next === -1 ? source.length : next + 1;
+  const block = source.slice(start, end);
+  await writeFile(path, source.slice(0, start) + mutate(block) + source.slice(end));
+}
+
 async function assertOnlyFailure(repositoryRoot, code, path, mode = "candidate") {
   await assert.rejects(
     validateReleaseReadiness({ mode, repositoryRoot }),
@@ -164,6 +176,26 @@ test("release rejects an undated canonical changelog entry", async () => {
     "CHANGELOG.md",
     "release",
   );
+});
+
+test("release rejects duplicate or residual Unreleased 0.1.0 headings", async () => {
+  for (const extraHeading of [
+    "## [0.1.0] - 2026-07-17",
+    "## [0.1.0] - Unreleased",
+  ]) {
+    const repositoryRoot = await createFixture();
+    await finalizeReleaseFixture(repositoryRoot);
+    const path = join(repositoryRoot, "CHANGELOG.md");
+    const source = await readFile(path, "utf8");
+    await writeFile(path, `${source}\n${extraHeading}\n`);
+
+    await assertOnlyFailure(
+      repositoryRoot,
+      "CHANGELOG_RELEASE_INCOMPLETE",
+      "CHANGELOG.md",
+      "release",
+    );
+  }
 });
 
 test("reports one stable missing-file failure for every release material", async () => {
@@ -271,6 +303,94 @@ test("rejects CI that conditionally skips the Codex CLI or install gate", async 
     await assertOnlyFailure(
       repositoryRoot,
       "CI_CODEX_GATE_INVALID",
+      ".github/workflows/ci.yml",
+    );
+  }
+});
+
+test("rejects required CI steps with YAML-level failure suppression", async () => {
+  for (const [name, control] of [
+    ["Install pinned Codex CLI", "        if: false\n"],
+    ["Run official plugin validator", "        continue-on-error: true\n"],
+    ["Verify isolated plugin installation", "        continue-on-error: true\n"],
+    ["Verify release candidate", "        if: false\n"],
+  ]) {
+    const repositoryRoot = await createFixture();
+    await mutateWorkflowStep(repositoryRoot, name, (block) =>
+      block.replace(`      - name: ${name}\n`, `      - name: ${name}\n${control}`),
+    );
+    await assertOnlyFailure(
+      repositoryRoot,
+      "CI_REQUIRED_STEP_INVALID",
+      ".github/workflows/ci.yml",
+    );
+  }
+});
+
+test("rejects a conditional CI test job", async () => {
+  for (const [pattern, replacement] of [
+    [
+      "  test:\n    runs-on: macos-14",
+      "  test:\n    if: false\n    runs-on: macos-14",
+    ],
+    [
+      "    timeout-minutes: 15",
+      "    timeout-minutes: 15\n    if: false",
+    ],
+  ]) {
+    const repositoryRoot = await createFixture();
+    await replaceText(
+      repositoryRoot,
+      ".github/workflows/ci.yml",
+      pattern,
+      replacement,
+    );
+    await assertOnlyFailure(
+      repositoryRoot,
+      "CI_REQUIRED_STEP_INVALID",
+      ".github/workflows/ci.yml",
+    );
+  }
+});
+
+test("rejects required named steps moved outside the CI test job", async () => {
+  const repositoryRoot = await createFixture();
+  await replaceText(
+    repositoryRoot,
+    ".github/workflows/ci.yml",
+    "      - name: Verify release candidate",
+    "      - name: Candidate command without required binding",
+  );
+  const path = join(repositoryRoot, ".github/workflows/ci.yml");
+  const source = await readFile(path, "utf8");
+  await writeFile(
+    path,
+    `${source}\n  decoy:\n    runs-on: macos-14\n    steps:\n      - name: Verify release candidate\n        run: npm run check:release-candidate\n`,
+  );
+  await assertOnlyFailure(
+    repositoryRoot,
+    "CI_REQUIRED_STEP_INVALID",
+    ".github/workflows/ci.yml",
+  );
+});
+
+test("rejects false branches and shell failure suppression in official validator steps", async () => {
+  for (const mutate of [
+    (block) =>
+      block.replace("        run: |\n", "        run: |\n          if false; then\n") +
+      "          fi\n",
+    (block) => block.replace(/(uv run [^\n]+)/u, "$1 || true"),
+    (block) => block.replace(/(uv run [^\n]+)/u, "$1 || echo suppressed"),
+  ]) {
+    const repositoryRoot = await createFixture();
+    await mutateWorkflowStep(
+      repositoryRoot,
+      "Run official skill validator",
+      mutate,
+    );
+    await assertOnlyFailure(
+      repositoryRoot,
+      "CI_REQUIRED_STEP_INVALID",
       ".github/workflows/ci.yml",
     );
   }

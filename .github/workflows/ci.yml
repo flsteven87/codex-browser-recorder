@@ -27,6 +27,11 @@ jobs:
         with:
           node-version: 24
 
+      - name: Set up pinned uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          uv-version: 0.11.29
+
       - name: Install FFmpeg when unavailable
         run: command -v ffmpeg >/dev/null || brew install ffmpeg
 
@@ -41,11 +46,15 @@ jobs:
 
       - name: Run official plugin validator
         run: |
-          uv run --no-project --with pyyaml python "$HOME/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py" plugins/codex-browser-recorder
+          curl --fail --location --silent --show-error "https://raw.githubusercontent.com/openai/codex/08924bca0058eeaf179d2291af2c485123dbf2a2/codex-rs/skills/src/assets/samples/plugin-creator/scripts/validate_plugin.py" --output "$RUNNER_TEMP/validate_plugin.py"
+          echo "ebda00d55d7518b127f675f062fb5c6e7a1ffdc0a99df1a55ac594400d7d3228  $RUNNER_TEMP/validate_plugin.py" | shasum -a 256 -c -
+          uv run --no-project --with pyyaml python "$RUNNER_TEMP/validate_plugin.py" plugins/codex-browser-recorder
 
       - name: Run official skill validator
         run: |
-          uv run --no-project --with pyyaml python "$HOME/.codex/skills/.system/skill-creator/scripts/quick_validate.py" plugins/codex-browser-recorder/skills/record-browser
+          curl --fail --location --silent --show-error "https://raw.githubusercontent.com/openai/skills/49f948faa9258a0c61caceaf225e179651397431/skills/.system/skill-creator/scripts/quick_validate.py" --output "$RUNNER_TEMP/quick_validate.py"
+          echo "6cc9dc3199c935916cf6f73fcbbbb0e3bb1b58c8f5109fefa499978908164f51  $RUNNER_TEMP/quick_validate.py" | shasum -a 256 -c -
+          uv run --no-project --with pyyaml python "$RUNNER_TEMP/quick_validate.py" plugins/codex-browser-recorder/skills/record-browser
 
       - name: Verify isolated plugin installation
         run: npm run test:plugin-install

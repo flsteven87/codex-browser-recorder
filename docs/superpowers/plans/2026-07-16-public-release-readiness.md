@@ -383,7 +383,7 @@ node scripts/validate-release-readiness.mjs --candidate
 node scripts/validate-release-readiness.mjs --release
 ```
 
-Return non-zero on failure and print only stable codes plus repository-relative paths. Never print file contents, absolute cache paths, raw Browser diagnostics, URLs from eval prompts, or artifact contents. Candidate mode verifies all local materials while permitting the cachebuster. Release mode additionally requires exact `0.1.0`, a completed changelog entry, and no `Unreleased` release date placeholder for version `0.1.0`.
+Return non-zero on failure and print only stable codes plus repository-relative paths. Never print file contents, absolute cache paths, raw Browser diagnostics, URLs from eval prompts, or artifact contents. Candidate mode verifies all local materials while permitting the cachebuster. Release mode additionally requires exact `0.1.0`, exactly one dated `0.1.0` changelog heading, and no `0.1.0` `Unreleased` heading.
 
 - [ ] **Step 4: Make CI install the pinned Codex CLI and run every local gate**
 
@@ -391,15 +391,22 @@ Update `.github/workflows/ci.yml` so the main test job:
 
 1. checks out with the existing full SHA;
 2. sets up Node 24 with the existing full SHA;
-3. installs FFmpeg when unavailable;
-4. installs `@openai/codex@0.144.4` unconditionally;
-5. runs syntax/tests and coverage;
-6. runs both official validators;
-7. runs `npm run test:plugin-install` without a skip branch;
-8. runs `npm run check:release-candidate`;
-9. runs whitespace and artifact-residue checks.
+3. provisions `uv` with `astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990` and `uv-version: 0.11.29`;
+4. installs FFmpeg when unavailable;
+5. installs `@openai/codex@0.144.4` unconditionally;
+6. runs syntax/tests and coverage;
+7. downloads the official plugin validator from the immutable Codex commit `08924bca0058eeaf179d2291af2c485123dbf2a2`, verifies SHA-256 `ebda00d55d7518b127f675f062fb5c6e7a1ffdc0a99df1a55ac594400d7d3228`, and runs it from the runner temporary directory;
+8. downloads the official skill validator from the immutable Skills commit `49f948faa9258a0c61caceaf225e179651397431`, verifies SHA-256 `6cc9dc3199c935916cf6f73fcbbbb0e3bb1b58c8f5109fefa499978908164f51`, and runs it from the runner temporary directory;
+9. runs `npm run test:plugin-install` without a skip branch;
+10. runs `npm run check:release-candidate`;
+11. runs whitespace and artifact-residue checks.
 
-Keep `permissions: contents: read`. Do not add write permissions, secrets, uploads, or release behavior.
+The required Codex install, official validators, isolated install, and candidate
+steps must be structurally unconditional: no step/job `if`,
+`continue-on-error`, false shell branch, `|| true`, or equivalent failure
+suppression. Keep `permissions: contents: read`. Do not add write permissions,
+secrets, uploads, or release behavior. Do not depend on a pre-existing
+`$HOME/.codex/skills/.system` directory.
 
 - [ ] **Step 5: Add pinned CodeQL static analysis**
 
