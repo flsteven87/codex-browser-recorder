@@ -1,9 +1,10 @@
 # Browser Recorder for Codex
 
 Browser Recorder is an experimental, community-developed Codex plugin that
-records one explicitly approved test flow in a fresh Codex in-app Browser tab
-to a private local WebM file. The recording contains the page viewport only,
-uses VP8 video with no audio, and stays on the local machine.
+records one explicitly approved test flow in a fresh tab in the browser selected
+by the installed Browser plugin to a private local WebM file. The recording
+contains the page viewport only, uses VP8 video with no audio, and stays on the
+local machine.
 
 The plugin reuses the installed Browser plugin's permission-gated CDP session.
 It does not record Codex UI, browser chrome, other tabs, or an entire browser
@@ -29,8 +30,9 @@ The first release accepts:
 - `https:` URLs without embedded usernames or passwords;
 - explicitly approved loopback development URLs using `http:` with
   `localhost`, `127.0.0.1`, or `[::1]`;
-- one fresh Browser tab, one normalized approved origin, and only the Browser
-  actions listed in the user's consent;
+- one fresh tab in the browser selected by the installed Browser plugin, one
+  normalized approved origin, and only the Browser actions listed in the user's
+  consent;
 - durations from 5 through 60 seconds, with 15 seconds as the default.
 
 Existing tabs, multiple tabs, non-loopback `http:` targets, URL credentials,
@@ -90,8 +92,9 @@ Explicitly invoke `$record-browser` and provide:
 Mentioning `$record-browser` selects the workflow but does not approve an
 unknown target or scope. The skill validates the request locally before any
 Browser activity, creates one fresh blank tab only after consent, performs only
-the approved actions, finalizes the recording, closes the fresh tab on every
-path, and reports either the local result or an allowlisted failure.
+the approved actions, finalizes the recording, attempts to close the fresh tab
+on every path, and reports bounded manual cleanup instructions if closure fails.
+It otherwise reports either the local result or an allowlisted failure.
 
 Approval denial returns `cancelled`. The plugin never retries or bypasses a
 denied site or CDP approval.

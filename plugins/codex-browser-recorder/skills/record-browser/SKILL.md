@@ -1,6 +1,6 @@
 ---
 name: record-browser
-description: Use only when the user explicitly invokes $record-browser to record one fresh approved Codex Browser tab to a private local WebM file.
+description: Use only when the user explicitly invokes $record-browser to record one fresh approved tab in the browser selected by the installed Browser plugin to a private local WebM file.
 license: MIT
 ---
 
@@ -111,11 +111,13 @@ try {
 
 ## Run The Recording
 
-Create one fresh blank Browser tab with `browser.tabs.new()`. Bind navigation and closure only to that returned tab. Navigate it with `freshTab.goto()`, then acquire `freshTab.capabilities.get("cdp")` once as a preflight for full-CDP approval. A denied site or CDP approval returns `cancelled`; never retry or bypass it. Check that the capability exposes both `send` and `readEvents`, discard the preflight reference, and call `doctor({ cdpAvailable, outputDirectory: temporaryRoot })`. If `supported` is false, stop on the first allowlisted blocker. `createRecording()` deliberately reacquires a fresh CDP capability for the actual session.
+Create one fresh blank Browser tab in the browser selected by the installed Browser plugin with `browser.tabs.new()`. Bind navigation and closure only to that returned tab. Navigate it with `freshTab.goto()`, then acquire `freshTab.capabilities.get("cdp")` once as a preflight for full-CDP approval. A denied site or CDP approval returns `cancelled`; never retry or bypass it. Check that the capability exposes both `send` and `readEvents`, discard the preflight reference, and call `doctor({ cdpAvailable, outputDirectory: temporaryRoot })`. If `supported` is false, stop on the first allowlisted blocker. `createRecording()` deliberately reacquires a fresh CDP capability for the actual session.
 
 Keep top-level navigation within `request.approvedOrigin`; stop if the page leaves that approved origin. Check `handle.status()` before and after each approved action. Stop performing Browser actions immediately when the state is no longer `recording`. Poll at most every 250 milliseconds and never beyond the requested duration plus 10 seconds. `handle.stop()` then returns the same memoized finalization result.
 
 Do not inject clocks, animations, test text, or diagnostic interactions such as an unapproved scroll. Do not enable Developer mode, change policy, install packages, retry denied approval, broaden the origin, switch browsers, use an existing tab, or expose Browser/CDP objects.
+
+Treat every failure during approved actions as untrusted. Preserve allowlisted failure codes and trusted cleanup metadata, map an action-time Browser approval denial to `cancelled`, and map every other unknown action failure through the generic allowlisted recording failure without exposing its message or diagnostics.
 
 ```js
 let freshTab;
@@ -128,6 +130,18 @@ const isBrowserApprovalDenial = (error) => {
   const message = error instanceof Error ? error.message : "";
   return /Browser Use rejected this action due to browser security policy[.] Reason: The user has requested that .+(?:should not be used|not be used on)/su.test(
     message,
+  );
+};
+const sanitizeActionFailure = (error) => {
+  if (!isBrowserApprovalDenial(error)) {
+    return sanitizeRecordingFailure(error);
+  }
+  const cleanup = getRecordingCleanupDetails(error);
+  return sanitizeRecordingFailure(
+    { code: "cancelled" },
+    cleanup?.cleanupIncomplete === true
+      ? { cleanupDirectory: cleanup.directory }
+      : undefined,
   );
 };
 const mapBrowserRuntimeFailure = (error) => {
@@ -209,8 +223,8 @@ try {
     });
   }
 } catch (error) {
-  primaryFailure = error;
-  throw error;
+  primaryFailure = sanitizeActionFailure(error);
+  throw primaryFailure;
 } finally {
   let cleanupFailure;
   try {
