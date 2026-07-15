@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import {
+  validateRecordingRequest,
+} from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-policy.mjs";
+
 const evalPath = new URL("../evals/plugin-submission-cases.json", import.meta.url);
 const expectedCaseIds = [
   "positive-basic-https",
@@ -135,6 +139,36 @@ function assertCorpusUrlContract(cases) {
   }
 }
 
+function assertPositivePolicyContract(cases) {
+  const failures = [];
+  for (const item of cases.filter(({ kind }) => kind === "positive")) {
+    const durationMs = item.setup.durationSeconds * 1_000;
+    try {
+      assert.deepEqual(
+        validateRecordingRequest({
+          durationMs,
+          targetUrl: item.setup.targetUrl,
+        }),
+        {
+          approvedOrigin: item.setup.approvedOrigin,
+          durationMs,
+          targetUrl: item.setup.targetUrl,
+        },
+      );
+    } catch (error) {
+      failures.push({
+        code: error?.code ?? error?.name ?? "unknown_failure",
+        id: item.id,
+      });
+    }
+  }
+  assert.deepEqual(
+    failures,
+    [],
+    "positive eval targets must satisfy the production recording policy",
+  );
+}
+
 test("defines exactly five positive and three negative submission cases", async () => {
   const corpus = await loadCases();
   assertExactCorpusSchema(corpus);
@@ -202,6 +236,56 @@ test("rejects prompt, origin, and schema mismatch mutants", async () => {
   assert.throws(
     () => assertExactCorpusSchema(expectedMutant),
     /expected schema must contain exactly the documented keys/,
+  );
+});
+
+test("validates positive targets through the production recording policy", async () => {
+  const { cases } = await loadCases();
+  assertPositivePolicyContract(cases);
+});
+
+test("rejects username credential mutants through the production policy", async () => {
+  const corpus = await loadCases();
+  for (const targetUrl of [
+    "https://recorder@example.com/guide",
+    "https://recorder:synthetic@example.com/guide",
+  ]) {
+    const mutant = structuredClone(corpus.cases);
+    const item = mutant.find(({ id }) => id === "positive-basic-https");
+    const originalTarget = item.setup.targetUrl;
+    item.prompt = item.prompt.replace(originalTarget, targetUrl);
+    item.setup.targetUrl = targetUrl;
+    item.setup.approvedOrigin = new URL(targetUrl).origin;
+
+    assertCorpusUrlContract(mutant);
+    assert.throws(
+      () => assertPositivePolicyContract(mutant),
+      /target_credentials_present/,
+    );
+  }
+});
+
+test("proves the sole credentialed negative through production policy", async () => {
+  const { cases } = await loadCases();
+  const credentialedCases = cases.filter(({ setup }) => {
+    const target = new URL(setup.targetUrl);
+    return target.username.length > 0 || target.password.length > 0;
+  });
+  assert.deepEqual(
+    credentialedCases.map(({ id }) => id),
+    ["negative-credentialed-url"],
+  );
+
+  const [credentialed] = credentialedCases;
+  assert.throws(
+    () =>
+      validateRecordingRequest({
+        durationMs: credentialed.setup.durationSeconds * 1_000,
+        targetUrl: credentialed.setup.targetUrl,
+      }),
+    (error) =>
+      error.code === "target_credentials_present" &&
+      error.code === credentialed.expected.outcome,
   );
 });
 
