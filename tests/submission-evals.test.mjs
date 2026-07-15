@@ -100,7 +100,37 @@ function assertAllowedEvalUrl(url, itemId) {
   assert.fail(`${itemId} URL must use an approved example or loopback host`);
 }
 
+function assertUrlCredentialContract(cases) {
+  const credentialed = cases.find(
+    ({ id }) => id === "negative-credentialed-url",
+  );
+  const allowedTarget = new URL(credentialed.setup.targetUrl);
+  assert.notEqual(
+    allowedTarget.username,
+    "",
+    "credentialed negative target must contain a username",
+  );
+  assert.equal(
+    allowedTarget.password,
+    "",
+    "credentialed negative target must not retain a secret",
+  );
+
+  for (const item of cases) {
+    const urls = [...extractUrls(item.prompt), ...extractUrls(item.setup)];
+    for (const url of urls) {
+      const parsed = new URL(url);
+      if (parsed.username.length === 0 && parsed.password.length === 0) continue;
+      assert.ok(
+        item.id === credentialed.id && parsed.href === allowedTarget.href,
+        "URL credentials are allowed only for the credentialed negative target",
+      );
+    }
+  }
+}
+
 function assertCorpusUrlContract(cases) {
+  assertUrlCredentialContract(cases);
   for (const item of cases) {
     const promptUrls = extractUrls(item.prompt);
     const setupUrls = extractUrls(item.setup);
@@ -257,12 +287,52 @@ test("rejects username credential mutants through the production policy", async 
     item.setup.targetUrl = targetUrl;
     item.setup.approvedOrigin = new URL(targetUrl).origin;
 
-    assertCorpusUrlContract(mutant);
+    assert.throws(
+      () => assertCorpusUrlContract(mutant),
+      /URL credentials are allowed only for the credentialed negative target/,
+    );
     assert.throws(
       () => assertPositivePolicyContract(mutant),
       /target_credentials_present/,
     );
   }
+});
+
+test("rejects same-origin navigation userinfo mutants", async () => {
+  const corpus = await loadCases();
+  for (const navigationTarget of [
+    "https://recorder@example.com/results?view=list",
+    "https://recorder:synthetic@example.com/results?view=list",
+  ]) {
+    const mutant = structuredClone(corpus.cases);
+    const item = mutant.find(
+      ({ id }) => id === "positive-same-origin-navigation",
+    );
+    item.prompt = item.prompt.replace(
+      item.setup.navigationTarget,
+      navigationTarget,
+    );
+    item.setup.navigationTarget = navigationTarget;
+    assert.throws(
+      () => assertCorpusUrlContract(mutant),
+      /URL credentials are allowed only for the credentialed negative target/,
+    );
+  }
+});
+
+test("rejects userinfo in future nested setup URL fields", async () => {
+  const corpus = await loadCases();
+  const mutant = structuredClone(corpus.cases);
+  const item = mutant.find(({ id }) => id === "positive-basic-https");
+  item.setup.future = {
+    nested: {
+      callbackUrl: "https://recorder@example.com/callback",
+    },
+  };
+  assert.throws(
+    () => assertCorpusUrlContract(mutant),
+    /URL credentials are allowed only for the credentialed negative target/,
+  );
 });
 
 test("proves the sole credentialed negative through production policy", async () => {
@@ -277,6 +347,9 @@ test("proves the sole credentialed negative through production policy", async ()
   );
 
   const [credentialed] = credentialedCases;
+  const credentialedTarget = new URL(credentialed.setup.targetUrl);
+  assert.notEqual(credentialedTarget.username, "");
+  assert.equal(credentialedTarget.password, "");
   assert.throws(
     () =>
       validateRecordingRequest({
