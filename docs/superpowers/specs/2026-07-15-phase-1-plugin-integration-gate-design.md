@@ -303,6 +303,9 @@ Integration or recording failures:
 - `duration_mismatch`
 - `video_stream_missing`
 - `video_stream_count_invalid`
+- `container_invalid`
+- `codec_invalid`
+- `audio_stream_present`
 - `dimensions_out_of_bounds`
 
 Unknown failures map to `integration_failed`. A denied site or full-CDP approval
