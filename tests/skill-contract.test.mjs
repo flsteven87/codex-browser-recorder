@@ -20,6 +20,116 @@ const frontmatter = frontmatterMatch[1];
 const javascriptBlocks = [...skill.matchAll(/```js\n([\s\S]*?)\n```/g)].map(
   ([, source]) => source,
 );
+const publicWorkflowSections = [
+  "## Collect The Request",
+  "## Validate The Request Locally",
+  "## Confirm Once Before Browser Activity",
+  "## Resolve Installed Modules",
+  "## Run The Recording",
+  "## Clean Up",
+  "## Report The Result",
+];
+const forbiddenReportFields = [
+  "full URLs",
+  "page text",
+  "raw frames",
+  "CDP payloads",
+  "FFmpeg stderr",
+  "credentials",
+  "internal plugin paths",
+];
+
+function indexesOf(source, marker) {
+  const indexes = [];
+  let index = source.indexOf(marker);
+  while (index !== -1) {
+    indexes.push(index);
+    index = source.indexOf(marker, index + marker.length);
+  }
+  return indexes;
+}
+
+function assertPublicWorkflowOrdering(source) {
+  const sectionIndexes = publicWorkflowSections.map((heading) => {
+    const index = source.indexOf(heading);
+    assert.notEqual(index, -1, `missing public workflow section: ${heading}`);
+    return index;
+  });
+  assert.deepEqual(
+    sectionIndexes,
+    sectionIndexes.toSorted((left, right) => left - right),
+    "public workflow sections must remain in their required order",
+  );
+
+  const validationIndex = sectionIndexes[1];
+  const consentIndex = sectionIndexes[2];
+  const runIndex = sectionIndexes[4];
+  const cleanupIndex = sectionIndexes[5];
+  for (const marker of [
+    "scripts/recording-policy.mjs",
+    "scripts/recording-artifacts.mjs",
+    "validateRecordingRequest",
+    "describeRecordingFailure(error.code)",
+  ]) {
+    const markerIndexes = indexesOf(source, marker);
+    assert.ok(markerIndexes.length > 0, `missing local instruction: ${marker}`);
+    assert.ok(
+      markerIndexes.every(
+        (index) => index >= validationIndex && index < consentIndex,
+      ),
+      `${marker} must run locally before consent`,
+    );
+  }
+
+  const runSection = source.slice(runIndex, cleanupIndex);
+  for (const [label, marker] of [
+    ["fresh-tab creation", "Create one fresh blank Browser tab"],
+    ["fresh-tab navigation", "navigateFreshTab(request.targetUrl)"],
+    ["CDP activity", "full-CDP approval"],
+  ]) {
+    const markerIndexes = indexesOf(source, marker);
+    assert.ok(markerIndexes.length > 0, `missing ${label} instruction`);
+    assert.ok(
+      markerIndexes.every(
+        (index) => index >= runIndex && index < cleanupIndex,
+      ),
+      `${label} must occur only in the post-consent Run section`,
+    );
+    assert.ok(runSection.includes(marker));
+  }
+}
+
+function reportingSentencesWithoutProhibitions(source) {
+  return source
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => !/^(?:Never|Do not)\b/i.test(sentence))
+    .join("\n");
+}
+
+function assertPrivacyReportingContract(source) {
+  const reportIndex = source.indexOf("## Report The Result");
+  assert.notEqual(reportIndex, -1, "missing final reporting contract");
+  const reportSection = source.slice(reportIndex);
+  assert.match(
+    reportSection,
+    /On failure, report the stable failure code plus its allowlisted summary and remediation[.]/,
+  );
+
+  const positiveReporting = reportingSentencesWithoutProhibitions(reportSection);
+  for (const field of forbiddenReportFields) {
+    assert.match(
+      reportSection,
+      new RegExp(field, "i"),
+      `reporting contract must explicitly forbid ${field}`,
+    );
+    assert.doesNotMatch(
+      positiveReporting,
+      new RegExp(field, "i"),
+      `reporting contract must not positively report ${field}`,
+    );
+  }
+}
 
 function readBracedBlockAfter(source, marker, fromIndex = 0) {
   const markerIndex = source.indexOf(marker, fromIndex);
@@ -55,6 +165,36 @@ test("skill requires explicit user recording intent and one consolidated consent
   assert.match(skill, /before any Browser action/i);
   assert.match(frontmatter, /^license: MIT$/m);
   assert.doesNotMatch(frontmatter, /^compatibility:/m);
+});
+
+test("skill keeps local validation, consent, and Browser activity in exact order", () => {
+  assertPublicWorkflowOrdering(skill);
+});
+
+test("workflow ordering guard rejects reordered and pre-consent activity mutants", () => {
+  const reordered = skill
+    .replace("## Validate The Request Locally", "## TEMP")
+    .replace(
+      "## Confirm Once Before Browser Activity",
+      "## Validate The Request Locally",
+    )
+    .replace("## TEMP", "## Confirm Once Before Browser Activity");
+  assert.throws(
+    () => assertPublicWorkflowOrdering(reordered),
+    /public workflow sections must remain in their required order/,
+  );
+
+  const freshTabDirective = "Create one fresh blank Browser tab";
+  const preConsentActivity = skill
+    .replace(freshTabDirective, "")
+    .replace(
+      "## Confirm Once Before Browser Activity",
+      `${freshTabDirective}\n\n## Confirm Once Before Browser Activity`,
+    );
+  assert.throws(
+    () => assertPublicWorkflowOrdering(preConsentActivity),
+    /fresh-tab creation must occur only in the post-consent Run section/,
+  );
 });
 
 test("skill validates before Browser activity and delegates recording to production code", () => {
@@ -142,6 +282,15 @@ test("skill reports product results before bounded diagnostics", () => {
   assert.match(skill, /diagnostics/i);
   assert.match(skill, /summary/i);
   assert.match(skill, /remediation/i);
+  assertPrivacyReportingContract(skill);
+});
+
+test("privacy guard rejects a synthetic positive reporting directive", () => {
+  const positiveReporting = `${skill}\n\nReport full URLs for debugging.\n`;
+  assert.throws(
+    () => assertPrivacyReportingContract(positiveReporting),
+    /must not positively report full URLs/,
+  );
 });
 
 test("skill has no source-checkout or hard-coded cache fallback", () => {
