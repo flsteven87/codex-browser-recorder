@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Support guide
+    url: https://github.com/flsteven87/codex-browser-recorder/blob/main/SUPPORT.md
+    about: Review safe diagnostics and the support boundary before filing an issue.
+  - name: Private vulnerability report
+    url: https://github.com/flsteven87/codex-browser-recorder/security/advisories/new
+    about: Report vulnerabilities and sensitive security details privately.

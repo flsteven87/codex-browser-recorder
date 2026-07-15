@@ -24,6 +24,35 @@ const requiredScripts = [
   "recording-policy.mjs",
   "validate-video.mjs",
 ];
+const requiredPublicFiles = [
+  "README.md",
+  "SECURITY.md",
+  "TERMS.md",
+  "SUPPORT.md",
+  "CONTRIBUTING.md",
+  "CODE_OF_CONDUCT.md",
+  "CHANGELOG.md",
+  ".github/CODEOWNERS",
+  ".github/dependabot.yml",
+  ".github/pull_request_template.md",
+  ".github/ISSUE_TEMPLATE/bug_report.yml",
+  ".github/ISSUE_TEMPLATE/feature_request.yml",
+  ".github/ISSUE_TEMPLATE/config.yml",
+];
+const requiredAssetSources = [
+  "icon.svg",
+  "logo.svg",
+  "logo-dark.svg",
+  "screenshot-workflow.svg",
+  "screenshot-result.svg",
+];
+const expectedPngDimensions = new Map([
+  ["icon.png", [256, 256]],
+  ["logo.png", [1024, 256]],
+  ["logo-dark.png", [1024, 256]],
+  ["screenshot-workflow.png", [1600, 900]],
+  ["screenshot-result.png", [1600, 900]],
+]);
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -49,6 +78,29 @@ function walkFiles(directory) {
   return readdirSync(directory, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile())
     .map((entry) => join(entry.parentPath, entry.name));
+}
+
+function assertPngAsset(relativePath) {
+  assert.match(relativePath, /^\.\/assets\/[a-z0-9-]+\.png$/);
+  const assetPath = resolve(pluginRoot, relativePath);
+  assert.ok(
+    assetPath.startsWith(`${pluginRoot}${sep}`),
+    `${relativePath} must stay inside the plugin tree`,
+  );
+  assert.ok(existsSync(assetPath), `${relativePath} must exist`);
+
+  const contents = readFileSync(assetPath);
+  assert.deepEqual(
+    contents.subarray(0, 8),
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    `${relativePath} must have a PNG signature`,
+  );
+  const dimensions = [contents.readUInt32BE(16), contents.readUInt32BE(20)];
+  assert.deepEqual(
+    dimensions,
+    expectedPngDimensions.get(relativePath.slice("./assets/".length)),
+    `${relativePath} must have its bounded listing dimensions`,
+  );
 }
 
 test("plugin manifest and repository marketplace stay aligned", () => {
@@ -80,6 +132,51 @@ test("plugin manifest and repository marketplace stay aligned", () => {
   assert.equal(entry.policy.installation, "AVAILABLE");
   assert.equal(entry.policy.authentication, "ON_INSTALL");
   assert.equal(entry.category, "Developer Tools");
+});
+
+test("public plugin metadata, listing assets, and community files are complete", () => {
+  const manifest = readJson(join(pluginRoot, ".codex-plugin", "plugin.json"));
+
+  assert.equal(
+    manifest.interface.privacyPolicyURL,
+    "https://github.com/flsteven87/codex-browser-recorder/blob/main/PRIVACY.md",
+  );
+  assert.equal(
+    manifest.interface.termsOfServiceURL,
+    "https://github.com/flsteven87/codex-browser-recorder/blob/main/TERMS.md",
+  );
+  assert.match(manifest.interface.brandColor, /^#[0-9A-F]{6}$/);
+  assert.equal(manifest.interface.defaultPrompt.length, 3);
+  for (const prompt of manifest.interface.defaultPrompt) {
+    assert.ok(prompt.length <= 128, "starter prompts must be at most 128 characters");
+  }
+  assert.equal(manifest.interface.screenshots.length, 2);
+
+  for (const relativePath of [
+    manifest.interface.composerIcon,
+    manifest.interface.logo,
+    manifest.interface.logoDark,
+    ...manifest.interface.screenshots,
+  ]) {
+    assertPngAsset(relativePath);
+  }
+
+  for (const source of requiredAssetSources) {
+    assert.ok(
+      existsSync(join(pluginRoot, "assets", "source", source)),
+      `assets/source/${source} must exist`,
+    );
+  }
+
+  for (const relativePath of requiredPublicFiles) {
+    const publicPath = join(repositoryRoot, relativePath);
+    assert.ok(existsSync(publicPath), `${relativePath} must exist`);
+    assert.doesNotMatch(
+      readFileSync(publicPath, "utf8"),
+      /\b(?:TBD|TODO|example@example[.]com|YOUR_NAME)\b/i,
+      `${relativePath} must not contain placeholders`,
+    );
+  }
 });
 
 test("record-browser is an explicit skill with one canonical script tree", () => {

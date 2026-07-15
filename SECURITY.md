@@ -2,8 +2,8 @@
 
 ## Supported versions
 
-This repository is an experimental proof of concept. Only the latest commit on
-`main` receives security fixes; there is no supported production release yet.
+This repository contains pre-release software. Security fixes are prepared on
+the latest commit on `main`; there is no supported public release yet.
 
 ## Reporting a vulnerability
 

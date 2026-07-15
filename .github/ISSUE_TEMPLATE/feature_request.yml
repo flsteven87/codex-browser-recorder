@@ -1,0 +1,42 @@
+name: Feature request
+description: Propose a focused improvement within the consent and local-only boundaries.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe a generic, non-sensitive use case. Do not include recordings, raw frames, full URLs, page content, credentials, tokens, private paths, or Browser/CDP diagnostics.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What non-sensitive test-flow problem should be solved?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain the smallest useful behavior and its user-visible outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Consent, privacy, and security impact
+      description: Explain how the proposal preserves explicit consent, one approved origin, local artifacts, and bounded diagnostics.
+    validations:
+      required: true
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Boundary confirmation
+      options:
+        - label: The proposal does not add authenticated or sensitive recording flows.
+          required: true
+        - label: The proposal does not add uploads, sharing, browser-profile access, or approval bypasses.
+          required: true
+        - label: The request contains no recordings, URLs, credentials, frames, personal data, or Browser diagnostics.
+          required: true

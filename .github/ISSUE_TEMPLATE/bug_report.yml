@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a reproducible, non-sensitive defect in the pre-release plugin.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use only synthetic or fully redacted evidence. Do not attach recordings, raw frames, full URLs, page content, credentials, tokens, private paths, or Browser/CDP diagnostics.
+  - type: input
+    id: revision
+    attributes:
+      label: Affected revision
+      description: Provide the plugin version or commit SHA.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Redacted environment
+      description: Include macOS, Node, FFmpeg, and FFprobe versions only.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Describe the expected outcome without identifying a real target or person.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include only an allowlisted status or failure code and bounded result counters.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Synthetic reproduction
+      description: Give minimal steps using a disposable public test page or loopback fixture, without a full URL.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: The affected flow is non-sensitive and all participants approved recording.
+          required: true
+        - label: I removed recordings, frames, URLs, credentials, page content, private paths, and Browser diagnostics.
+          required: true
+        - label: This report does not disclose a vulnerability; security reports use GitHub private vulnerability reporting.
+          required: true

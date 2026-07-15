@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Browser Recorder icon</title>
+  <desc id="desc">An abstract browser viewport with a circular recording mark.</desc>
+  <rect width="256" height="256" rx="56" fill="#E5484D"/>
+  <rect x="34" y="47" width="188" height="162" rx="22" fill="none" stroke="#F9FAFB" stroke-width="12"/>
+  <path d="M40 84h176" fill="none" stroke="#F9FAFB" stroke-width="12"/>
+  <circle cx="61" cy="66" r="5" fill="#F9FAFB"/>
+  <circle cx="79" cy="66" r="5" fill="#F9FAFB"/>
+  <circle cx="128" cy="146" r="33" fill="none" stroke="#F9FAFB" stroke-width="10"/>
+  <circle cx="128" cy="146" r="17" fill="#F9FAFB"/>
+</svg>
