@@ -10,6 +10,7 @@ import {
   inspectTopLevelFrame,
   startBrowserRecordingForTab,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/browser-recording.mjs";
+import { createRecording } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/create-recording.mjs";
 
 const captureFields = [
   "backpressureDrops",
@@ -192,6 +193,122 @@ test("cleans the prepared directory when session startup fails", async () => {
   assert.equal(harness.calls.cleanup, 1);
   assert.equal(harness.calls.finalize, 0);
   assert.equal(harness.cleanupPaths, harness.paths);
+});
+
+test("external abort cancels capability acquisition and cleans late startup", async () => {
+  const temporaryRoot = mkdtempSync(join(tmpdir(), "capability-abort-test-"));
+  const capability = deferred();
+  const controller = new AbortController();
+  const methods = [];
+  let acquisitionStarted = false;
+  const starting = createBrowserRecording({
+    approvedOrigin: "https://example.com",
+    ffmpegPath: "/unused/ffmpeg",
+    ffprobePath: "/unused/ffprobe",
+    signal: controller.signal,
+    tab: {
+      capabilities: {
+        async get() {
+          acquisitionStarted = true;
+          return capability.promise;
+        },
+      },
+    },
+    temporaryRoot,
+  });
+
+  try {
+    while (!acquisitionStarted) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    controller.abort();
+    assert.equal(
+      await Promise.race([
+        starting.then(
+          () => "resolved",
+          (error) => error.code,
+        ),
+        new Promise((resolve) => setTimeout(() => resolve("pending"), 200)),
+      ]),
+      "recording_cancelled",
+    );
+    assert.deepEqual(readdirSync(temporaryRoot), []);
+
+    capability.resolve({
+      async readEvents() {
+        return { cursor: 0, events: [], truncated: false };
+      },
+      async send(method) {
+        methods.push(method);
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(methods, []);
+  } finally {
+    capability.resolve(null);
+    await starting.catch(() => {});
+    rmSync(temporaryRoot, { force: true, recursive: true });
+  }
+});
+
+test("public stop cancels a pending Page.enable and releases its artifacts", async () => {
+  const temporaryRoot = mkdtempSync(join(tmpdir(), "page-enable-stop-test-"));
+  const enable = deferred();
+  const methods = [];
+  let enableStarted = false;
+  const handle = createRecording({
+    ffmpegPath: "/unused/ffmpeg",
+    ffprobePath: "/unused/ffprobe",
+    tab: {
+      capabilities: {
+        async get() {
+          return {
+            async readEvents() {
+              return { cursor: 0, events: [], truncated: false };
+            },
+            async send(method) {
+              methods.push(method);
+              if (method === "Page.enable") {
+                enableStarted = true;
+                await enable.promise;
+              }
+            },
+          };
+        },
+      },
+    },
+    targetUrl: "https://example.com/",
+    temporaryRoot,
+  });
+
+  try {
+    while (!enableStarted) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    const stopped = handle.stop();
+    await assert.rejects(
+      stopped,
+      (error) => error.code === "recording_cancelled",
+    );
+    await assert.rejects(
+      handle.ready,
+      (error) => error.code === "recording_cancelled",
+    );
+    assert.deepEqual(readdirSync(temporaryRoot), []);
+    assert.equal(
+      globalThis[Symbol.for("codex-browser-recorder.active")],
+      undefined,
+    );
+
+    enable.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(methods, ["Page.enable"]);
+  } finally {
+    enable.resolve();
+    await handle.stop().catch(() => {});
+    delete globalThis[Symbol.for("codex-browser-recorder.active")];
+    rmSync(temporaryRoot, { force: true, recursive: true });
+  }
 });
 
 test("preserves the startup error when directory cleanup also fails", async () => {
@@ -461,6 +578,97 @@ test("acquires a fresh CDP capability for every recording session", async () => 
       ["Page.enable", "Page.getFrameTree", "Page.startScreencast"],
     ],
   );
+});
+
+test("discards the session when the event stream truncates after readiness", async () => {
+  const stopCalls = [];
+  let reads = 0;
+  const cdp = {
+    async send(method) {
+      if (method === "Page.getFrameTree") {
+        return {
+          frameTree: {
+            frame: { id: "main-frame", url: "https://example.com/start" },
+          },
+        };
+      }
+    },
+    async readEvents() {
+      reads += 1;
+      if (reads === 1) {
+        return {
+          cursor: 1,
+          events: [],
+          hasMore: false,
+          truncated: false,
+        };
+      }
+      if (reads === 2) {
+        return {
+          cursor: 2,
+          events: [
+            {
+              method: "Page.screencastFrame",
+              params: {
+                data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64"),
+                metadata: { timestamp: 1 },
+                sessionId: 1,
+              },
+            },
+          ],
+          hasMore: false,
+          truncated: false,
+        };
+      }
+      if (reads > 3) return { cursor: "invalid", events: null };
+      return {
+        cursor: 3,
+        events: [
+          {
+            method: "Page.screencastFrame",
+            params: {
+              data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64"),
+              metadata: { timestamp: 2 },
+              sessionId: 2,
+            },
+          },
+        ],
+        hasMore: false,
+        truncated: true,
+      };
+    },
+  };
+
+  const session = await startBrowserRecordingForTab({
+    approvedOrigin: "https://example.com",
+    ffmpegPath: "/unused/ffmpeg",
+    maxDecodedBytes: 1024,
+    outputPath: "/tmp/must-not-publish.webm",
+    readTimeoutMs: 1,
+    resourceCheckIntervalMs: 60_000,
+    sinkFactory: () => ({
+      stats: { outputBytes: 4, outputSamples: 0 },
+      accept() {
+        this.stats.outputSamples += 1;
+        return true;
+      },
+      async stop(options) {
+        stopCalls.push(options);
+        return this.stats;
+      },
+    }),
+    tab: { capabilities: { async get() { return cdp; } } },
+  });
+
+  await session.ready;
+  const outcome = await session.completion;
+  assert.equal(outcome.error?.code, "event_stream_invalid");
+  await assert.rejects(
+    session.stop(),
+    (error) => error.code === "event_stream_invalid",
+  );
+  assert.deepEqual(stopCalls, [{ discard: true }]);
+  assert.equal(session.stats.sink.outputSamples, 1);
 });
 
 test("completion settles with the same finalized output as explicit stop", async () => {

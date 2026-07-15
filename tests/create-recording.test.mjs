@@ -177,6 +177,28 @@ test("returns a preparing handle and validates before allocating Browser resourc
   await handle.stop();
 });
 
+test("immediate stop cancels preparation and releases the singleton", async () => {
+  const harness = createHarness();
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    targetUrl: "https://example.com/",
+    tab: {},
+  });
+
+  const stopped = handle.stop();
+  await assert.rejects(
+    stopped,
+    (error) => error.code === "recording_cancelled",
+  );
+  await assert.rejects(
+    handle.ready,
+    (error) => error.code === "recording_cancelled",
+  );
+  assert.equal(harness.calls.createBrowserRecording, 0);
+  assertPublicStatus(handle, "cancelled");
+  await assertSingletonReleased();
+});
+
 test("rejects invalid targets before lower-level allocation", async () => {
   const harness = createHarness();
   const handle = createRecording({
@@ -216,12 +238,14 @@ test("stops cleanly at the requested duration and memoizes finalization", async 
   assert.equal(harness.clock.pending, 0);
   await handle.ready;
   assertPublicStatus(handle, "recording");
+  assert.equal(harness.rawRecordingOptions.signal.aborted, false);
   assert.equal(harness.clock.pending, 1);
   harness.clock.advance(5_000);
   const first = handle.stop();
   const second = handle.stop();
   assert.equal(first, second);
   await first;
+  assert.equal(harness.rawRecordingOptions.signal.aborted, false);
   assert.equal(harness.calls.stop, 1);
   assert.equal(harness.clock.pending, 0);
   assertPublicStatus(handle, "completed");
@@ -370,8 +394,9 @@ const terminalCases = [
         tab: {},
       });
       await Promise.resolve();
-      assert.equal(harness.rawRecordingOptions.signal, controller.signal);
+      assert.notEqual(harness.rawRecordingOptions.signal, controller.signal);
       controller.abort();
+      assert.equal(harness.rawRecordingOptions.signal.aborted, true);
       harness.readyDeferred.reject(
         Object.assign(new Error("private abort detail"), {
           code: "recording_cancelled",

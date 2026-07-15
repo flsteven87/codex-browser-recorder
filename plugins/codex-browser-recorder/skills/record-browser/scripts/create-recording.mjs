@@ -30,6 +30,8 @@ export function createRecording(options) {
   let stopPromise;
   let terminal = false;
   const reservation = {};
+  const cancellation = new AbortController();
+  const cancelFromCaller = () => cancellation.abort();
 
   if (globalThis[ACTIVE_RECORDING_KEY] != null) {
     const error = sanitizeRecordingFailure({
@@ -44,11 +46,14 @@ export function createRecording(options) {
     };
   }
   globalThis[ACTIVE_RECORDING_KEY] = reservation;
+  options?.signal?.addEventListener("abort", cancelFromCaller, { once: true });
+  if (options?.signal?.aborted) cancelFromCaller();
 
   let handle;
   let ready;
 
   function release() {
+    options?.signal?.removeEventListener("abort", cancelFromCaller);
     if (
       globalThis[ACTIVE_RECORDING_KEY] === reservation ||
       globalThis[ACTIVE_RECORDING_KEY] === handle
@@ -81,6 +86,9 @@ export function createRecording(options) {
   }
 
   function stop() {
+    if (["preparing", "awaiting_frame"].includes(state)) {
+      cancellation.abort();
+    }
     stopPromise ??= ready
       .then(async () => {
         dependencies.clock.clearTimeout(durationTimer);
@@ -102,13 +110,19 @@ export function createRecording(options) {
 
   ready = Promise.resolve()
     .then(async () => {
+      if (cancellation.signal.aborted) {
+        throw sanitizeRecordingFailure({ code: "recording_cancelled" });
+      }
       const request = validateRecordingRequest(options);
+      if (cancellation.signal.aborted) {
+        throw sanitizeRecordingFailure({ code: "recording_cancelled" });
+      }
       inner = await dependencies.createBrowserRecording({
         approvedOrigin: request.approvedOrigin,
         ffmpegPath: options.ffmpegPath,
         ffprobePath: options.ffprobePath,
         maxDurationMs: RECORDING_HARD_LIMIT_MS,
-        signal: options.signal,
+        signal: cancellation.signal,
         tab: options.tab,
         temporaryRoot: options.temporaryRoot,
       });

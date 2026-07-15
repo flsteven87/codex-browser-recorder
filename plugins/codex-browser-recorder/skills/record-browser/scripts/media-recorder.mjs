@@ -219,6 +219,10 @@ export function startFramePump({
 
       if (batch.truncated) {
         stats.truncations += 1;
+        throw new RecorderError(
+          "event_stream_invalid",
+          "CDP event stream was truncated",
+        );
       }
       cursor = batch.cursor;
       stats.cursor = cursor;

@@ -1,5 +1,5 @@
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { validateVideo } from "./validate-video.mjs";
 
@@ -181,6 +181,12 @@ const USER_MESSAGES = new Map(
     codes.map((code) => [code, Object.freeze({ remediation, summary })]),
   ),
 );
+const RECORDING_CLEANUP_DETAILS = new WeakMap();
+
+export function getRecordingCleanupDetails(error) {
+  const details = RECORDING_CLEANUP_DETAILS.get(error);
+  return details === undefined ? null : { ...details };
+}
 
 export function describeRecordingFailure(code) {
   return USER_MESSAGES.get(code) ?? USER_MESSAGES.get("recording_failed");
@@ -191,7 +197,16 @@ export function sanitizeRecordingFailure(error) {
     ? error.code
     : "recording_failed";
   const { remediation, summary } = describeRecordingFailure(code);
-  return Object.assign(new Error(summary), { code, remediation, summary });
+  const publicError = Object.assign(new Error(summary), {
+    code,
+    remediation,
+    summary,
+  });
+  const cleanupDetails = RECORDING_CLEANUP_DETAILS.get(error);
+  if (cleanupDetails !== undefined) {
+    RECORDING_CLEANUP_DETAILS.set(publicError, cleanupDetails);
+  }
+  return publicError;
 }
 
 export function sanitizeCaptureResult(capture) {
@@ -331,11 +346,19 @@ export async function finalizeRecordingArtifacts({
       },
     );
   } catch {
-    await Promise.allSettled([
-      _dependencies.rm(outputPath, { force: true }),
-      _dependencies.rm(resultPath, { force: true }),
-    ]);
-    throw sanitizeRecordingFailure({ code: "artifact_persistence_failed" });
+    const failure = sanitizeRecordingFailure({
+      code: "artifact_persistence_failed",
+    });
+    const directory = dirname(outputPath);
+    try {
+      await _dependencies.rm(directory, { force: true, recursive: true });
+    } catch {
+      RECORDING_CLEANUP_DETAILS.set(
+        failure,
+        Object.freeze({ cleanupIncomplete: true, directory }),
+      );
+    }
+    throw failure;
   }
   return result;
 }

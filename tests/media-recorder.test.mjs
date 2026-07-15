@@ -369,26 +369,20 @@ test("acknowledges a frame before handing it to the consumer", async () => {
   assert.equal(reads[0].afterSequence, undefined);
 });
 
-test("continues from the latest cursor and records event truncation", async () => {
-  const reads = [];
-  const batches = [
-    {
-      cursor: 3,
-      events: [frameEvent()],
-      hasMore: true,
-      truncated: true,
-    },
-    { cursor: 4, events: [], hasMore: false, truncated: false },
-  ];
+test("fails closed before processing any event from a truncated batch", async () => {
+  let framesProcessed = 0;
+  let reads = 0;
   const cdp = {
     async send() {},
-    async readEvents(options) {
-      reads.push(options);
-      if (batches.length > 0) {
-        return batches.shift();
-      }
-      await new Promise((resolve) => setTimeout(resolve, 2));
-      return { cursor: 4, events: [], hasMore: false, truncated: false };
+    async readEvents() {
+      reads += 1;
+      if (reads > 1) return { cursor: "invalid", events: null };
+      return {
+        cursor: 3,
+        events: [frameEvent()],
+        hasMore: true,
+        truncated: true,
+      };
     },
   };
 
@@ -396,17 +390,25 @@ test("continues from the latest cursor and records event truncation", async () =
     cdp,
     mainFrameId: "main-frame",
     maxDecodedBytes: 1024,
-    onFrame: () => true,
+    onFrame() {
+      framesProcessed += 1;
+      return true;
+    },
     onTopFrameNavigation() {},
     readTimeoutMs: 1,
   });
 
-  await pump.ready;
-  await new Promise((resolve) => setTimeout(resolve, 1));
-  await pump.stop();
+  await assert.rejects(
+    pump.ready,
+    (error) => error.code === "event_stream_invalid",
+  );
+  await assert.rejects(
+    pump.stop(),
+    (error) => error.code === "event_stream_invalid",
+  );
 
-  assert.equal(reads[1].afterSequence, 3);
-  assert.equal(pump.stats.cursor, 4);
+  assert.equal(framesProcessed, 0);
+  assert.equal(pump.stats.cursor, 0);
   assert.equal(pump.stats.truncations, 1);
 });
 
@@ -1235,15 +1237,25 @@ test("retains cancellation while Page.enable startup is pending", async () => {
   await Promise.resolve();
   assert.deepEqual(operations, ["Page.enable"]);
   abortController.abort();
-  enableGate.resolve();
 
   let leakedSession;
   try {
+    assert.equal(
+      await Promise.race([
+        starting.then(
+          () => "resolved",
+          (error) => error.code,
+        ),
+        new Promise((resolve) => setImmediate(() => resolve("pending"))),
+      ]),
+      "recording_cancelled",
+    );
     await assert.rejects(
       starting,
       (error) => error.code === "recording_cancelled",
     );
   } finally {
+    enableGate.resolve();
     leakedSession = await starting.catch(() => null);
     const leakedReady = leakedSession?.ready.catch(() => {});
     await leakedSession?.stop();
