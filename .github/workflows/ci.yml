@@ -30,19 +30,36 @@ jobs:
       - name: Install FFmpeg when unavailable
         run: command -v ffmpeg >/dev/null || brew install ffmpeg
 
+      - name: Install pinned Codex CLI
+        run: npm install --global @openai/codex@0.144.4
+
       - name: Run checks
         run: npm run check
 
       - name: Collect test coverage
         run: npm run test:coverage
 
-      - name: Verify isolated plugin installation when Codex is available
+      - name: Run official plugin validator
         run: |
-          if command -v codex >/dev/null; then
-            npm run test:plugin-install
-          else
-            echo "Codex CLI unavailable; isolated installation remains a local release gate."
-          fi
+          uv run --no-project --with pyyaml python "$HOME/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py" plugins/codex-browser-recorder
+
+      - name: Run official skill validator
+        run: |
+          uv run --no-project --with pyyaml python "$HOME/.codex/skills/.system/skill-creator/scripts/quick_validate.py" plugins/codex-browser-recorder/skills/record-browser
+
+      - name: Verify isolated plugin installation
+        run: npm run test:plugin-install
+
+      - name: Verify release candidate
+        run: npm run check:release-candidate
 
       - name: Check whitespace
         run: git show --check --format= HEAD
+
+      - name: Check recording artifact residue
+        env:
+          RECORDING_ARTIFACT_PATTERN: '(^|/)([^/]+\.(webm|mp4|mov|mkv|part)|result\.json|recording-[^/]+/)'
+        run: |
+          if git ls-files --cached --others --exclude-standard | grep -Eq "$RECORDING_ARTIFACT_PATTERN"; then
+            exit 1
+          fi
