@@ -7,6 +7,44 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+async function commandMatches(executable, arguments_, pattern) {
+  try {
+    const { stdout } = await execFileAsync(executable, arguments_, {
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024,
+      timeout: 5000,
+      windowsHide: true,
+    });
+    return pattern.test(stdout);
+  } catch {
+    return false;
+  }
+}
+
+async function inspectMediaCapabilities(ffmpegPath, ffprobePath) {
+  const [ffmpegVp8Available, ffmpegWebmAvailable, ffprobeUsable] =
+    await Promise.all([
+      ffmpegPath === null
+        ? false
+        : commandMatches(
+            ffmpegPath,
+            ["-hide_banner", "-loglevel", "error", "-h", "encoder=libvpx"],
+            /^Encoder libvpx \[/m,
+          ),
+      ffmpegPath === null
+        ? false
+        : commandMatches(
+            ffmpegPath,
+            ["-hide_banner", "-loglevel", "error", "-h", "muxer=webm"],
+            /^Muxer webm \[/m,
+          ),
+      ffprobePath === null
+        ? false
+        : commandMatches(ffprobePath, ["-version"], /^ffprobe version /m),
+    ]);
+  return { ffmpegVp8Available, ffmpegWebmAvailable, ffprobeUsable };
+}
+
 async function resolveExecutableFromInheritedPath(name) {
   try {
     await execFileAsync(name, ["-version"], {
@@ -52,12 +90,20 @@ export async function doctor({
   outputDirectory,
   pathValue,
   platform = hostPlatform(),
+  probeMediaCapabilities = inspectMediaCapabilities,
   resolveExecutableByName = resolveExecutableFromInheritedPath,
 }) {
   const [ffmpegPath, ffprobePath] = await Promise.all([
     findExecutable("ffmpeg", pathValue, resolveExecutableByName),
     findExecutable("ffprobe", pathValue, resolveExecutableByName),
   ]);
+  const capabilities = await probeMediaCapabilities(ffmpegPath, ffprobePath);
+  const ffmpegVp8Available =
+    ffmpegPath !== null && capabilities.ffmpegVp8Available === true;
+  const ffmpegWebmAvailable =
+    ffmpegPath !== null && capabilities.ffmpegWebmAvailable === true;
+  const ffprobeUsable =
+    ffprobePath !== null && capabilities.ffprobeUsable === true;
 
   let outputDirectoryWritable = true;
   try {
@@ -79,9 +125,18 @@ export async function doctor({
   }
   if (ffmpegPath === null) {
     blockingReasons.push("ffmpeg_missing");
+  } else {
+    if (!ffmpegVp8Available) {
+      blockingReasons.push("ffmpeg_vp8_unavailable");
+    }
+    if (!ffmpegWebmAvailable) {
+      blockingReasons.push("ffmpeg_webm_unavailable");
+    }
   }
   if (ffprobePath === null) {
     blockingReasons.push("ffprobe_missing");
+  } else if (!ffprobeUsable) {
+    blockingReasons.push("ffprobe_unusable");
   }
   if (!outputDirectoryWritable) {
     blockingReasons.push("output_directory_not_writable");
@@ -91,7 +146,10 @@ export async function doctor({
     blockingReasons,
     cdpAvailable,
     ffmpegPath,
+    ffmpegVp8Available,
+    ffmpegWebmAvailable,
     ffprobePath,
+    ffprobeUsable,
     outputDirectoryWritable,
     platform,
     supported: blockingReasons.length === 0,
