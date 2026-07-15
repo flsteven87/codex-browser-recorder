@@ -142,39 +142,86 @@ test("reports missing tools when inherited command resolution fails", async () =
 
 for (const variant of [
   {
-    code: "ffmpeg_vp8_unavailable",
+    name: "missing-vp8",
+    ffmpegVp8Output: "VP8 HELP OMITTED",
+    ffmpegWebmOutput: "Muxer webm [WebM]:",
+    ffprobeOutput: "ffprobe version test",
     ffmpegVp8Available: false,
     ffmpegWebmAvailable: true,
     ffprobeUsable: true,
+    blockingReasons: ["ffmpeg_vp8_unavailable"],
   },
   {
-    code: "ffmpeg_webm_unavailable",
+    name: "missing-webm",
+    ffmpegVp8Output: "Encoder libvpx [libvpx VP8]:",
+    ffmpegWebmOutput: "WEBM HELP OMITTED",
+    ffprobeOutput: "ffprobe version test",
     ffmpegVp8Available: true,
     ffmpegWebmAvailable: false,
     ffprobeUsable: true,
+    blockingReasons: ["ffmpeg_webm_unavailable"],
   },
   {
-    code: "ffprobe_unusable",
+    name: "unusable-ffprobe",
+    ffmpegVp8Output: "Encoder libvpx [libvpx VP8]:",
+    ffmpegWebmOutput: "Muxer webm [WebM]:",
+    ffprobeOutput: "FFPROBE VERSION OMITTED",
     ffmpegVp8Available: true,
     ffmpegWebmAvailable: true,
     ffprobeUsable: false,
+    blockingReasons: ["ffprobe_unusable"],
+  },
+  {
+    name: "all-unavailable",
+    ffmpegVp8Output: "VP8 HELP OMITTED",
+    ffmpegWebmOutput: "WEBM HELP OMITTED",
+    ffprobeOutput: "FFPROBE VERSION OMITTED",
+    ffmpegVp8Available: false,
+    ffmpegWebmAvailable: false,
+    ffprobeUsable: false,
+    blockingReasons: [
+      "ffmpeg_vp8_unavailable",
+      "ffmpeg_webm_unavailable",
+      "ffprobe_unusable",
+    ],
   },
 ]) {
-  test(`reports ${variant.code} without returning probe output`, async () => {
+  test(`reports ${variant.name} capabilities from exit-zero probe output`, async () => {
+    const fixtureBinDirectory = join(directory, variant.name);
+    mkdirSync(fixtureBinDirectory);
+    writeFileSync(
+      join(fixtureBinDirectory, "ffmpeg"),
+      [
+        "#!/bin/sh",
+        "case \"$*\" in",
+        `  *\"encoder=libvpx\"*) printf '${variant.ffmpegVp8Output}\\n' ;;`,
+        `  *\"muxer=webm\"*) printf '${variant.ffmpegWebmOutput}\\n' ;;`,
+        "esac",
+        "exit 0",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(fixtureBinDirectory, "ffprobe"),
+      `#!/bin/sh\nprintf '${variant.ffprobeOutput}\\n'\nexit 0\n`,
+    );
+    chmodSync(join(fixtureBinDirectory, "ffmpeg"), 0o755);
+    chmodSync(join(fixtureBinDirectory, "ffprobe"), 0o755);
+
     const result = await doctor({
       cdpAvailable: true,
       outputDirectory,
-      pathValue: binDirectory,
+      pathValue: fixtureBinDirectory,
       platform: "darwin",
-      probeMediaCapabilities: async () => ({
-        ffmpegVp8Available: variant.ffmpegVp8Available,
-        ffmpegWebmAvailable: variant.ffmpegWebmAvailable,
-        ffprobeUsable: variant.ffprobeUsable,
-      }),
     });
 
     assert.equal(result.supported, false);
-    assert.deepEqual(result.blockingReasons, [variant.code]);
-    assert.doesNotMatch(JSON.stringify(result), /Encoder libvpx|Muxer webm/);
+    assert.equal(result.ffmpegVp8Available, variant.ffmpegVp8Available);
+    assert.equal(result.ffmpegWebmAvailable, variant.ffmpegWebmAvailable);
+    assert.equal(result.ffprobeUsable, variant.ffprobeUsable);
+    assert.deepEqual(result.blockingReasons, variant.blockingReasons);
+    assert.doesNotMatch(
+      JSON.stringify(result),
+      /Encoder libvpx|Muxer webm|ffprobe version|HELP OMITTED|VERSION OMITTED/,
+    );
   });
 }
