@@ -41,6 +41,9 @@ const CAPTURE_RESULT_FIELDS = [
 ];
 
 const VIDEO_VALIDATION_FAILURE_CODES = new Set([
+  "audio_stream_present",
+  "codec_invalid",
+  "container_invalid",
   "dimensions_out_of_bounds",
   "duration_invalid",
   "duration_mismatch",

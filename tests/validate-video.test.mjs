@@ -11,6 +11,9 @@ import { resolveExecutable } from "./test-tools.mjs";
 const directory = mkdtempSync(join(tmpdir(), "browser-recorder-validator-"));
 const validPath = join(directory, "valid.webm");
 const multipleVideoPath = join(directory, "multiple-video.webm");
+const matroskaPath = join(directory, "not-webm.mkv");
+const vp9Path = join(directory, "vp9.webm");
+const audioPath = join(directory, "with-audio.webm");
 const emptyPath = join(directory, "empty.webm");
 const corruptPath = join(directory, "corrupt.webm");
 const ffmpegPath = resolveExecutable("ffmpeg");
@@ -56,6 +59,63 @@ execFileSync(ffmpegPath, [
   "-shortest",
   "-y",
   multipleVideoPath,
+]);
+execFileSync(ffmpegPath, [
+  "-hide_banner",
+  "-loglevel",
+  "error",
+  "-f",
+  "lavfi",
+  "-i",
+  "color=c=blue:s=320x180:d=0.5",
+  "-an",
+  "-c:v",
+  "libvpx",
+  "-pix_fmt",
+  "yuv420p",
+  "-f",
+  "matroska",
+  "-y",
+  matroskaPath,
+]);
+execFileSync(ffmpegPath, [
+  "-hide_banner",
+  "-loglevel",
+  "error",
+  "-f",
+  "lavfi",
+  "-i",
+  "color=c=blue:s=320x180:d=0.5",
+  "-an",
+  "-c:v",
+  "libvpx-vp9",
+  "-pix_fmt",
+  "yuv420p",
+  "-y",
+  vp9Path,
+]);
+execFileSync(ffmpegPath, [
+  "-hide_banner",
+  "-loglevel",
+  "error",
+  "-f",
+  "lavfi",
+  "-i",
+  "color=c=blue:s=320x180:d=0.5",
+  "-f",
+  "lavfi",
+  "-i",
+  "anullsrc=r=48000:cl=mono",
+  "-t",
+  "0.5",
+  "-c:v",
+  "libvpx",
+  "-c:a",
+  "libopus",
+  "-pix_fmt",
+  "yuv420p",
+  "-y",
+  audioPath,
 ]);
 writeFileSync(emptyPath, "");
 writeFileSync(corruptPath, "not a video");
@@ -119,6 +179,27 @@ test("rejects an output containing multiple video streams", async () => {
   await assert.rejects(
     validateVideo({ ...defaults, outputPath: multipleVideoPath }),
     (error) => error.code === "video_stream_count_invalid",
+  );
+});
+
+test("rejects a Matroska container even when its video uses VP8", async () => {
+  await assert.rejects(
+    validateVideo({ ...defaults, outputPath: matroskaPath }),
+    (error) => error.code === "container_invalid",
+  );
+});
+
+test("rejects a WebM video that does not use VP8", async () => {
+  await assert.rejects(
+    validateVideo({ ...defaults, outputPath: vp9Path }),
+    (error) => error.code === "codec_invalid",
+  );
+});
+
+test("rejects a VP8 WebM that contains an audio stream", async () => {
+  await assert.rejects(
+    validateVideo({ ...defaults, outputPath: audioPath }),
+    (error) => error.code === "audio_stream_present",
   );
 });
 

@@ -267,6 +267,48 @@ test("persists the multiple-video-stream validation failure", async () => {
   assert.equal(result.validation, null);
 });
 
+test("persists every strict media-contract failure code", async () => {
+  const variants = [
+    {
+      code: "container_invalid",
+      outputArguments: ["-an", "-c:v", "libvpx", "-f", "matroska"],
+    },
+    {
+      code: "codec_invalid",
+      outputArguments: ["-an", "-c:v", "libvpx-vp9"],
+    },
+    {
+      code: "audio_stream_present",
+      extraInput: ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono"],
+      outputArguments: ["-t", "0.5", "-c:v", "libvpx", "-c:a", "libopus"],
+    },
+  ];
+
+  for (const variant of variants) {
+    const paths = await prepareBrowserPoc({ temporaryRoot });
+    execFileSync(ffmpegPath, [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=blue:s=320x180:d=0.5",
+      ...(variant.extraInput ?? []),
+      ...variant.outputArguments,
+      "-pix_fmt",
+      "yuv420p",
+      "-y",
+      paths.outputPath,
+    ]);
+
+    const result = await finalizePrepared(paths, sessionWithResult());
+    assert.equal(result.status, "failed");
+    assert.equal(result.failureCode, variant.code);
+    assert.equal(result.validation, null);
+  }
+});
+
 test("acquires a fresh CDP capability for every recording session", async () => {
   const acquired = [];
   const createdCdps = [];

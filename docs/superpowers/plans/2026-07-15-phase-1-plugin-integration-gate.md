@@ -143,7 +143,7 @@ git commit -m "feat: scaffold browser recorder plugin"
 - Reject every `codec_type: "audio"` stream.
 - Return stable codes `container_invalid`, `codec_invalid`, and `audio_stream_present` without raw probe output.
 
-- [ ] **Step 1: Create wrong-container, wrong-codec, and audio fixtures**
+- [x] **Step 1: Create wrong-container, wrong-codec, and audio fixtures**
 
 Extend the existing test fixture setup with FFmpeg-generated files:
 
@@ -160,7 +160,7 @@ execFileSync(ffmpegPath, [/* color + anullsrc inputs */, "-c:v", "libvpx", "-c:a
 
 Write tests that require the three stable failure codes.
 
-- [ ] **Step 2: Run validator tests and verify RED**
+- [x] **Step 2: Run validator tests and verify RED**
 
 Run:
 
@@ -170,7 +170,7 @@ node --test tests/validate-video.test.mjs
 
 Expected: FAIL because the current validator accepts codec/container/audio variants.
 
-- [ ] **Step 3: Implement strict validation in deterministic order**
+- [x] **Step 3: Implement strict validation in deterministic order**
 
 After establishing exactly one video stream, validate in this order:
 
@@ -188,7 +188,7 @@ if (probe.streams.some((stream) => stream?.codec_type === "audio")) {
 
 `readEbmlDocType` must read at most the first 4 KiB, validate EBML element bounds, and return no arbitrary file content. Do not infer exact WebM from FFprobe's `format_name`, because FFprobe reports the shared `matroska,webm` demuxer for both containers. Do not return probe payloads or subprocess diagnostics. Add the new codes to the recorder's known failure-code set.
 
-- [ ] **Step 4: Run focused and full tests**
+- [x] **Step 4: Run focused and full tests**
 
 Run:
 
@@ -200,7 +200,7 @@ git diff --check
 
 Expected: all tests PASS.
 
-- [ ] **Step 5: Commit the strict media boundary**
+- [x] **Step 5: Commit the strict media boundary**
 
 ```bash
 git add plugins/codex-browser-recorder/skills/record-browser/scripts tests/validate-video.test.mjs
