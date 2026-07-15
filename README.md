@@ -12,11 +12,20 @@ profile, and it does not add an upload or sharing path.
 
 ## Status
 
-This repository implements the public recording runtime and its automated
-acceptance gate, plus the public listing and community baseline for release
-review. It remains pre-release software: the canonical `v0.1.0` tag and final
-installed-desktop release gate do not exist yet. Do not treat the current
-cachebuster manifest version or mutable `main` branch as a supported release.
+As of 2026-07-16, this repository is a locally verified `v0.1.0` release
+candidate: the complete repository test, coverage, eval, isolated-install,
+metadata, asset, and release-candidate gates pass. It remains pre-release
+software, and the current cachebuster manifest version and mutable `main`
+branch are not a supported release.
+
+Public release remains blocked on all of the following separately authorized
+work:
+
+- two sequential installed-desktop recordings from the final installed plugin
+  tree;
+- maintainer authorization for the canonical version mutation and commit;
+- public GitHub settings, push, tag, and release; and
+- OpenAI verified identity, portal access, listing review, and submission.
 
 Authenticated or sensitive flows remain out of scope. Use the plugin only for
 non-sensitive test pages and actions that every affected person has agreed may
