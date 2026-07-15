@@ -82,6 +82,7 @@ function createHarness({
       return {};
     },
   };
+  let cleanupPaths;
   let finalizeError = null;
   let finalizedOptions;
 
@@ -90,7 +91,7 @@ function createHarness({
     dependencies: {
       async cleanupPreparedBrowserPoc(preparedPaths) {
         calls.cleanup += 1;
-        assert.equal(preparedPaths, paths);
+        cleanupPaths = preparedPaths;
         if (cleanupError) throw cleanupError;
       },
       async finalizeBrowserPoc(options) {
@@ -115,6 +116,9 @@ function createHarness({
         if (startError) throw startError;
         return session;
       },
+    },
+    get cleanupPaths() {
+      return cleanupPaths;
     },
     get finalizedOptions() {
       return finalizedOptions;
@@ -149,6 +153,7 @@ test("cleans the prepared directory when session startup fails", async () => {
   assert.equal(harness.calls.start, 1);
   assert.equal(harness.calls.cleanup, 1);
   assert.equal(harness.calls.finalize, 0);
+  assert.equal(harness.cleanupPaths, harness.paths);
 });
 
 test("preserves the startup error when directory cleanup also fails", async () => {
@@ -162,6 +167,7 @@ test("preserves the startup error when directory cleanup also fails", async () =
 
   await assert.rejects(createHandle(harness), (error) => error === startupError);
   assert.equal(harness.calls.cleanup, 1);
+  assert.equal(harness.cleanupPaths, harness.paths);
 });
 
 test("returns the public handle before first-frame readiness resolves", async () => {

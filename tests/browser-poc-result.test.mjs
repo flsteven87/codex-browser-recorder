@@ -90,7 +90,9 @@ test("removes a prepared recording directory as one cleanup unit", async () => {
     writeFileSync(`${paths.outputPath}.partial`, "partial");
 
     await cleanupPreparedBrowserPoc(paths);
+    assert.equal(existsSync(paths.directory), false);
 
+    await cleanupPreparedBrowserPoc(paths);
     assert.equal(existsSync(paths.directory), false);
   } finally {
     rmSync(temporaryRoot, { force: true, recursive: true });
