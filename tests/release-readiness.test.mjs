@@ -106,6 +106,22 @@ async function assertOnlyFailure(repositoryRoot, code, path, mode = "candidate")
   );
 }
 
+async function assertSemanticAndHashFailures(repositoryRoot, code) {
+  await assert.rejects(
+    validateReleaseReadiness({ mode: "candidate", repositoryRoot }),
+    (error) => {
+      assert.deepEqual(error.failures, [
+        { code, path: ".github/workflows/ci.yml" },
+        {
+          code: "CI_WORKFLOW_HASH_INVALID",
+          path: ".github/workflows/ci.yml",
+        },
+      ]);
+      return true;
+    },
+  );
+}
+
 async function finalizeReleaseFixture(repositoryRoot) {
   await mutateJson(repositoryRoot, manifestPath, (manifest) => {
     manifest.version = "0.1.0";
@@ -275,10 +291,9 @@ test("rejects workflow actions that are not pinned to full SHAs", async () => {
     "actions/checkout@v4",
   );
 
-  await assertOnlyFailure(
+  await assertSemanticAndHashFailures(
     repositoryRoot,
     "ACTION_PIN_INVALID",
-    ".github/workflows/ci.yml",
   );
 });
 
@@ -300,10 +315,9 @@ test("rejects CI that conditionally skips the Codex CLI or install gate", async 
       pattern,
       replacement,
     );
-    await assertOnlyFailure(
+    await assertSemanticAndHashFailures(
       repositoryRoot,
       "CI_CODEX_GATE_INVALID",
-      ".github/workflows/ci.yml",
     );
   }
 });
@@ -319,10 +333,9 @@ test("rejects required CI steps with YAML-level failure suppression", async () =
     await mutateWorkflowStep(repositoryRoot, name, (block) =>
       block.replace(`      - name: ${name}\n`, `      - name: ${name}\n${control}`),
     );
-    await assertOnlyFailure(
+    await assertSemanticAndHashFailures(
       repositoryRoot,
       "CI_REQUIRED_STEP_INVALID",
-      ".github/workflows/ci.yml",
     );
   }
 });
@@ -345,10 +358,9 @@ test("rejects a conditional CI test job", async () => {
       pattern,
       replacement,
     );
-    await assertOnlyFailure(
+    await assertSemanticAndHashFailures(
       repositoryRoot,
       "CI_REQUIRED_STEP_INVALID",
-      ".github/workflows/ci.yml",
     );
   }
 });
@@ -367,10 +379,9 @@ test("rejects required named steps moved outside the CI test job", async () => {
     path,
     `${source}\n  decoy:\n    runs-on: macos-14\n    steps:\n      - name: Verify release candidate\n        run: npm run check:release-candidate\n`,
   );
-  await assertOnlyFailure(
+  await assertSemanticAndHashFailures(
     repositoryRoot,
     "CI_REQUIRED_STEP_INVALID",
-    ".github/workflows/ci.yml",
   );
 });
 
@@ -388,12 +399,73 @@ test("rejects false branches and shell failure suppression in official validator
       "Run official skill validator",
       mutate,
     );
-    await assertOnlyFailure(
+    await assertSemanticAndHashFailures(
       repositoryRoot,
       "CI_REQUIRED_STEP_INVALID",
+    );
+  }
+});
+
+test("rejects setup-uv moved from the test job to a decoy job", async () => {
+  const repositoryRoot = await createFixture();
+  let movedStep;
+  await mutateWorkflowStep(repositoryRoot, "Set up pinned uv", (block) => {
+    movedStep = block;
+    return "";
+  });
+  const path = join(repositoryRoot, ".github/workflows/ci.yml");
+  const source = await readFile(path, "utf8");
+  await writeFile(
+    path,
+    `${source}\n  decoy:\n    runs-on: macos-14\n    steps:\n${movedStep}`,
+  );
+
+  await assertOnlyFailure(
+    repositoryRoot,
+    "CI_WORKFLOW_HASH_INVALID",
+    ".github/workflows/ci.yml",
+  );
+});
+
+test("rejects unparsed shell control and custom-shell bypasses", async () => {
+  for (const mutate of [
+    (block) =>
+      block.replace("        run: |\n", "        run: |\n          while ! true; do\n") +
+      "          done\n",
+    (block) =>
+      block.replace("        run: |\n", "        run: |\n          set +e\n") +
+      "          true\n",
+    (block) =>
+      block.replace(
+        "      - name: Run official plugin validator\n",
+        "      - name: Run official plugin validator\n        shell: /usr/bin/true {0}\n",
+      ),
+  ]) {
+    const repositoryRoot = await createFixture();
+    await mutateWorkflowStep(
+      repositoryRoot,
+      "Run official plugin validator",
+      mutate,
+    );
+    await assertOnlyFailure(
+      repositoryRoot,
+      "CI_WORKFLOW_HASH_INVALID",
       ".github/workflows/ci.yml",
     );
   }
+});
+
+test("rejects a single-byte change to the canonical CI workflow", async () => {
+  const repositoryRoot = await createFixture();
+  const path = join(repositoryRoot, ".github/workflows/ci.yml");
+  const source = await readFile(path, "utf8");
+  await writeFile(path, `${source} `);
+
+  await assertOnlyFailure(
+    repositoryRoot,
+    "CI_WORKFLOW_HASH_INVALID",
+    ".github/workflows/ci.yml",
+  );
 });
 
 test("rejects recording artifacts present in repository metadata", async () => {
