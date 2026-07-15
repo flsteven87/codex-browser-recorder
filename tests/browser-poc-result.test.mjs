@@ -13,9 +13,9 @@ import { basename, dirname, join } from "node:path";
 import test from "node:test";
 
 import {
-  assertTopLevelUrl,
   cleanupPreparedBrowserPoc,
   finalizeBrowserPoc,
+  inspectTopLevelFrame,
   prepareBrowserPoc,
   runBrowserPocGate,
   startBrowserPocForTab,
@@ -334,52 +334,58 @@ test("persists every strict media-contract failure code", async () => {
   }
 });
 
-test("accepts only the exact approved top-level URL", async () => {
+test("accepts a top-level frame on the approved origin", async () => {
   const methods = [];
   const cdp = {
     async send(method) {
       methods.push(method);
       return {
-        frameTree: { frame: { url: "https://example.com/" } },
+        frameTree: {
+          frame: { id: "main-frame", url: "https://example.com/next" },
+        },
       };
     },
   };
 
-  assert.equal(
-    await assertTopLevelUrl({
+  assert.deepEqual(
+    await inspectTopLevelFrame({
+      approvedOrigin: "https://example.com",
       cdp,
-      expectedUrl: "https://example.com/",
     }),
-    true,
+    { frameId: "main-frame" },
   );
   assert.deepEqual(methods, ["Page.getFrameTree"]);
 });
 
-test("rejects invalid top-level URL verification configuration", async () => {
+test("rejects invalid top-level origin verification configuration", async () => {
   for (const variant of [
-    { cdp: {}, expectedUrl: "https://example.com/" },
-    { cdp: { async send() {} }, expectedUrl: "" },
-    { cdp: { async send() {} }, expectedUrl: 42 },
+    { approvedOrigin: "https://example.com", cdp: {} },
+    { approvedOrigin: "", cdp: { async send() {} } },
+    { approvedOrigin: "https://example.com/path", cdp: { async send() {} } },
   ]) {
     await assert.rejects(
-      assertTopLevelUrl(variant),
+      inspectTopLevelFrame(variant),
       (error) =>
         error.code === "invalid_configuration" &&
-        error.message === "Top-level URL verification configuration is invalid",
+        error.message ===
+          "Top-level origin verification configuration is invalid",
     );
   }
 });
 
-test("rejects a different URL without exposing it", async () => {
-  const secretUrl = "https://example.com/?token=must-not-leak";
+test("rejects a different origin without exposing it", async () => {
+  const secretUrl = "https://other.example/?token=must-not-leak";
   const cdp = {
     async send() {
-      return { frameTree: { frame: { url: secretUrl } } };
+      return { frameTree: { frame: { id: "main-frame", url: secretUrl } } };
     },
   };
 
   await assert.rejects(
-    assertTopLevelUrl({ cdp, expectedUrl: "https://example.com/" }),
+    inspectTopLevelFrame({
+      approvedOrigin: "https://example.com",
+      cdp,
+    }),
     (error) =>
       error.code === "origin_not_allowed" &&
       !error.message.includes(secretUrl) &&
@@ -395,9 +401,9 @@ test("maps missing or failed frame-tree inspection to a stable error", async () 
     },
   ]) {
     await assert.rejects(
-      assertTopLevelUrl({
+      inspectTopLevelFrame({
+        approvedOrigin: "https://example.com",
         cdp: { send },
-        expectedUrl: "https://example.com/",
       }),
       (error) =>
         error.code === "origin_verification_failed" &&
@@ -421,7 +427,12 @@ test("acquires a fresh CDP capability for every recording session", async () => 
             methods.push(method);
             if (method === "Page.getFrameTree") {
               return {
-                frameTree: { frame: { url: "https://example.com/" } },
+                frameTree: {
+                  frame: {
+                    id: "main-frame",
+                    url: "https://example.com/start",
+                  },
+                },
               };
             }
           },
@@ -472,7 +483,7 @@ test("acquires a fresh CDP capability for every recording session", async () => 
 
   for (let index = 0; index < 2; index += 1) {
     const session = await startBrowserPocForTab({
-      expectedTopLevelUrl: "https://example.com/",
+      approvedOrigin: "https://example.com",
       ffmpegPath: "/unused/ffmpeg",
       fps: 10,
       maxDecodedBytes: 1024,
@@ -504,8 +515,8 @@ test("acquires a fresh CDP capability for every recording session", async () => 
   assert.deepEqual(
     commandOrders.map((methods) => methods.slice(0, 3)),
     [
-      ["Page.getFrameTree", "Page.enable", "Page.startScreencast"],
-      ["Page.getFrameTree", "Page.enable", "Page.startScreencast"],
+      ["Page.enable", "Page.getFrameTree", "Page.startScreencast"],
+      ["Page.enable", "Page.getFrameTree", "Page.startScreencast"],
     ],
   );
 });
@@ -516,7 +527,18 @@ test("runs a complete recording gate and writes a validated result", async () =>
     capabilities: {
       async get() {
         return {
-          async send() {},
+          async send(method) {
+            if (method === "Page.getFrameTree") {
+              return {
+                frameTree: {
+                  frame: {
+                    id: "main-frame",
+                    url: "https://example.com/start",
+                  },
+                },
+              };
+            }
+          },
           async readEvents() {
             reads += 1;
             if (reads === 1) {
@@ -560,6 +582,7 @@ test("runs a complete recording gate and writes a validated result", async () =>
   };
 
   const gate = await runBrowserPocGate({
+    approvedOrigin: "https://example.com",
     durationToleranceSeconds: 1,
     ffmpegPath,
     ffprobePath,
@@ -613,7 +636,18 @@ test("cancels the recording-window timer after an automatic limit", async () => 
     capabilities: {
       async get() {
         return {
-          async send() {},
+          async send(method) {
+            if (method === "Page.getFrameTree") {
+              return {
+                frameTree: {
+                  frame: {
+                    id: "main-frame",
+                    url: "https://example.com/start",
+                  },
+                },
+              };
+            }
+          },
           async readEvents() {
             reads += 1;
             if (reads === 1) {
@@ -662,6 +696,7 @@ test("cancels the recording-window timer after an automatic limit", async () => 
   const before = timeoutCount();
 
   const gate = await runBrowserPocGate({
+    approvedOrigin: "https://example.com",
     durationToleranceSeconds: 1,
     ffmpegPath,
     ffprobePath,

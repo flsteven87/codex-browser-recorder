@@ -42,6 +42,13 @@ function createLiveCdp(operations = []) {
   return {
     async send(method) {
       operations.push(method);
+      if (method === "Page.getFrameTree") {
+        return {
+          frameTree: {
+            frame: { id: "main-frame", url: "https://example.com/start" },
+          },
+        };
+      }
     },
     async readEvents() {
       reads += 1;
@@ -62,6 +69,58 @@ function createLiveCdp(operations = []) {
   };
 }
 
+function createQueuedCdp({
+  frameTree = {
+    frameTree: {
+      frame: { id: "main-frame", url: "https://example.com/start" },
+    },
+  },
+  operations = [],
+} = {}) {
+  const events = [];
+  let deliveredSequence = 0;
+  let sequence = 0;
+
+  return {
+    async flush() {
+      const target = sequence;
+      while (deliveredSequence < target) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    },
+    publish(event) {
+      sequence += 1;
+      events.push({ ...event, sequence });
+    },
+    async readEvents({ afterSequence = 0, methods } = {}) {
+      let pending = events.filter(
+        (event) =>
+          event.sequence > afterSequence &&
+          (methods === undefined || methods.includes(event.method)),
+      );
+      if (pending.length === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
+        pending = events.filter(
+          (event) =>
+            event.sequence > afterSequence &&
+            (methods === undefined || methods.includes(event.method)),
+        );
+      }
+      deliveredSequence = Math.max(deliveredSequence, sequence);
+      return {
+        cursor: sequence,
+        events: pending,
+        hasMore: false,
+        truncated: false,
+      };
+    },
+    async send(method, params) {
+      operations.push([method, params]);
+      if (method === "Page.getFrameTree") return frameTree;
+    },
+  };
+}
+
 function createMemorySink(operations = []) {
   return {
     stats: { backpressureDrops: 0, encoderExitCode: null, outputSamples: 0 },
@@ -73,6 +132,43 @@ function createMemorySink(operations = []) {
       operations.push("sink.stop");
       this.stats.encoderExitCode = 0;
       return this.stats;
+    },
+  };
+}
+
+function createNavigationSessionHarness({ approvedOrigin, frameTree }) {
+  const cdp = createQueuedCdp({ frameTree });
+  const sinkStopOptions = {};
+  const sink = createMemorySink();
+  sink.stop = async (options) => {
+    Object.assign(sinkStopOptions, options);
+    sink.stats.encoderExitCode = 0;
+    return sink.stats;
+  };
+
+  return {
+    cdp,
+    flush: () => cdp.flush(),
+    publishFrame() {
+      cdp.publish(frameEvent());
+    },
+    publishNavigation(frame) {
+      cdp.publish({ method: "Page.frameNavigated", params: { frame } });
+    },
+    sink,
+    sinkStopOptions,
+    start() {
+      return startBrowserPoc({
+        approvedOrigin,
+        cdp,
+        ffmpegPath: "/unused/ffmpeg",
+        fps: 10,
+        maxDecodedBytes: 1024,
+        maxDurationMs: 50,
+        outputPath: "/tmp/unused.webm",
+        readTimeoutMs: 0,
+        sinkFactory: () => sink,
+      });
     },
   };
 }
@@ -129,6 +225,67 @@ test("rejects an invalid decoded frame size limit", () => {
   );
 });
 
+test("reports top-frame navigation through the frame pump", async () => {
+  const navigations = [];
+  const cdp = createQueuedCdp();
+  const pump = startFramePump({
+    cdp,
+    initialCursor: 0,
+    mainFrameId: "main-frame",
+    maxDecodedBytes: 1024,
+    onFrame: async () => true,
+    onTopFrameNavigation(url) {
+      navigations.push(url);
+    },
+    readTimeoutMs: 0,
+  });
+
+  cdp.publish({
+    method: "Page.frameNavigated",
+    params: {
+      frame: {
+        id: "child-frame",
+        parentId: "main-frame",
+        url: "https://other.example/",
+      },
+    },
+  });
+  cdp.publish({
+    method: "Page.frameNavigated",
+    params: { frame: { id: "main-frame", url: "https://example.com/next" } },
+  });
+  await cdp.flush();
+  await pump.stop();
+
+  assert.deepEqual(navigations, ["https://example.com/next"]);
+});
+
+test("exposes a frame-pump policy failure through completion", async () => {
+  const cdp = createQueuedCdp();
+  const policyError = Object.assign(new Error("Origin changed"), {
+    code: "origin_changed_during_recording",
+  });
+  const pump = startFramePump({
+    cdp,
+    initialCursor: 0,
+    mainFrameId: "main-frame",
+    maxDecodedBytes: 1024,
+    onFrame: async () => true,
+    onTopFrameNavigation() {
+      throw policyError;
+    },
+    readTimeoutMs: 0,
+  });
+
+  cdp.publish({
+    method: "Page.frameNavigated",
+    params: { frame: { id: "main-frame", url: "https://other.example/" } },
+  });
+
+  assert.deepEqual(await pump.completion, { error: policyError });
+  await assert.rejects(pump.stop(), (error) => error === policyError);
+});
+
 test("acknowledges a frame before handing it to the consumer", async () => {
   const operations = [];
   const reads = [];
@@ -163,11 +320,13 @@ test("acknowledges a frame before handing it to the consumer", async () => {
 
   const pump = startFramePump({
     cdp,
+    mainFrameId: "main-frame",
     maxDecodedBytes: 1024,
     onFrame(frame) {
       operations.push(["onFrame", frame.sessionId]);
       return false;
     },
+    onTopFrameNavigation() {},
     readTimeoutMs: 1,
   });
 
@@ -211,8 +370,10 @@ test("continues from the latest cursor and records event truncation", async () =
 
   const pump = startFramePump({
     cdp,
+    mainFrameId: "main-frame",
     maxDecodedBytes: 1024,
     onFrame: () => true,
+    onTopFrameNavigation() {},
     readTimeoutMs: 1,
   });
 
@@ -249,8 +410,10 @@ test("starts reading after a cursor captured before screencast startup", async (
   const pump = startFramePump({
     cdp,
     initialCursor: 11,
+    mainFrameId: "main-frame",
     maxDecodedBytes: 1024,
     onFrame: () => true,
+    onTopFrameNavigation() {},
     readTimeoutMs: 1,
   });
 
@@ -284,8 +447,10 @@ test("acknowledges an oversized frame before dropping it", async () => {
 
   const pump = startFramePump({
     cdp,
+    mainFrameId: "main-frame",
     maxDecodedBytes: 16,
     onFrame: () => true,
+    onTopFrameNavigation() {},
     readTimeoutMs: 1,
   });
 
@@ -534,6 +699,7 @@ test("terminates the Browser session when the encoder exits early", async () => 
     resolveEncoderCompletion = resolve;
   });
   const session = await startBrowserPoc({
+    approvedOrigin: "https://example.com",
     cdp: createLiveCdp(operations),
     ffmpegPath: "/unused/ffmpeg",
     fps: 10,
@@ -589,8 +755,10 @@ test("rejects malformed CDP event batches with a stable failure code", async () 
       },
       async send() {},
     },
+    mainFrameId: "main-frame",
     maxDecodedBytes: 1024,
     onFrame: () => true,
+    onTopFrameNavigation() {},
     readTimeoutMs: 1,
   });
 
@@ -627,8 +795,10 @@ test("rejects a CDP event cursor that moves backwards", async () => {
       },
       async send() {},
     },
+    mainFrameId: "main-frame",
     maxDecodedBytes: 1024,
     onFrame: () => true,
+    onTopFrameNavigation() {},
     readTimeoutMs: 1,
   });
 
@@ -643,6 +813,7 @@ test("rejects a CDP event cursor that moves backwards", async () => {
 test("validates the CDP boundary before starting a recording", async () => {
   await assert.rejects(
     startBrowserPoc({
+      approvedOrigin: "https://example.com",
       cdp: {},
       ffmpegPath: "/unused/ffmpeg",
       fps: 10,
@@ -660,6 +831,13 @@ test("starts from a captured cursor and finalizes every recorder component", asy
   const cdp = {
     async send(method, params) {
       operations.push([method, params]);
+      if (method === "Page.getFrameTree") {
+        return {
+          frameTree: {
+            frame: { id: "main-frame", url: "https://example.com/start" },
+          },
+        };
+      }
     },
     async readEvents(options) {
       reads += 1;
@@ -695,6 +873,7 @@ test("starts from a captured cursor and finalizes every recorder component", asy
   let sinkFactoryOptions;
 
   const session = await startBrowserPoc({
+    approvedOrigin: "https://example.com",
     cdp,
     ffmpegPath: "/unused/ffmpeg",
     fps: 10,
@@ -710,9 +889,10 @@ test("starts from a captured cursor and finalizes every recorder component", asy
   await session.ready;
   const result = await session.stop();
 
-  assert.equal(operations[0][0], "readEvents");
-  assert.equal(operations[1][0], "Page.enable");
-  assert.deepEqual(operations[2], [
+  assert.equal(operations[0][0], "Page.enable");
+  assert.equal(operations[1][0], "readEvents");
+  assert.equal(operations[2][0], "Page.getFrameTree");
+  assert.deepEqual(operations[3], [
     "Page.startScreencast",
     {
       everyNthFrame: 1,
@@ -734,12 +914,62 @@ test("starts from a captured cursor and finalizes every recorder component", asy
   assert.equal(sinkFactoryOptions.maxOutputBytes, 500 * 1024 * 1024);
 });
 
+test("keeps recording after same-origin top-frame navigation", async () => {
+  const harness = createNavigationSessionHarness({
+    approvedOrigin: "https://example.com",
+    frameTree: {
+      frameTree: {
+        frame: { id: "main", url: "https://example.com/start" },
+      },
+    },
+  });
+  const session = await harness.start();
+  harness.publishFrame();
+  await session.ready;
+  harness.publishNavigation({ id: "main", url: "https://example.com/next" });
+  harness.publishFrame();
+  await harness.flush();
+
+  const result = await session.stop();
+  assert.equal(result.framesReceived, 2);
+});
+
+test("discards output after cross-origin top-frame navigation", async () => {
+  const harness = createNavigationSessionHarness({
+    approvedOrigin: "https://example.com",
+    frameTree: {
+      frameTree: {
+        frame: { id: "main", url: "https://example.com/start" },
+      },
+    },
+  });
+  const session = await harness.start();
+  harness.publishFrame();
+  await session.ready;
+  harness.publishNavigation({ id: "main", url: "https://other.example/" });
+
+  const outcome = await session.completion;
+  assert.equal(outcome.error.code, "origin_changed_during_recording");
+  await assert.rejects(
+    session.stop(),
+    (error) => error.code === "origin_changed_during_recording",
+  );
+  assert.equal(harness.sinkStopOptions.discard, true);
+});
+
 test("fails readiness when no screencast frame arrives before the timeout", async () => {
   const operations = [];
   let reads = 0;
   const cdp = {
     async send(method) {
       operations.push(method);
+      if (method === "Page.getFrameTree") {
+        return {
+          frameTree: {
+            frame: { id: "main-frame", url: "https://example.com/start" },
+          },
+        };
+      }
     },
     async readEvents() {
       reads += 1;
@@ -761,6 +991,7 @@ test("fails readiness when no screencast frame arrives before the timeout", asyn
     },
   };
   const session = await startBrowserPoc({
+    approvedOrigin: "https://example.com",
     cdp,
     ffmpegPath: "/unused/ffmpeg",
     firstFrameTimeoutMs: 5,
@@ -802,11 +1033,19 @@ test("fails readiness when no screencast frame arrives before the timeout", asyn
   }
 });
 
-test("measures capture time at the stop request with a monotonic clock", async () => {
+test("excludes startup wait from capture time with a monotonic clock", async () => {
   const clockValues = [100, 120, 160];
   let reads = 0;
   const cdp = {
-    async send() {},
+    async send(method) {
+      if (method === "Page.getFrameTree") {
+        return {
+          frameTree: {
+            frame: { id: "main-frame", url: "https://example.com/start" },
+          },
+        };
+      }
+    },
     async readEvents() {
       reads += 1;
       if (reads === 1) {
@@ -834,6 +1073,7 @@ test("measures capture time at the stop request with a monotonic clock", async (
     },
   };
   const session = await startBrowserPoc({
+    approvedOrigin: "https://example.com",
     cdp,
     ffmpegPath: "/unused/ffmpeg",
     fps: 10,
@@ -847,7 +1087,7 @@ test("measures capture time at the stop request with a monotonic clock", async (
   await session.ready;
   const result = await session.stop();
 
-  assert.equal(result.elapsedMs, 60);
+  assert.equal(result.elapsedMs, 20);
 });
 
 test("stops screencasting when encoder startup fails", async () => {
@@ -859,11 +1099,19 @@ test("stops screencasting when encoder startup fails", async () => {
     },
     async send(method) {
       operations.push(method);
+      if (method === "Page.getFrameTree") {
+        return {
+          frameTree: {
+            frame: { id: "main-frame", url: "https://example.com/start" },
+          },
+        };
+      }
     },
   };
 
   await assert.rejects(
     startBrowserPoc({
+      approvedOrigin: "https://example.com",
       cdp,
       ffmpegPath: "/unused/ffmpeg",
       fps: 10,
@@ -879,6 +1127,7 @@ test("stops screencasting when encoder startup fails", async () => {
 
   assert.deepEqual(operations, [
     "Page.enable",
+    "Page.getFrameTree",
     "Page.startScreencast",
     "Page.stopScreencast",
   ]);
@@ -888,6 +1137,7 @@ test("cancels and cleans up an active recording through AbortSignal", async () =
   const operations = [];
   const abortController = new AbortController();
   const session = await startBrowserPoc({
+    approvedOrigin: "https://example.com",
     cdp: createLiveCdp(operations),
     ffmpegPath: "/unused/ffmpeg",
     fps: 10,
@@ -918,6 +1168,7 @@ test("cancels and cleans up an active recording through AbortSignal", async () =
 
 test("stops a recording at the configured duration limit", async () => {
   const session = await startBrowserPoc({
+    approvedOrigin: "https://example.com",
     cdp: createLiveCdp(),
     ffmpegPath: "/unused/ffmpeg",
     fps: 10,
@@ -937,8 +1188,37 @@ test("stops a recording at the configured duration limit", async () => {
   );
 });
 
+test("arms the duration limit only after the first frame is ready", async () => {
+  const cdp = createQueuedCdp();
+  const session = await startBrowserPoc({
+    approvedOrigin: "https://example.com",
+    cdp,
+    ffmpegPath: "/unused/ffmpeg",
+    firstFrameTimeoutMs: 100,
+    fps: 10,
+    maxDecodedBytes: 1024,
+    maxDurationMs: 20,
+    outputPath: "/tmp/unused.webm",
+    readTimeoutMs: 0,
+    sinkFactory: () => createMemorySink(),
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  cdp.publish(frameEvent());
+  await session.ready;
+  const earlyOutcome = await Promise.race([
+    session.completion.then(() => "completed"),
+    new Promise((resolve) => setTimeout(() => resolve("recording"), 10)),
+  ]);
+
+  assert.equal(earlyOutcome, "recording");
+  const outcome = await session.completion;
+  assert.equal(outcome.error.code, "recording_duration_limit");
+});
+
 test("stops when the configured output size limit is exceeded", async () => {
   const session = await startBrowserPoc({
+    approvedOrigin: "https://example.com",
     cdp: createLiveCdp(),
     ffmpegPath: "/unused/ffmpeg",
     fps: 10,
@@ -963,6 +1243,7 @@ test("stops when the configured output size limit is exceeded", async () => {
 
 test("stops when fresh source frames exceed the configured stall limit", async () => {
   const session = await startBrowserPoc({
+    approvedOrigin: "https://example.com",
     cdp: createLiveCdp(),
     ffmpegPath: "/unused/ffmpeg",
     fps: 10,

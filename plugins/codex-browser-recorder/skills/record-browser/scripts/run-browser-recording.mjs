@@ -6,9 +6,20 @@ import {
   createFfmpegSink,
   startFramePump,
 } from "./screencast-recorder.mjs";
+import {
+  originOf,
+  RECORDING_FPS,
+  RECORDING_HARD_LIMIT_MS,
+  RECORDING_JPEG_QUALITY,
+  RECORDING_MAX_DECODED_BYTES,
+  RECORDING_MAX_HEIGHT,
+  RECORDING_MAX_OUTPUT_BYTES,
+  RECORDING_MAX_WIDTH,
+} from "./recording-policy.mjs";
 import { validateVideo } from "./validate-video.mjs";
 
 const SCREENCAST_EVENT_METHODS = [
+  "Page.frameNavigated",
   "Page.screencastFrame",
   "Page.screencastVisibilityChanged",
 ];
@@ -80,6 +91,7 @@ const CAPTURE_FAILURE_CODES = new Set([
   "integration_failed",
   "invalid_configuration",
   "origin_not_allowed",
+  "origin_changed_during_recording",
   "origin_verification_failed",
   "output_monitor_failed",
   "recording_cancelled",
@@ -208,6 +220,7 @@ async function readOutputSize(outputPath) {
 }
 
 function validateStartConfiguration({
+  approvedOrigin,
   cdp,
   firstFrameTimeoutMs,
   fps,
@@ -224,6 +237,7 @@ function validateStartConfiguration({
   sinkFactory,
 }) {
   if (
+    originOf(approvedOrigin) !== approvedOrigin ||
     typeof cdp?.readEvents !== "function" ||
     typeof cdp?.send !== "function" ||
     !Number.isInteger(firstFrameTimeoutMs) ||
@@ -259,15 +273,16 @@ function validateStartConfiguration({
 }
 
 export async function startBrowserPoc({
+  approvedOrigin,
   cdp,
   ffmpegPath,
   firstFrameTimeoutMs = 5000,
-  fps,
+  fps = RECORDING_FPS,
   getOutputSize = readOutputSize,
-  maxDecodedBytes,
-  maxDurationMs = 20 * 60 * 1000,
+  maxDecodedBytes = RECORDING_MAX_DECODED_BYTES,
+  maxDurationMs = RECORDING_HARD_LIMIT_MS,
   maxFrameStallMs = null,
-  maxOutputBytes = 500 * 1024 * 1024,
+  maxOutputBytes = RECORDING_MAX_OUTPUT_BYTES,
   now = () => performance.now(),
   outputPath,
   readTimeoutMs,
@@ -276,6 +291,7 @@ export async function startBrowserPoc({
   sinkFactory = createFfmpegSink,
 }) {
   validateStartConfiguration({
+    approvedOrigin,
     cdp,
     firstFrameTimeoutMs,
     fps,
@@ -295,6 +311,7 @@ export async function startBrowserPoc({
     throw new PocError("recording_cancelled", "Recording was cancelled");
   }
 
+  await cdp.send("Page.enable");
   const baseline = await cdp.readEvents({
     limit: 1,
     methods: SCREENCAST_EVENT_METHODS,
@@ -312,14 +329,17 @@ export async function startBrowserPoc({
     );
   }
 
-  await cdp.send("Page.enable");
+  const { frameId: mainFrameId } = await inspectTopLevelFrame({
+    approvedOrigin,
+    cdp,
+  });
   try {
     await cdp.send("Page.startScreencast", {
       everyNthFrame: 1,
       format: "jpeg",
-      maxHeight: 720,
-      maxWidth: 1280,
-      quality: 70,
+      maxHeight: RECORDING_MAX_HEIGHT,
+      maxWidth: RECORDING_MAX_WIDTH,
+      quality: RECORDING_JPEG_QUALITY,
     });
   } catch (error) {
     try {
@@ -342,17 +362,29 @@ export async function startBrowserPoc({
     throw error;
   }
   let lastFrameAt = null;
+  let startedAt = null;
   const pump = startFramePump({
     cdp,
     initialCursor: baseline.cursor,
+    mainFrameId,
     maxDecodedBytes,
     onFrame: (frame) => {
-      lastFrameAt = now();
-      return sink.accept(frame.jpeg);
+      const frameAt = now();
+      lastFrameAt = frameAt;
+      const accepted = sink.accept(frame.jpeg);
+      if (accepted !== false) startedAt ??= frameAt;
+      return accepted;
+    },
+    onTopFrameNavigation(url) {
+      if (originOf(url) !== approvedOrigin) {
+        throw new PocError(
+          "origin_changed_during_recording",
+          "The recording page left the approved origin",
+        );
+      }
     },
     readTimeoutMs,
   });
-  const startedAt = now();
   let stopPromise = null;
   let resolveCompletion;
   let terminationError = null;
@@ -366,15 +398,24 @@ export async function startBrowserPoc({
     terminationReason: null,
   };
 
-  const durationTimer = setTimeout(() => {
-    terminate(
-      new PocError(
-        "recording_duration_limit",
-        "Recording reached the configured duration limit",
-      ),
-    );
-  }, maxDurationMs);
-  durationTimer.unref?.();
+  let durationTimer = null;
+  void pump.ready.then(
+    () => {
+      if (stopPromise !== null) return;
+      durationTimer = setTimeout(() => {
+        terminate(
+          new PocError(
+            "recording_duration_limit",
+            "Recording reached the configured duration limit",
+          ),
+        );
+      }, maxDurationMs);
+      durationTimer.unref?.();
+    },
+    () => {
+      // Pump completion propagates the same failure into termination.
+    },
+  );
 
   const resourceTimer = setInterval(async () => {
     if (stopPromise !== null || resourceCheckRunning) {
@@ -444,6 +485,9 @@ export async function startBrowserPoc({
       }
     });
   }
+  void pump.completion.then(({ error }) => {
+    if (error !== null && stopPromise === null) terminate(error);
+  });
 
   async function finalize() {
     clearTimeout(durationTimer);
@@ -517,7 +561,8 @@ export async function startBrowserPoc({
   function stop() {
     if (stopPromise === null) {
       const stoppedAt = now();
-      resourceStats.elapsedMs = Math.max(0, stoppedAt - startedAt);
+      resourceStats.elapsedMs =
+        startedAt === null ? null : Math.max(0, stoppedAt - startedAt);
       stopPromise = finalize();
       void stopPromise.then(
         (result) => resolveCompletion({ error: null, result }),
@@ -538,15 +583,14 @@ export async function startBrowserPoc({
   }
 }
 
-export async function assertTopLevelUrl({ cdp, expectedUrl }) {
+export async function inspectTopLevelFrame({ approvedOrigin, cdp }) {
   if (
     typeof cdp?.send !== "function" ||
-    typeof expectedUrl !== "string" ||
-    expectedUrl.length === 0
+    originOf(approvedOrigin) !== approvedOrigin
   ) {
     throw new PocError(
       "invalid_configuration",
-      "Top-level URL verification configuration is invalid",
+      "Top-level origin verification configuration is invalid",
     );
   }
 
@@ -560,24 +604,24 @@ export async function assertTopLevelUrl({ cdp, expectedUrl }) {
     );
   }
 
-  const actualUrl = frameTree?.frameTree?.frame?.url;
-  if (typeof actualUrl !== "string") {
+  const frame = frameTree?.frameTree?.frame;
+  if (
+    typeof frame?.id !== "string" ||
+    frame.id.length === 0 ||
+    originOf(frame.url) !== approvedOrigin
+  ) {
     throw new PocError(
-      "origin_verification_failed",
-      "The recording page origin could not be verified",
+      originOf(frame?.url) === null
+        ? "origin_verification_failed"
+        : "origin_not_allowed",
+      "The recording page is outside the approved origin",
     );
   }
-  if (actualUrl !== expectedUrl) {
-    throw new PocError(
-      "origin_not_allowed",
-      "The recording page is outside the approved fixed origin",
-    );
-  }
-  return true;
+  return { frameId: frame.id };
 }
 
 export async function startBrowserPocForTab({
-  expectedTopLevelUrl,
+  approvedOrigin,
   tab,
   ...options
 }) {
@@ -599,10 +643,7 @@ export async function startBrowserPocForTab({
     );
   }
 
-  if (expectedTopLevelUrl !== undefined) {
-    await assertTopLevelUrl({ cdp, expectedUrl: expectedTopLevelUrl });
-  }
-  return startBrowserPoc({ ...options, cdp });
+  return startBrowserPoc({ ...options, approvedOrigin, cdp });
 }
 
 export async function createBrowserRecording({
@@ -613,18 +654,18 @@ export async function createBrowserRecording({
     startBrowserPocForTab,
   },
   _onTerminal,
+  approvedOrigin,
   durationToleranceSeconds = 5,
-  expectedTopLevelUrl,
   ffmpegPath,
   ffprobePath,
   firstFrameTimeoutMs = 5000,
-  fps = 10,
-  maxDecodedBytes = 5 * 1024 * 1024,
-  maxDurationMs = 20 * 60 * 1000,
+  fps = RECORDING_FPS,
+  maxDecodedBytes = RECORDING_MAX_DECODED_BYTES,
+  maxDurationMs = RECORDING_HARD_LIMIT_MS,
   maxFrameStallMs = 5000,
-  maxHeight = 720,
-  maxOutputBytes = 500 * 1024 * 1024,
-  maxWidth = 1280,
+  maxHeight = RECORDING_MAX_HEIGHT,
+  maxOutputBytes = RECORDING_MAX_OUTPUT_BYTES,
+  maxWidth = RECORDING_MAX_WIDTH,
   minBytes = 100,
   readTimeoutMs = 1000,
   resourceCheckIntervalMs = 1000,
@@ -636,7 +677,7 @@ export async function createBrowserRecording({
   let session;
   try {
     session = await _dependencies.startBrowserPocForTab({
-      expectedTopLevelUrl,
+      approvedOrigin,
       ffmpegPath,
       firstFrameTimeoutMs,
       fps,
