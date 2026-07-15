@@ -5,6 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+const readme = readFileSync(join(repositoryRoot, "README.md"), "utf8");
 const skillRoot = join(
   repositoryRoot,
   "plugins",
@@ -154,6 +155,23 @@ function readBracedBlockAfter(source, marker, fromIndex = 0) {
 
   assert.fail(`missing closing brace for ${marker} block`);
 }
+
+test("README documents the public recording contract", () => {
+  for (const required of [
+    "$record-browser",
+    "same-origin",
+    "cross-origin",
+    "Record & Replay",
+    "temporary",
+    "no audio",
+  ]) {
+    assert.match(readme, new RegExp(required.replaceAll("$", "\\$"), "i"));
+  }
+  assert.doesNotMatch(
+    readme,
+    /(?:run|invoke|use|start)[^\n.]{0,80}integration gate/i,
+  );
+});
 
 test("skill requires explicit user recording intent and one consolidated consent", () => {
   assert.match(agent, /allow_implicit_invocation: false/);

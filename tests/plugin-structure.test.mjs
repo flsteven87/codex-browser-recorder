@@ -58,6 +58,18 @@ test("plugin manifest and repository marketplace stay aligned", () => {
 
   assert.equal(plugin.name, "codex-browser-recorder");
   assert.match(plugin.version, strictSemver);
+  assert.equal(
+    plugin.description,
+    "Record one explicitly approved Codex Browser test flow to a private local WebM file.",
+  );
+  assert.equal(
+    plugin.interface.shortDescription,
+    "Record an approved Browser test flow to local WebM.",
+  );
+  assert.doesNotMatch(
+    JSON.stringify(plugin.interface),
+    /integration gate|example[.]com/i,
+  );
   assert.equal(marketplace.name, "codex-browser-recorder");
   assert.ok(entry, "marketplace must contain the plugin entry");
   assert.equal(entry.name, plugin.name);

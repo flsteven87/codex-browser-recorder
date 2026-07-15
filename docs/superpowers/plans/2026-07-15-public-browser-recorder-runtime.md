@@ -1529,6 +1529,23 @@ git add README.md PRIVACY.md plugins/codex-browser-recorder/.codex-plugin/plugin
 git commit -m "docs: complete public recorder runtime gate"
 ```
 
+#### Automated Execution Status — 2026-07-15
+
+| Gate | Result | Numeric evidence |
+| --- | --- | --- |
+| Complete Node test suite and syntax check | PASS | 125 passed, 0 failed, 0 skipped, 0 cancelled |
+| Coverage thresholds | PASS | Lines 94.57%, branches 88.16%, functions 94.83% |
+| Focused structure, skill, and public-copy contract | PASS | 13 passed, 0 failed |
+| Plugin validator | PASS | 1 validator passed, 0 errors |
+| Skill validator | PASS | 1 validator passed, 0 errors |
+| Isolated plugin installation and cache-only import | PASS | 1 passed, 0 failed |
+| Origin-policy cases | PASS | 5 passed, 0 failed |
+| Navigation-policy cases | PASS | 13 passed, 0 failed |
+| Schema-v3 artifact transaction cases | PASS | 17 passed, 0 failed |
+| Public coordinator and state-machine cases | PASS | 12 passed, 0 failed |
+| Repository whitespace | PASS | 0 errors |
+| Repository recording artifacts | PASS | 0 total: 0 WebM files, 0 partial files, 0 result JSON files, 0 recording temporary directories |
+
 ## Follow-Up Plan Boundary
 
 After this plan passes, write a separate public release-readiness implementation plan for brand assets, privacy/terms/support URLs, contributor and community files, exactly five positive plus three negative submission eval fixtures, pinned Codex CLI CI installation, CodeQL, Dependabot, OpenSSF Scorecard, protected GitHub settings, a twice-sequential installed-desktop release gate, canonical `0.1.0`, tag `v0.1.0`, release evidence, and plugin submission. External GitHub mutations require explicit user authorization at execution time.
