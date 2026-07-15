@@ -12,6 +12,26 @@ export { describeRecordingFailure };
 
 const ACTIVE_RECORDING_KEY = Symbol.for("codex-browser-recorder.active");
 const TERMINAL_STATES = new Set(["cancelled", "completed", "failed"]);
+const NATIVE_ADD_EVENT_LISTENER = EventTarget.prototype.addEventListener;
+const NATIVE_REMOVE_EVENT_LISTENER = EventTarget.prototype.removeEventListener;
+const NATIVE_ABORTED_GETTER = Object.getOwnPropertyDescriptor(
+  AbortSignal.prototype,
+  "aborted",
+).get;
+
+function addAbortListener(signal, listener) {
+  Reflect.apply(NATIVE_ADD_EVENT_LISTENER, signal, ["abort", listener, {
+    once: true,
+  }]);
+}
+
+function isAborted(signal) {
+  return Reflect.apply(NATIVE_ABORTED_GETTER, signal, []);
+}
+
+function removeAbortListener(signal, listener) {
+  Reflect.apply(NATIVE_REMOVE_EVENT_LISTENER, signal, ["abort", listener]);
+}
 
 function stateForFailureCode(code) {
   return ["cancelled", "recording_cancelled"].includes(code)
@@ -31,14 +51,21 @@ function failedHandle(code) {
 }
 
 export function createRecording(options) {
-  const callerSignal = options?.signal;
-  if (callerSignal != null && !(callerSignal instanceof AbortSignal)) {
+  let callerSignal;
+  let dependencies;
+  try {
+    callerSignal = options?.signal;
+    if (callerSignal != null && !(callerSignal instanceof AbortSignal)) {
+      return failedHandle("invalid_configuration");
+    }
+    if (callerSignal != null) isAborted(callerSignal);
+    dependencies = options?._dependencies ?? {
+      clock: { clearTimeout, setTimeout },
+      createBrowserRecording,
+    };
+  } catch {
     return failedHandle("invalid_configuration");
   }
-  const dependencies = options?._dependencies ?? {
-    clock: { clearTimeout, setTimeout },
-    createBrowserRecording,
-  };
   let state = "preparing";
   let inner;
   let durationTimer;
@@ -52,14 +79,29 @@ export function createRecording(options) {
     return failedHandle("recording_already_active");
   }
   globalThis[ACTIVE_RECORDING_KEY] = reservation;
-  callerSignal?.addEventListener("abort", cancelFromCaller, { once: true });
-  if (callerSignal?.aborted) cancelFromCaller();
+  try {
+    if (callerSignal != null) {
+      addAbortListener(callerSignal, cancelFromCaller);
+      if (isAborted(callerSignal)) cancelFromCaller();
+    }
+  } catch {
+    if (globalThis[ACTIVE_RECORDING_KEY] === reservation) {
+      delete globalThis[ACTIVE_RECORDING_KEY];
+    }
+    return failedHandle("invalid_configuration");
+  }
 
   let handle;
   let ready;
 
   function release() {
-    callerSignal?.removeEventListener("abort", cancelFromCaller);
+    if (callerSignal != null) {
+      try {
+        removeAbortListener(callerSignal, cancelFromCaller);
+      } catch {
+        // Releasing the singleton must not depend on caller-controlled state.
+      }
+    }
     if (
       globalThis[ACTIVE_RECORDING_KEY] === reservation ||
       globalThis[ACTIVE_RECORDING_KEY] === handle

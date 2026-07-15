@@ -229,6 +229,90 @@ function assertBrowserRuntimeFailureMapping(source) {
   );
 }
 
+function assertSetupFailureBoundaries(source) {
+  const validation = [...source.matchAll(/```js\n([\s\S]*?)\n```/g)]
+    .map(([, block]) => block)
+    .find((block) => block.includes("scripts/recording-policy.mjs"));
+  assert.ok(validation, "missing local validation module setup");
+  assert.match(validation, /const stableFailure = \(code\) =>/);
+  assert.match(
+    validation,
+    /typeof sanitizeRecordingFailure === "function"[\s\S]*return sanitizeRecordingFailure\({ code }\);/,
+    "stable setup failures must pass arbitrary codes through the allowlist sanitizer",
+  );
+  assert.match(
+    validation,
+    /catch\s*{\s*throw stableFailure\("plugin_module_unavailable"\);\s*}/,
+    "local module resolution and imports must map to plugin_module_unavailable",
+  );
+  assert.doesNotMatch(validation, /catch[^}]*throw error/s);
+
+  const setup = [...source.matchAll(/```js\n([\s\S]*?)\n```/g)]
+    .map(([, block]) => block)
+    .find((block) => block.includes("const browserPluginRoot ="));
+  assert.ok(setup, "missing installed module and Browser setup");
+  for (const [label, marker, code] of [
+    ["recorder modules", "const doctorUrl", "plugin_module_unavailable"],
+    ["Browser client", "if (globalThis.agent?.browsers == null)", "browser_plugin_unavailable"],
+    ["Browser selection and docs", "if (globalThis.browser == null)", "integration_failed"],
+  ]) {
+    const markerIndex = setup.indexOf(marker);
+    assert.notEqual(markerIndex, -1, `missing ${label} setup`);
+    const setupTryIndex = setup.lastIndexOf("try", markerIndex);
+    assert.notEqual(setupTryIndex, -1, `missing ${label} try boundary`);
+    const setupTry = readBracedBlockAfter(setup, "try", setupTryIndex);
+    const following = setup.slice(setupTry.end, setupTry.end + 180);
+    assert.match(
+      following,
+      new RegExp(
+        `catch\\s*{\\s*throw stableFailure\\("${code}"\\);\\s*}`,
+      ),
+      `${label} failures must map to ${code}`,
+    );
+  }
+  assert.doesNotMatch(
+    setup,
+    /catch[^}]*throw error/s,
+    "setup must never expose raw module or Browser diagnostics",
+  );
+}
+
+function assertFreshTabCleanupBoundary(source) {
+  const lifecycle = [...source.matchAll(/```js\n([\s\S]*?)\n```/g)]
+    .map(([, block]) => block)
+    .find((block) => block.includes("const closeFreshTab = async () =>"));
+  assert.ok(lifecycle, "missing fresh-tab lifecycle");
+  assert.match(lifecycle, /let freshTabCleanupIncomplete = false;/);
+  const close = readBracedBlockAfter(
+    lifecycle,
+    "const closeFreshTab = async () =>",
+  );
+  assert.match(close.body, /await freshTab[?][.]close\(\)/);
+  assert.match(
+    close.body,
+    /catch\s*{\s*freshTabCleanupIncomplete = true;\s*throw stableFailure\("integration_failed"\);\s*}/,
+    "fresh-tab close must retain bounded state and throw a sanitized failure",
+  );
+  assert.doesNotMatch(close.body, /throw error/);
+  assert.match(
+    lifecycle,
+    /if \(primaryFailure == null && cleanupFailure != null\)\s*{\s*primaryFailure = cleanupFailure;\s*throw cleanupFailure;\s*}/,
+    "cleanup failures must never replace an existing primary failure",
+  );
+
+  const report = source.slice(source.indexOf("## Report The Result"));
+  assert.match(
+    report,
+    /When `freshTabCleanupIncomplete` is true, add `Browser cleanup incomplete; close the fresh recording tab manually[.]`/,
+    "final reporting must expose bounded actionable tab cleanup state",
+  );
+  assert.doesNotMatch(
+    report,
+    /freshTabCleanupIncomplete[^.]{0,160}(?:URL|targetUrl|request[.]targetUrl)/,
+    "tab cleanup reporting must not expose the recording URL",
+  );
+}
+
 function readBracedBlockAfter(source, marker, fromIndex = 0) {
   const markerIndex = source.indexOf(marker, fromIndex);
   assert.notEqual(markerIndex, -1, `missing ${marker} block`);
@@ -373,6 +457,8 @@ test("skill validates before Browser activity and delegates recording to product
 test("skill defines an operational Browser binding, preflight, and result workflow", () => {
   assertOperationalWorkflow(skill);
   assertBrowserRuntimeFailureMapping(skill);
+  assertSetupFailureBoundaries(skill);
+  assertFreshTabCleanupBoundary(skill);
 });
 
 test("operational workflow guard rejects missing preflight and result branches", () => {
@@ -415,6 +501,69 @@ test("Browser runtime mapping guard rejects removed navigation and denial branch
         ),
       ),
     /denial and non-denial failures must map to distinct allowlisted codes/,
+  );
+});
+
+test("setup boundary guard rejects raw and misclassified setup failures", () => {
+  assert.throws(
+    () =>
+      assertSetupFailureBoundaries(
+        skill.replace(
+          'throw stableFailure("browser_plugin_unavailable");',
+          "throw error;",
+        ),
+      ),
+    /Browser client failures must map to browser_plugin_unavailable|raw module or Browser diagnostics/,
+  );
+  assert.throws(
+    () =>
+      assertSetupFailureBoundaries(
+        skill.replace(
+          'throw stableFailure("integration_failed");',
+          'throw stableFailure("browser_plugin_unavailable");',
+        ),
+      ),
+    /Browser selection and docs failures must map to integration_failed/,
+  );
+});
+
+test("fresh-tab cleanup guard rejects raw cleanup and missing manual action", () => {
+  assert.throws(
+    () =>
+      assertFreshTabCleanupBoundary(
+        skill.replace("freshTabCleanupIncomplete = true;", ""),
+      ),
+    /fresh-tab close must retain bounded state/,
+  );
+  assert.throws(
+    () =>
+      assertFreshTabCleanupBoundary(
+        skill.replace(
+          'freshTabCleanupIncomplete = true;\n    throw stableFailure("integration_failed");',
+          "freshTabCleanupIncomplete = true;\n    throw error;",
+        ),
+      ),
+    /sanitized failure|throw error/,
+  );
+  assert.throws(
+    () =>
+      assertFreshTabCleanupBoundary(
+        skill.replace(
+          "if (primaryFailure == null && cleanupFailure != null)",
+          "if (cleanupFailure != null)",
+        ),
+      ),
+    /never replace an existing primary failure/,
+  );
+  assert.throws(
+    () =>
+      assertFreshTabCleanupBoundary(
+        skill.replace(
+          "Browser cleanup incomplete; close the fresh recording tab manually.",
+          "Cleanup failed.",
+        ),
+      ),
+    /bounded actionable tab cleanup state/,
   );
 });
 
