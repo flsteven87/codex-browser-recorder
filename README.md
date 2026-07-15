@@ -6,9 +6,9 @@ a local WebM file. It reuses the installed Browser plugin's permission-gated CDP
 session and keeps recording data on the local machine.
 
 The current plugin implements a fixed `https://example.com/` integration gate.
-It is installable and its automated packaging gate passes, but the final
-fresh-task desktop integration gate has not yet been executed for this build.
-Treat it as pre-release software.
+It is installable, its automated packaging gate passes, and its approved
+fresh-task desktop integration gate passed on 2026-07-15. Treat it as an
+open-source alpha, not a general-purpose production recorder.
 
 ## Status
 
@@ -19,8 +19,9 @@ Treat it as pre-release software.
 | Phase 0 interaction fidelity | PASS | Typing, scrolling, DOM state change, and navigation were captured. |
 | Phase 1 plugin and skill validation | PASS | Official Codex plugin and skill validators pass. |
 | Phase 1 isolated installation | PASS | Codex installs from a temporary marketplace and imports the recorder after the source fixture is removed. |
-| Phase 1 automated tests | PASS | 70 tests; enforced coverage is at least 90% lines and 80% branches. |
-| Phase 1 fresh desktop task | PENDING | Requires explicit approval to change real user-level Codex plugin state and run the test in a new task. |
+| Phase 1 automated tests | PASS | 71 tests; enforced coverage is at least 90% lines and 80% branches. |
+| Phase 1 fresh desktop task | PASS | Installed-cache run produced one validated 11.7-second VP8 WebM; 468/468 frames were acknowledged and cleanup left no active handle or Browser tab. |
+| Phase 1 decision | GO | Approved for the fixed-origin open-source alpha milestone; broader recording remains out of scope. |
 
 Measured Phase 0 evidence and the approved Phase 1 design are documented in:
 
@@ -51,14 +52,18 @@ bypass site/full-CDP approval.
 ## Requirements
 
 - macOS with the Codex desktop app
-- Node.js 24 or newer in the Browser plugin runtime
+- A current Browser plugin runtime capable of importing the bundled Node modules
 - `ffmpeg` and `ffprobe` on `PATH`
 - The Codex Browser plugin installed and available
 - Browser Developer mode with full CDP access enabled by the user
 - Explicit approval for the fixed test origin and CDP session
 
 The Browser plugin is a separate prerequisite. This repository does not bundle
-or initialize a replacement browser client.
+or initialize a replacement browser client. The Browser execution surface does
+not expose global `process` metadata; the environment doctor derives macOS from
+`node:os` and verifies FFmpeg tools through bounded, shell-free inherited
+command resolution. Node.js 24 or newer is required only for local development
+and repository verification.
 
 ## Install
 
@@ -77,8 +82,10 @@ codex plugin add codex-browser-recorder@codex-browser-recorder
 ```
 
 Start a new Codex task after installation so Codex discovers the installed
-skill. Do not copy files into the Codex plugin cache or edit cache contents by
-hand.
+skill. If a task created in the same running app session does not yet list the
+new or upgraded skill, restart the Codex app and create another task. Do not
+copy files into the Codex plugin cache, guess cache paths, or edit cache
+contents by hand.
 
 ## Run the Integration Gate
 

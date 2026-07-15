@@ -478,18 +478,18 @@ git commit -m "docs: publish plugin integration guidance"
 | --- | --- | --- |
 | Plugin manifest validation | PASS | Official `validate_plugin.py` completed successfully. |
 | Skill validation | PASS | Official `quick_validate.py` completed successfully. |
-| Syntax and default suite | PASS | `npm run check`: 70 tests passed, 0 failed. |
-| Coverage policy | PASS | 91.56% lines, 84.04% branches, 93.67% functions; enforced minimums are 90% lines and 80% branches. |
+| Syntax and default suite | PASS | `npm run check`: 71 tests passed, 0 failed. |
+| Coverage policy | PASS | 90.75% lines, 83.97% branches, 92.50% functions; enforced minimums are 90% lines and 80% branches. |
 | Isolated marketplace install | PASS | Codex CLI installed the plugin with disposable `HOME` and `CODEX_HOME`. |
 | Cache-only module import | PASS | The copied marketplace source was removed before importing `createBrowserRecording` from the isolated cache. |
 | CI workflow syntax | PASS | Workflow YAML parsed successfully and portable checks remain unconditional. |
 | Repository hygiene | PASS | No stale implementation paths, placeholder markers, whitespace errors, generated WebM, partial file, or result JSON in the worktree. |
-| Real user Codex state | UNCHANGED | Automated work did not modify the user's real marketplace, plugin cache, or Codex configuration. |
-| Fresh desktop task integration | BLOCKED | Requires explicit approval for real user-level plugin installation and a new Codex task. |
+| Real user Codex state | APPROVED CHANGE | The user explicitly approved adding the local marketplace, installing the plugin, and running a fresh desktop task. |
+| Fresh desktop task integration | PASS | Installed-cache recording produced one validated audio-free VP8 WebM and completed mandatory cleanup. |
 
-Automated implementation is complete. The overall Phase 1 decision remains
-**Blocked** until Task 7 is explicitly authorized and the fresh desktop gate
-passes.
+Automated implementation and the approved fresh desktop integration gate are
+complete. The overall Phase 1 decision is **Go** for the fixed-origin
+open-source alpha milestone.
 
 ### Task 7: Execute the user-approved fresh desktop integration gate
 
@@ -502,29 +502,75 @@ passes.
 - Executes `$record-browser` in a fresh task against a fresh `https://example.com/` tab.
 - Produces a validated audio-free VP8 WebM outside the repository and records sanitized evidence only.
 
-- [ ] **Step 1: Pause for explicit external-state approval**
+- [x] **Step 1: Pause for explicit external-state approval**
 
 Do not execute this task as part of automated local implementation. Ask the user to authorize both real user-level plugin installation and the fresh Codex task test.
 
-- [ ] **Step 2: Install through the supported marketplace flow**
+- [x] **Step 2: Install through the supported marketplace flow**
 
 After approval, add this repository as marketplace `codex-browser-recorder`, install `codex-browser-recorder`, and verify Codex lists it. Do not hand-edit cache files.
 
-- [ ] **Step 3: Run the exact fresh-task integration scenario**
+- [x] **Step 3: Run the exact fresh-task integration scenario**
 
 Invoke `$record-browser`, accept only the expected Browser site/full-CDP approvals, animate and interact with the fresh test page, observe sanitized status, stop, and close the test tab.
 
-- [ ] **Step 4: Validate and record sanitized evidence**
+- [x] **Step 4: Validate and record sanitized evidence**
 
 Require one VP8 video stream, WebM container, no audio streams, bounded dimensions, plausible duration, continuous frame progress, idempotent cleanup, and no repository artifacts. Record only counters, duration, media metadata, status, and stable failure codes.
 
-- [ ] **Step 5: State the Phase 1 decision**
+- [x] **Step 5: State the Phase 1 decision**
 
 Mark **Go** only if both automated and fresh desktop gates pass. Mark **No-Go** for a reproducible architectural failure. Mark **Blocked** when approval, policy, capability, or environment prevents execution.
 
-- [ ] **Step 6: Commit final gate evidence**
+- [x] **Step 6: Commit final gate evidence**
 
 ```bash
 git add docs/superpowers/plans/2026-07-15-phase-1-plugin-integration-gate.md
 git commit -m "docs: record phase 1 integration result"
 ```
+
+#### Fresh desktop evidence — 2026-07-15
+
+The user explicitly approved the external-state change. The supported Codex
+CLI added the repository marketplace, installed and enabled the plugin, and
+reported the installed cache copy. A new desktop task loaded the installed
+skill and Browser runtime; no repository source module was imported.
+
+The first real-runtime preflight exposed that the Browser Node execution
+surface intentionally provides no global `process` metadata. The environment
+doctor was corrected to derive macOS from `node:os` and, only when PATH metadata
+is unavailable, verify `ffmpeg` and `ffprobe` through bounded shell-free command
+resolution. A contract test now preserves that behavior. The recording workflow
+also now specifies static `Runtime.evaluate` expressions because function-valued
+Playwright evaluation is not compatible with this Browser Node surface.
+
+| Measurement | Result |
+| --- | --- |
+| Recorder status | `passed`, schema version 2, no failure code |
+| Capture interval | 12,110.684 ms (13,055 ms including gate work/finalization) |
+| Frame counters | 468 received, 468 acknowledged, 0 dropped, 0 invalid, 0 truncated |
+| Encoder counters | 117 output samples, 4 bounded backpressure drops, exit code 0 |
+| Progress checkpoints | 168/168/31; 268/268/60; 391/390/86; 467/466/116 (received/acknowledged/samples) |
+| Validated media | WebM DocType, one VP8 video stream, zero audio streams |
+| Dimensions and size | 1280×720, 186,123 bytes |
+| Media duration | 11.7 seconds |
+| Private output | Unique OS temporary directory mode 0700; result JSON mode 0600 |
+| Cleanup | Active handle absent; Browser-owned tab count 0; no repository artifacts |
+
+Parent-task FFprobe independently confirmed one VP8 video stream, no audio
+stream, 1280×720 dimensions, 11.7-second duration, and the same file size. The
+strict project validator independently confirmed the WebM DocType. The output
+remained outside the repository.
+
+During same-session local cachebuster iteration, a newly created task did not
+hot-refresh the updated skill catalog even though `codex plugin list --json`
+reported the plugin installed and enabled and the cache copy was complete. The
+gate therefore used the exact CLI-reported installed skill root as the quoted
+literal permitted by the skill contract. Public guidance now tells users to
+restart Codex after install or upgrade if a new task does not list the skill;
+it never recommends editing or guessing cache contents.
+
+**Phase 1 decision: Go.** The installed-cache/shared-runtime architecture is
+proven for the fixed `https://example.com/` open-source alpha scenario. General
+origins, sensitive flows, audio, browser chrome, other tabs, and production
+readiness remain explicit non-goals.

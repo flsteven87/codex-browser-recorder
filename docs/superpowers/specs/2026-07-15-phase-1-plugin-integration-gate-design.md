@@ -369,10 +369,10 @@ pass:
 - `git diff --check` passes.
 - The worktree contains no accidental WebM, result JSON, or partial files.
 
-The overall integration gate remains `BLOCKED` until explicit authorization is
-given to change user-level plugin state and run the manual fresh-task test. It is
-`PASS` only when that manual test passes, and `FAIL` if an executed manual test
-proves that installed-cache loading or shared-runtime recording does not work.
+The approved manual fresh-task test passed on 2026-07-15. The overall Phase 1
+integration gate is therefore `PASS` for the fixed `https://example.com/`
+open-source alpha scope. This does not authorize broader origins or establish a
+general-purpose production recorder.
 
 ## Rollback
 
