@@ -25,9 +25,11 @@ to the user after cleanup completes.
 - The user must delete temporary output when it is no longer needed.
 
 The plugin does not automatically copy, move, delete, upload, or share a
-successful recording. Failed and cancelled recording transactions remove video
-output; a sanitized local result may remain when an artifact directory was
-created.
+successful recording. Capture, cancellation, and cross-origin failures discard
+working media. A result-persistence failure rolls back finalized media. A
+validation-rejected finalized WebM may remain in the private operating-system
+temporary directory. The skill's failure response does not promise an absolute
+output path. The user must delete that recording directory.
 
 ## User responsibilities
 

@@ -1533,9 +1533,9 @@ git commit -m "docs: complete public recorder runtime gate"
 
 | Gate | Result | Numeric evidence |
 | --- | --- | --- |
-| Complete Node test suite and syntax check | PASS | 125 passed, 0 failed, 0 skipped, 0 cancelled |
+| Complete Node test suite and syntax check | PASS | 126 passed, 0 failed, 0 skipped, 0 cancelled |
 | Coverage thresholds | PASS | Lines 94.57%, branches 88.16%, functions 94.83% |
-| Focused structure, skill, and public-copy contract | PASS | 13 passed, 0 failed |
+| Focused structure, skill, public-copy, and retention contract | PASS | 14 passed, 0 failed |
 | Plugin validator | PASS | 1 validator passed, 0 errors |
 | Skill validator | PASS | 1 validator passed, 0 errors |
 | Isolated plugin installation and cache-only import | PASS | 1 passed, 0 failed |
