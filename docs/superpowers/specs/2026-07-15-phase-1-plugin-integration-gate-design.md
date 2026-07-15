@@ -150,6 +150,15 @@ policy, install system packages, or retry denied approval.
 
 ## Runtime Ownership
 
+### Deterministic fixed-policy boundary
+
+The skill owns consent, Browser selection, fresh-tab lifecycle, disposable page
+interactions, progress reporting, and the final user response. The installed
+`createExampleRecording()` module owns the exact `https://example.com/` URL,
+the 20-second hard duration limit, singleton recording state, startup rollback,
+and sanitized runtime failures. These controls are code contracts rather than
+model-executed examples and cannot be overridden by skill arguments.
+
 The installed Browser plugin owns Browser bootstrap, browser selection, the tab
 binding, and permission-gated CDP access. Browser Recorder does not bundle or
 initialize another Browser client.
@@ -159,10 +168,10 @@ After Browser setup, the skill:
 1. Creates a fresh in-app Browser test tab and navigates it to the fixed test
    origin.
 2. Obtains the tab's current `cdp` capability after navigation.
-3. Resolves `<installed-skill-root>/scripts/run-browser-recording.mjs` as an
+3. Resolves `<installed-skill-root>/scripts/example-recording-gate.mjs` as an
    absolute module URL.
 4. Imports that module inside the same persistent runtime that owns the tab.
-5. Starts the recorder and waits for its first valid frame.
+5. Calls `createExampleRecording()` and waits for its first valid frame.
 
 The skill must not guess a cache directory, fall back to the repository `poc/`
 directory, start an external Node process to reacquire CDP, or pass a tab ID to
@@ -173,13 +182,11 @@ another process and assume it can reconstruct the capability.
 The integration adapter returns an explicit runtime handle:
 
 ```js
-const handle = await createBrowserRecording({
+const handle = await createExampleRecording({
   tab,
   temporaryRoot,
   ffmpegPath,
   ffprobePath,
-  fps: 10,
-  maxDecodedBytes: 5 * 1024 * 1024,
 });
 ```
 
@@ -199,11 +206,11 @@ The public handle surface is deliberately small:
   together with sanitized bounded counters.
 - `stop()` is idempotent and memoizes one finalization promise.
 
-The Browser runtime stores this handle under one plugin-specific global key so
-later Browser calls can interact with the tab and then stop the same recording.
-The global value contains the handle, not frames, page content, URLs, or CDP
-event payloads. This is explicit in-memory ownership, not the persistent Phase 1
-state machine planned for a later milestone.
+The deterministic gate stores the active handle under one plugin-specific
+runtime key and releases it during rollback or finalization. The skill never
+reads, writes, or deletes that key. The global value contains the handle, not
+frames, page content, URLs, or CDP event payloads. This is explicit in-memory
+ownership, not a persistent state machine.
 
 ## Recording Data Flow
 
@@ -222,7 +229,8 @@ state machine planned for a later milestone.
 9. The skill confirms that fresh source-frame counters increase during the
    10–15 second recording window.
 10. Stop finalizes the encoder, validates the output, writes the sanitized
-    result, clears the runtime handle, and closes the test tab.
+    result, and lets the gate clear its singleton state before the skill closes
+    the test tab.
 
 ## Stop and Cleanup Order
 
@@ -234,8 +242,8 @@ All success and failure paths use the same order:
 4. Remove the partial output on cancellation or failure.
 5. Validate the finalized WebM on success.
 6. Persist a private sanitized result file.
-7. Clear the plugin-specific runtime handle.
-8. Close the fresh test tab.
+7. Let the deterministic gate clear its plugin-specific singleton state.
+8. Let the skill close the fresh test tab.
 
 Cleanup failures do not replace the primary failure code. A video is never
 reported as successful unless finalization and validation both pass.

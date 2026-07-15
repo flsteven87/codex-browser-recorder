@@ -65,6 +65,10 @@ not expose global `process` metadata; the environment doctor derives macOS from
 command resolution. Node.js 24 or newer is required only for local development
 and repository verification.
 
+The environment doctor feature-detects the `libvpx` VP8 encoder, WebM muxer,
+and usable FFprobe JSON surface. Executable presence or a version string alone
+is not treated as compatibility.
+
 ## Install
 
 Add the Git repository as a Codex marketplace and install the plugin:
@@ -106,7 +110,8 @@ The skill must then:
 5. add a test clock/animation, perform a scroll and DOM state change, and verify
    frame progress;
 6. finalize and validate the video;
-7. clear the active handle and close the fresh tab on every path.
+7. let the runtime gate clear its singleton state, then have the skill close the
+   fresh tab on every path.
 
 Approval denial returns `cancelled` and is never retried or bypassed. The skill
 uses `policy.allow_implicit_invocation: false`; merely installing the plugin or
@@ -131,7 +136,8 @@ local output directory.
 ```mermaid
 flowchart LR
     U["Explicit $record-browser invocation"] --> S["Installed record-browser skill"]
-    S --> B["Installed Browser runtime"]
+    S --> G["Deterministic fixed example.com gate"]
+    G --> B["Installed Browser runtime"]
     B --> T["One fresh approved tab"]
     T --> C["Permission-gated CDP screencast"]
     C --> P["Bounded frame pump and acknowledgements"]
@@ -145,6 +151,13 @@ The recorder module is imported into the same persistent JavaScript runtime
 that owns the Browser tab binding. It reacquires the tab's current CDP
 capability after navigation; it never passes a tab ID to another process and
 assumes the capability can be reconstructed there.
+
+The installed skill calls the deterministic `createExampleRecording()` gate.
+That gate verifies the exact top-level URL through the same reacquired CDP
+session immediately before capture, enforces one active recording per Browser
+runtime, and applies a non-overridable 20-second hard limit. The skill still
+owns explicit consent, fresh-tab creation, disposable test interactions, and
+closing the tab.
 
 The public runtime handle is deliberately limited to `ready`, `status()`, and
 idempotent `stop()`. Status exposes only bounded counters and one of

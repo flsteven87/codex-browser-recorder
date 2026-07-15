@@ -1,9 +1,13 @@
 ---
 name: record-browser
-description: Use when the user explicitly requests recording one approved Codex Browser tab to a local WebM file.
+description: Use only when the user explicitly invokes $record-browser to record the fixed approved Codex Browser example.com gate to a local WebM file.
+license: MIT
 ---
 
 # Record Browser
+
+**Compatibility:** Requires Codex desktop on macOS, the Browser plugin with
+full CDP access, and FFmpeg plus FFprobe with VP8 WebM support.
 
 Run the experimental integration gate that records only the page content of one
 fresh, explicitly approved Codex in-app Browser tab. This skill may run only
@@ -32,9 +36,10 @@ Require the installed Browser plugin, macOS, `ffmpeg` and `ffprobe` on the
 inherited command path, a writable temporary directory, and normal site plus
 full-CDP approval. The Browser Node execution surface does not expose global
 `process` metadata, so do not read `process.platform`, `process.env`, or
-`process.versions`. Successful import of the installed modules is the runtime
-compatibility check. Do not enable Developer mode, change policy, install
-system packages, or broaden the approved origin.
+`process.versions`. The environment doctor feature-detects the required media
+capabilities and is the runtime compatibility check; importing the installed
+modules only proves that they are available. Do not enable Developer mode,
+change policy, install system packages, or broaden the approved origin.
 
 If the Browser skill is not available, or its plugin root does not contain
 `scripts/browser-client.mjs`, stop with `browser_plugin_unavailable`. Follow the
@@ -58,11 +63,11 @@ const temporaryRoot = tmpdir();
 const doctorUrl = pathToFileURL(
   resolve(installedSkillRoot, "scripts/doctor.mjs"),
 ).href;
-const recorderUrl = pathToFileURL(
-  resolve(installedSkillRoot, "scripts/run-browser-recording.mjs"),
+const gateUrl = pathToFileURL(
+  resolve(installedSkillRoot, "scripts/example-recording-gate.mjs"),
 ).href;
 const { doctor } = await import(doctorUrl);
-const { createBrowserRecording } = await import(recorderUrl);
+const { createExampleRecording } = await import(gateUrl);
 ```
 
 `installedSkillRoot` must be the absolute directory containing this installed
@@ -83,26 +88,19 @@ fails, report `plugin_module_unavailable` without revealing the internal path.
    `ffmpeg` and `ffprobe` through bounded, shell-free inherited command
    resolution. Report all deterministic blockers and stop without mutating the
    environment.
-4. Discard the preflight CDP reference. `createBrowserRecording` deliberately
-   reacquires the current capability for the recording session.
-5. Use one active-handle key and reject concurrent recording:
+4. Discard the preflight CDP reference. `createExampleRecording` deliberately
+   reacquires the current capability for the recording session. Exact URL
+   verification, the non-overridable 20-second hard stop, and singleton
+   enforcement are runtime policy and cannot be overridden by the skill.
+5. Start the deterministic fixed-policy gate and wait for readiness:
 
 ```js
-const activeKey = Symbol.for("codex-browser-recorder.active");
-if (globalThis[activeKey] != null) {
-  throw Object.assign(new Error("A recording is already active"), {
-    code: "recording_already_active",
-  });
-}
-const handle = await createBrowserRecording({
+const handle = await createExampleRecording({
   tab: freshTab,
   temporaryRoot,
   ffmpegPath: environment.ffmpegPath,
   ffprobePath: environment.ffprobePath,
-  fps: 10,
-  maxDecodedBytes: 5 * 1024 * 1024,
 });
-globalThis[activeKey] = handle;
 await handle.ready;
 ```
 
@@ -126,12 +124,13 @@ await handle.ready;
 Use a `try`/`finally` around every action after the fresh tab is created. In the
 `finally` path, preserve the primary failure while performing all of these:
 
-1. call `await globalThis[activeKey]?.stop()` when a handle exists;
-2. delete `globalThis[activeKey]`;
-3. close the fresh test tab using the documented Browser tab API.
+1. call `await handle?.stop()` when a handle exists;
+2. close the fresh test tab using the documented Browser tab API.
 
-Never leave the active key, screencast, frame pump, FFmpeg process, partial
-output, or fresh tab behind. Never retry a denied approval.
+The runtime gate owns recorder startup rollback and cleanup. The skill must
+still stop its stored handle and close its fresh tab. Never leave a screencast,
+frame pump, FFmpeg process, partial output, or fresh tab behind. Never retry a
+denied approval.
 
 ## Report Only the Result Contract
 

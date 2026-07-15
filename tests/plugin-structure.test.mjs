@@ -76,6 +76,15 @@ test("record-browser is an explicit skill with one canonical script tree", () =>
   );
 
   assert.equal(frontmatter.name, "record-browser");
+  assert.equal(frontmatter.license, "MIT");
+  assert.match(
+    frontmatter.description,
+    /user explicitly invokes \$record-browser/,
+  );
+  assert.ok(
+    !("compatibility" in frontmatter),
+    "compatibility must stay in the skill body for Codex validator support",
+  );
   assert.match(agentManifest, /^policy:\n(?: {2}.+\n)* {2}allow_implicit_invocation: false$/m);
   for (const script of requiredScripts) {
     assert.ok(existsSync(join(skillRoot, "scripts", script)), `${script} must exist`);
