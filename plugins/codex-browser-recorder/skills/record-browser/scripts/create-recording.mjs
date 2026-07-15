@@ -19,7 +19,22 @@ function stateForFailureCode(code) {
     : "failed";
 }
 
+function failedHandle(code) {
+  const error = sanitizeRecordingFailure({ code });
+  const failure = Promise.reject(error);
+  void failure.catch(() => {});
+  return {
+    ready: failure,
+    status: () => ({ capture: null, state: "failed" }),
+    stop: () => failure,
+  };
+}
+
 export function createRecording(options) {
+  const callerSignal = options?.signal;
+  if (callerSignal != null && !(callerSignal instanceof AbortSignal)) {
+    return failedHandle("invalid_configuration");
+  }
   const dependencies = options?._dependencies ?? {
     clock: { clearTimeout, setTimeout },
     createBrowserRecording,
@@ -34,26 +49,17 @@ export function createRecording(options) {
   const cancelFromCaller = () => cancellation.abort();
 
   if (globalThis[ACTIVE_RECORDING_KEY] != null) {
-    const error = sanitizeRecordingFailure({
-      code: "recording_already_active",
-    });
-    const failure = Promise.reject(error);
-    void failure.catch(() => {});
-    return {
-      ready: failure,
-      status: () => ({ capture: null, state: "failed" }),
-      stop: () => failure,
-    };
+    return failedHandle("recording_already_active");
   }
   globalThis[ACTIVE_RECORDING_KEY] = reservation;
-  options?.signal?.addEventListener("abort", cancelFromCaller, { once: true });
-  if (options?.signal?.aborted) cancelFromCaller();
+  callerSignal?.addEventListener("abort", cancelFromCaller, { once: true });
+  if (callerSignal?.aborted) cancelFromCaller();
 
   let handle;
   let ready;
 
   function release() {
-    options?.signal?.removeEventListener("abort", cancelFromCaller);
+    callerSignal?.removeEventListener("abort", cancelFromCaller);
     if (
       globalThis[ACTIVE_RECORDING_KEY] === reservation ||
       globalThis[ACTIVE_RECORDING_KEY] === handle
