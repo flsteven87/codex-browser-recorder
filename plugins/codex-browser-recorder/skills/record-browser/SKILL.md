@@ -76,36 +76,25 @@ fails, report `plugin_module_unavailable` without revealing the internal path.
 
 ## Recording Workflow
 
-After creating the fresh tab, run every remaining action inside the single
-outer lifecycle block shown below. Bind `closeFreshTab` immediately after tab
-creation as a zero-argument closure that uses the documented Browser tab API to
-close only `freshTab`.
-
-1. Use the Browser documentation's supported tab API to create a fresh tab and
-   navigate it to exactly `https://example.com/`. Keep its binding only in the
-   existing Browser runtime.
-2. Obtain the tab's current `cdp` capability after navigation. Let the normal
-   site and full-CDP approval UI run. If either approval is denied, report
-   `cancelled`; do not retry, bypass approval, change origin, or switch browser.
-3. Run `doctor` with only the temporary output root and whether the acquired CDP
-   capability exposes both `send` and `readEvents`. `doctor` derives the host
-   platform from `node:os`; when PATH metadata is unavailable, it verifies
-   `ffmpeg` and `ffprobe` through bounded, shell-free inherited command
-   resolution. Report all deterministic blockers and stop without mutating the
-   environment.
-4. Discard the preflight CDP reference. `createExampleRecording` deliberately
-   reacquires the current capability for the recording session. Exact URL
-   verification, the non-overridable 20-second hard stop, and singleton
-   enforcement are runtime policy and cannot be overridden by the skill.
-5. Keep the handle in outer scope, start the deterministic fixed-policy gate,
-   and wait for readiness. Perform steps 2–4 and 6–8 at the marked positions:
+1. Use the Browser documentation's supported tab API to create one fresh blank
+   tab without navigating it. Keep its binding only in the existing Browser
+   runtime.
+2. Immediately bind `navigateFreshTab(targetUrl)` and `closeFreshTab()` as
+   closures over the documented API for only `freshTab`. Then enter the single
+   outer lifecycle block below. Its first awaited operation must navigate the
+   fresh tab to exactly `https://example.com/`; run every later action inside
+   the same `try`.
+3. Keep the handle in outer scope, start the deterministic fixed-policy gate,
+   and wait for readiness. Perform steps 4–6 and 7–8 at the marked positions:
 
 ```js
 let handle;
 let recordingResult;
 let primaryFailure;
 try {
-  // Complete approval and doctor steps 2–4 here.
+  await navigateFreshTab("https://example.com/");
+
+  // Complete approval and doctor steps 4–6 here.
   handle = await createExampleRecording({
     tab: freshTab,
     temporaryRoot,
@@ -114,7 +103,7 @@ try {
   });
   await handle.ready;
 
-  // Complete disposable interactions and progress steps 6–7 here.
+  // Complete disposable interactions and progress steps 7–8 here.
   recordingResult = await handle.stop();
 } catch (error) {
   primaryFailure = error;
@@ -140,7 +129,20 @@ try {
 Use `recordingResult` for the final response only after the lifecycle block has
 finished and the fresh tab is closed.
 
-6. After readiness, reacquire the approved `cdp` capability and use bounded
+4. Obtain the tab's current `cdp` capability after navigation. Let the normal
+   site and full-CDP approval UI run. If either approval is denied, report
+   `cancelled`; do not retry, bypass approval, change origin, or switch browser.
+5. Run `doctor` with only the temporary output root and whether the acquired CDP
+   capability exposes both `send` and `readEvents`. `doctor` derives the host
+   platform from `node:os`; when PATH metadata is unavailable, it verifies
+   `ffmpeg` and `ffprobe` through bounded, shell-free inherited command
+   resolution. Report all deterministic blockers and stop without mutating the
+   environment.
+6. Discard the preflight CDP reference. `createExampleRecording` deliberately
+   reacquires the current capability for the recording session. Exact URL
+   verification, the non-overridable 20-second hard stop, and singleton
+   enforcement are runtime policy and cannot be overridden by the skill.
+7. After readiness, reacquire the approved `cdp` capability and use bounded
    `Runtime.evaluate` calls with static quoted expressions to add the visible
    clock/CSS animation and make the SPA-style DOM text/state change. Require a
    true return value and no `exceptionDetails`, then discard that capability.
@@ -148,12 +150,13 @@ finished and the fresh tab is closed.
    that form is not compatible with the Browser Node execution surface. Perform
    one scroll through the documented tab API. These changes belong only to the
    fresh test tab and are discarded when it closes.
-7. Record for 10–15 seconds. Read `handle.status()` at bounded intervals and
+8. Record for 10–15 seconds. Read `handle.status()` at bounded intervals and
    require fresh `framesReceived`, `framesAcknowledged`, and `outputSamples`
    progress. Never place frames, page content, CDP events, or encoder diagnostics
    in model context.
-8. Call `handle.stop()` exactly through the stored handle. It is idempotent, so
-   cleanup may safely call it again and receives the same finalization promise.
+   Call `handle.stop()` exactly through the stored handle when the interval
+   completes. It is idempotent, so cleanup may safely call it again and receives
+   the same finalization promise.
 
 ## Mandatory Cleanup
 
