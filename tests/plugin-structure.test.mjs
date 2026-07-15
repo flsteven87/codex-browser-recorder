@@ -17,6 +17,7 @@ const pluginRoot = join(repositoryRoot, "plugins", "codex-browser-recorder");
 const skillRoot = join(pluginRoot, "skills", "record-browser");
 const requiredScripts = [
   "doctor.mjs",
+  "example-recording-gate.mjs",
   "run-browser-recording.mjs",
   "screencast-recorder.mjs",
   "validate-video.mjs",
