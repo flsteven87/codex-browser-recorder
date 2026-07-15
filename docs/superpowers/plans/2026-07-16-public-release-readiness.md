@@ -537,6 +537,22 @@ State that the repository is a local `v0.1.0` release candidate only when every 
 - public GitHub settings, push, tag, and release;
 - OpenAI verified identity, portal access, listing review, and submission.
 
+#### Local Candidate Status — 2026-07-16
+
+| Evidence | Sanitized result |
+| --- | --- |
+| Complete test suite | 176 tests: 176 passed, 0 failed, 0 skipped |
+| Coverage | 93.86% lines, 87.52% branches, 94.71% functions |
+| Submission evals | 5 positive / 3 negative; 13 focused assertions passed |
+| Isolated install | 1 integration test passed; no skip |
+| Official validators | Plugin passed; public skill passed |
+| Release-candidate validator | Candidate mode passed |
+| Final release mode | Correctly blocked only by `CHANGELOG_RELEASE_INCOMPLETE` and `VERSION_INVALID` |
+| Listing assets | 10 files: 5 PNG and 5 SVG sources; PNGs are 256×256, 1024×256 (2), and 1600×900 (2) |
+| Repository hygiene | 0 recording artifacts or temporary recording directories; 0 public placeholders; 0 unpinned GitHub Action uses |
+| Whole-range review | `702a64b..2c45f98` clean; no Critical or Important findings and no runtime change |
+| Remaining authorization gates | Two sequential installed-desktop recordings from the final installed plugin tree; maintainer authorization for canonical version mutation and commit; public GitHub settings, push, tag, and release; OpenAI verified identity, portal access, listing review, and submission |
+
 - [ ] **Step 6: Commit the local candidate evidence**
 
 ```bash
