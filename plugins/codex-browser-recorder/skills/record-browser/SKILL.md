@@ -1,109 +1,77 @@
 ---
 name: record-browser
-description: Use only when the user explicitly invokes $record-browser to record the fixed approved Codex Browser example.com gate to a local WebM file.
+description: Use only when the user explicitly invokes $record-browser to record one fresh approved Codex Browser tab to a private local WebM file.
 license: MIT
 ---
 
 # Record Browser
 
-**Compatibility:** Requires Codex desktop on macOS, the Browser plugin with
-full CDP access, and FFmpeg plus FFprobe with VP8 WebM support.
+## Collect The Request
 
-Run the experimental integration gate that records only the page content of one
-fresh, explicitly approved Codex in-app Browser tab. This skill may run only
-when the user explicitly selected `$record-browser`; its presence in the plugin
-catalog is not recording consent.
+Require a target URL and planned Browser actions. Use 15 seconds when the user does not provide a recording duration. Do not create or navigate a Browser tab yet.
 
-## Confirm Scope First
+## Validate The Request Locally
 
-Before any Browser action, confirm all of the following with the user:
+Resolve this installed skill directory from the catalog entry that loaded this file. Convert `scripts/recording-policy.mjs` and `scripts/recording-artifacts.mjs` with `pathToFileURL`; import `validateRecordingRequest` and `describeRecordingFailure`. Validate the target plus duration using local computation only. This module resolution and pure computation are not Browser activity. On rejection, report only its code plus the summary and remediation returned by `describeRecordingFailure(error.code)`. Stop before creating, navigating, or acquiring any Browser tab or CDP capability.
 
-- the fixed target is a fresh `https://example.com/` test tab;
-- the duration is 10–15 seconds;
-- output is one local temporary audio-free VP8 WebM;
-- the test page will receive a disposable clock, animation, scroll, and DOM
-  state change;
-- recording excludes Codex UI, browser chrome, audio, credentials, cookies,
-  storage, request headers, and every other tab.
+```js
+const policyUrl = pathToFileURL(
+  resolve(installedSkillRoot, "scripts/recording-policy.mjs"),
+).href;
+const artifactsUrl = pathToFileURL(
+  resolve(installedSkillRoot, "scripts/recording-artifacts.mjs"),
+).href;
+const { validateRecordingRequest } = await import(policyUrl);
+const { describeRecordingFailure } = await import(artifactsUrl);
+const request = validateRecordingRequest({ durationMs, targetUrl });
+```
 
-Stop if the page may contain credentials, payment data, passkeys, recovery
-secrets, or confidential information. A general Browser request is not consent
-to record.
+## Confirm Once Before Browser Activity
 
-## Preconditions
-
-Require the installed Browser plugin, macOS, `ffmpeg` and `ffprobe` on the
-inherited command path, a writable temporary directory, and normal site plus
-full-CDP approval. The Browser Node execution surface does not expose global
-`process` metadata, so do not read `process.platform`, `process.env`, or
-`process.versions`. The environment doctor feature-detects the required media
-capabilities and is the runtime compatibility check; importing the installed
-modules only proves that they are available. Do not enable Developer mode,
-change policy, install system packages, or broaden the approved origin.
-
-If the Browser skill is not available, or its plugin root does not contain
-`scripts/browser-client.mjs`, stop with `browser_plugin_unavailable`. Follow the
-installed Browser skill completely. Use its Node `js` execution surface, reuse
-an existing runtime when `agent.browsers` is already initialized, and never
-initialize a second Browser client. Select the in-app Browser binding and read
-its complete `documentation()` before creating or controlling a tab.
+Present one consolidated consent before any Browser action. Include the validated normalized approved origin, planned actions, duration, private temporary output, no audio, no browser chrome, no other tabs, and the sensitive-data exclusion. Continue only after explicit confirmation; denial returns `cancelled` and performs no Browser action. A `$record-browser` mention selects the workflow but does not approve an unknown target or scope. Refuse credentials, payment data, passkeys, recovery secrets, health data, or confidential communications as out of scope for the first release.
 
 ## Resolve Installed Modules
 
-Resolve the absolute skill root from the catalog entry that loaded this
-`SKILL.md`. Do not guess a cache directory and do not fall back to a source
-checkout. Inside the same persistent JavaScript runtime that owns the Browser
-tab, convert the two canonical module paths with `pathToFileURL`:
+Using the already resolved installed skill directory, convert `scripts/doctor.mjs` and `scripts/create-recording.mjs` with `pathToFileURL`. Never guess a cache path or fall back to a source checkout. Import both modules inside the persistent Browser Node runtime.
 
 ```js
-const { resolve } = await import("node:path");
-const { tmpdir } = await import("node:os");
-const { pathToFileURL } = await import("node:url");
-const temporaryRoot = tmpdir();
 const doctorUrl = pathToFileURL(
   resolve(installedSkillRoot, "scripts/doctor.mjs"),
 ).href;
-const gateUrl = pathToFileURL(
-  resolve(installedSkillRoot, "scripts/example-recording-gate.mjs"),
+const recordingUrl = pathToFileURL(
+  resolve(installedSkillRoot, "scripts/create-recording.mjs"),
 ).href;
 const { doctor } = await import(doctorUrl);
-const { createExampleRecording } = await import(gateUrl);
+const { createRecording } = await import(recordingUrl);
 ```
 
-`installedSkillRoot` must be the absolute directory containing this installed
-skill, supplied as a quoted literal by the executing agent. If either import
-fails, report `plugin_module_unavailable` without revealing the internal path.
+## Run The Recording
 
-## Recording Workflow
+Create one fresh blank Browser tab. Bind navigation and closure functions to only that tab. In one outer `try`/`finally`, navigate to the validated target, allow normal site and full-CDP approval, run `doctor()`, call `createRecording()`, await `handle.ready`, perform only the approved Browser actions, and read bounded status until the deterministic duration completes. A denied site or CDP approval returns `cancelled`; never retry or bypass it. Call `handle.stop()` to obtain the memoized result.
 
-1. Use the Browser documentation's supported tab API to create one fresh blank
-   tab without navigating it. Keep its binding only in the existing Browser
-   runtime.
-2. Immediately bind `navigateFreshTab(targetUrl)` and `closeFreshTab()` as
-   closures over the documented API for only `freshTab`. Then enter the single
-   outer lifecycle block below. Its first awaited operation must navigate the
-   fresh tab to exactly `https://example.com/`; run every later action inside
-   the same `try`.
-3. Keep the handle in outer scope, start the deterministic fixed-policy gate,
-   and wait for readiness. Perform steps 4–6 and 7–8 at the marked positions:
+Keep top-level navigation within `request.approvedOrigin`; stop if the page leaves that approved origin. Check `handle.status()` before and after each approved action. Stop performing Browser actions immediately when the state is no longer `recording`. Keep bounded progress polling until the requested-duration timer or another terminal condition settles the recording. `handle.stop()` then returns the same memoized finalization result.
+
+Do not inject clocks, animations, test text, or diagnostic interactions such as an unapproved scroll. Do not enable Developer mode, change policy, install packages, retry denied approval, broaden the origin, switch browsers, use an existing tab, or expose Browser/CDP objects.
 
 ```js
 let handle;
 let recordingResult;
 let primaryFailure;
 try {
-  await navigateFreshTab("https://example.com/");
+  await navigateFreshTab(request.targetUrl);
 
-  // Complete approval and doctor steps 4–6 here.
-  handle = await createExampleRecording({
-    tab: freshTab,
-    temporaryRoot,
+  // Complete normal site/CDP approval and the bounded doctor preflight here.
+  handle = createRecording({
+    durationMs: request.durationMs,
     ffmpegPath: environment.ffmpegPath,
     ffprobePath: environment.ffprobePath,
+    tab: freshTab,
+    targetUrl: request.targetUrl,
+    temporaryRoot,
   });
   await handle.ready;
 
-  // Complete disposable interactions and progress steps 7–8 here.
+  // Perform only the actions listed in the approved consent.
   recordingResult = await handle.stop();
 } catch (error) {
   primaryFailure = error;
@@ -126,61 +94,10 @@ try {
 }
 ```
 
-Use `recordingResult` for the final response only after the lifecycle block has
-finished and the fresh tab is closed.
+## Clean Up
 
-4. Obtain the tab's current `cdp` capability after navigation. Let the normal
-   site and full-CDP approval UI run. If either approval is denied, report
-   `cancelled`; do not retry, bypass approval, change origin, or switch browser.
-5. Run `doctor` with only the temporary output root and whether the acquired CDP
-   capability exposes both `send` and `readEvents`. `doctor` derives the host
-   platform from `node:os`; when PATH metadata is unavailable, it verifies
-   `ffmpeg` and `ffprobe` through bounded, shell-free inherited command
-   resolution. Report all deterministic blockers and stop without mutating the
-   environment.
-6. Discard the preflight CDP reference. `createExampleRecording` deliberately
-   reacquires the current capability for the recording session. Exact URL
-   verification, the non-overridable 20-second hard stop, and singleton
-   enforcement are runtime policy and cannot be overridden by the skill.
-7. After readiness, reacquire the approved `cdp` capability and use bounded
-   `Runtime.evaluate` calls with static quoted expressions to add the visible
-   clock/CSS animation and make the SPA-style DOM text/state change. Require a
-   true return value and no `exceptionDetails`, then discard that capability.
-   Do not pass a JavaScript function object to `freshTab.playwright.evaluate`;
-   that form is not compatible with the Browser Node execution surface. Perform
-   one scroll through the documented tab API. These changes belong only to the
-   fresh test tab and are discarded when it closes.
-8. Record for 10–15 seconds. Read `handle.status()` at bounded intervals and
-   require fresh `framesReceived`, `framesAcknowledged`, and `outputSamples`
-   progress. Never place frames, page content, CDP events, or encoder diagnostics
-   in model context.
-   Call `handle.stop()` exactly through the stored handle when the interval
-   completes. It is idempotent, so cleanup may safely call it again and receives
-   the same finalization promise.
+Always call `await handle?.stop()` before closing the fresh tab. Preserve the primary failure if cleanup also fails. Never leave a screencast, frame pump, FFmpeg process, partial output, singleton, or fresh tab active.
 
-## Mandatory Cleanup
+## Report The Result
 
-Use a `try`/`finally` around every action after the fresh tab is created. In the
-`finally` path, always attempt both of these in order:
-
-1. call `await handle?.stop()` when a handle exists;
-2. close the fresh test tab using the documented Browser tab API.
-
-The runtime gate owns recorder startup rollback and cleanup. The skill must
-still stop its stored handle and close its fresh tab. Never leave a screencast,
-frame pump, FFmpeg process, partial output, or fresh tab behind. Never retry a
-denied approval. Keep the first cleanup failure only for the case where no
-primary failure exists. When a primary failure exists, do not throw, return, or
-report a cleanup failure from `finally`; let the primary failure keep its stable
-code and actionable message. Sanitize a cleanup-only failure through the same
-result contract.
-
-## Report Only the Result Contract
-
-On success, report status, elapsed duration, received and acknowledged frame
-counts, output samples, bounded drop/truncation counters, validated codec,
-dimensions, size, duration, and the final local audio-free VP8 WebM path.
-
-On failure, report one stable failure code and one actionable message. A denied
-site or full-CDP approval is `cancelled`. Do not expose raw frames, CDP payloads,
-FFmpeg stderr, full URLs, page content, tab objects, or internal plugin paths.
+On success, lead with `Recording completed`, duration, VP8 WebM, dimensions, no audio, and `Saved locally: <path>`. Offer bounded capture counters only as diagnostics. On failure, report the stable failure code plus its allowlisted summary and remediation. Never report full URLs, page text, raw frames, CDP payloads, FFmpeg stderr, credentials, or internal plugin paths.
