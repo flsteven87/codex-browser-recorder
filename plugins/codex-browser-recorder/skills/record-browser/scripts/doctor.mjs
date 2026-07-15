@@ -21,6 +21,34 @@ async function commandMatches(executable, arguments_, pattern) {
   }
 }
 
+async function ffprobeSupportsJson(executable) {
+  try {
+    const { stdout } = await execFileAsync(
+      executable,
+      ["-v", "error", "-show_program_version", "-of", "json"],
+      {
+        encoding: "utf8",
+        maxBuffer: 1024 * 1024,
+        timeout: 5000,
+        windowsHide: true,
+      },
+    );
+    const parsed = JSON.parse(stdout);
+    return (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      parsed.program_version !== null &&
+      typeof parsed.program_version === "object" &&
+      !Array.isArray(parsed.program_version) &&
+      typeof parsed.program_version.version === "string" &&
+      parsed.program_version.version.length > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function inspectMediaCapabilities(ffmpegPath, ffprobePath) {
   const [ffmpegVp8Available, ffmpegWebmAvailable, ffprobeUsable] =
     await Promise.all([
@@ -40,7 +68,7 @@ async function inspectMediaCapabilities(ffmpegPath, ffprobePath) {
           ),
       ffprobePath === null
         ? false
-        : commandMatches(ffprobePath, ["-version"], /^ffprobe version /m),
+        : ffprobeSupportsJson(ffprobePath),
     ]);
   return { ffmpegVp8Available, ffmpegWebmAvailable, ffprobeUsable };
 }

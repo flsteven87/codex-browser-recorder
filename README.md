@@ -159,6 +159,10 @@ runtime, and applies a non-overridable 20-second hard limit. The skill still
 owns explicit consent, fresh-tab creation, disposable test interactions, and
 closing the tab.
 
+The lower-level `runBrowserPocGate()` helper is retained only as a test-only,
+historical Phase 0 end-to-end regression harness. It is not the installed skill
+entry point and does not own current runtime policy.
+
 The public runtime handle is deliberately limited to `ready`, `status()`, and
 idempotent `stop()`. Status exposes only bounded counters and one of
 `recording`, `stopping`, `completed`, or `failed`.

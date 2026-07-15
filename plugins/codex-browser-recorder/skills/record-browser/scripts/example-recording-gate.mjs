@@ -27,8 +27,19 @@ export async function createExampleRecording({
   globalThis[ACTIVE_RECORDING_KEY] = reservation;
 
   let inner;
+  let handle;
+  let terminalPending = false;
+  const onTerminal = () => {
+    terminalPending = true;
+    if (handle !== undefined) {
+      void handle.stop().catch(() => {
+        // The caller observes the memoized finalization failure.
+      });
+    }
+  };
   try {
     inner = await _dependencies.createBrowserRecording({
+      _onTerminal: onTerminal,
       expectedTopLevelUrl: EXAMPLE_PAGE_URL,
       ffmpegPath,
       ffprobePath,
@@ -51,7 +62,7 @@ export async function createExampleRecording({
   }
 
   let stopPromise = null;
-  const handle = {
+  handle = {
     ready: inner.ready,
     status() {
       return inner.status();
@@ -69,6 +80,9 @@ export async function createExampleRecording({
   };
 
   globalThis[ACTIVE_RECORDING_KEY] = handle;
+  if (terminalPending) {
+    onTerminal();
+  }
   void Promise.resolve(handle.ready)
     .catch(() => handle.stop())
     .catch(() => {

@@ -77,6 +77,7 @@ const CAPTURE_FAILURE_CODES = new Set([
   "event_stream_invalid",
   "frame_stream_stalled",
   "frame_stream_unavailable",
+  "integration_failed",
   "invalid_configuration",
   "origin_not_allowed",
   "origin_verification_failed",
@@ -168,6 +169,13 @@ class PocError extends Error {
     this.name = "PocError";
     this.code = code;
   }
+}
+
+function sanitizeStartupError(error) {
+  const code = CAPTURE_FAILURE_CODES.has(error?.code)
+    ? error.code
+    : "integration_failed";
+  return new PocError(code, "Recording startup failed");
 }
 
 function waitForFirstFrame(ready, timeoutMs) {
@@ -305,13 +313,22 @@ export async function startBrowserPoc({
   }
 
   await cdp.send("Page.enable");
-  await cdp.send("Page.startScreencast", {
-    everyNthFrame: 1,
-    format: "jpeg",
-    maxHeight: 720,
-    maxWidth: 1280,
-    quality: 70,
-  });
+  try {
+    await cdp.send("Page.startScreencast", {
+      everyNthFrame: 1,
+      format: "jpeg",
+      maxHeight: 720,
+      maxWidth: 1280,
+      quality: 70,
+    });
+  } catch (error) {
+    try {
+      await cdp.send("Page.stopScreencast");
+    } catch {
+      // The sanitized startup failure remains primary.
+    }
+    throw error;
+  }
 
   let sink;
   try {
@@ -595,6 +612,7 @@ export async function createBrowserRecording({
     prepareBrowserPoc,
     startBrowserPocForTab,
   },
+  _onTerminal,
   durationToleranceSeconds = 5,
   expectedTopLevelUrl,
   ffmpegPath,
@@ -638,17 +656,28 @@ export async function createBrowserRecording({
     } catch {
       // Preserve the bounded startup failure as the primary error.
     }
-    throw error;
+    throw sanitizeStartupError(error);
   }
 
   let finalizationPromise = null;
   let readinessError = null;
   let state = "recording";
+  let terminalNotified = false;
   const ready = Promise.resolve(session.ready).catch((error) => {
     readinessError = error;
     state = "failed";
     throw error;
   });
+  function notifyTerminal() {
+    if (terminalNotified) return;
+    terminalNotified = true;
+    try {
+      _onTerminal?.();
+    } catch {
+      // Internal lifecycle notification must not replace finalization.
+    }
+  }
+
   if (typeof session.completion?.then === "function") {
     void session.completion.then(
       (outcome) => {
@@ -658,10 +687,12 @@ export async function createBrowserRecording({
         } else if (state === "recording") {
           state = "stopping";
         }
+        void stop().then(notifyTerminal, notifyTerminal);
       },
       (error) => {
         readinessError ??= error;
         state = "failed";
+        void stop().then(notifyTerminal, notifyTerminal);
       },
     );
   }
@@ -757,6 +788,12 @@ function emptyCaptureSession() {
   };
 }
 
+/**
+ * Historical Phase 0 end-to-end regression harness.
+ *
+ * The installed skill uses createExampleRecording(); this helper remains only
+ * to preserve the original complete capture-window regression coverage.
+ */
 export async function runBrowserPocGate({
   durationToleranceSeconds,
   ffmpegPath,

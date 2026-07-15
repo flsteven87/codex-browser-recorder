@@ -27,7 +27,13 @@ writeFileSync(
 );
 writeFileSync(
   join(binDirectory, "ffprobe"),
-  "#!/bin/sh\nprintf 'ffprobe version test\\n'\n",
+  [
+    "#!/bin/sh",
+    "case \"$*\" in",
+    "  *\"-show_program_version\"*) printf '{\"program_version\":{\"version\":\"test\"}}\\n' ;;",
+    "  *) printf 'ffprobe version test\\n' ;;",
+    "esac",
+  ].join("\n"),
 );
 chmodSync(join(binDirectory, "ffmpeg"), 0o755);
 chmodSync(join(binDirectory, "ffprobe"), 0o755);
@@ -145,7 +151,7 @@ for (const variant of [
     name: "missing-vp8",
     ffmpegVp8Output: "VP8 HELP OMITTED",
     ffmpegWebmOutput: "Muxer webm [WebM]:",
-    ffprobeOutput: "ffprobe version test",
+    ffprobeOutput: '{"program_version":{"version":"test"}}',
     ffmpegVp8Available: false,
     ffmpegWebmAvailable: true,
     ffprobeUsable: true,
@@ -155,17 +161,37 @@ for (const variant of [
     name: "missing-webm",
     ffmpegVp8Output: "Encoder libvpx [libvpx VP8]:",
     ffmpegWebmOutput: "WEBM HELP OMITTED",
-    ffprobeOutput: "ffprobe version test",
+    ffprobeOutput: '{"program_version":{"version":"test"}}',
     ffmpegVp8Available: true,
     ffmpegWebmAvailable: false,
     ffprobeUsable: true,
     blockingReasons: ["ffmpeg_webm_unavailable"],
   },
   {
-    name: "unusable-ffprobe",
+    name: "version-only-ffprobe",
     ffmpegVp8Output: "Encoder libvpx [libvpx VP8]:",
     ffmpegWebmOutput: "Muxer webm [WebM]:",
-    ffprobeOutput: "FFPROBE VERSION OMITTED",
+    ffprobeOutput: "ffprobe version secret-test-token",
+    ffmpegVp8Available: true,
+    ffmpegWebmAvailable: true,
+    ffprobeUsable: false,
+    blockingReasons: ["ffprobe_unusable"],
+  },
+  {
+    name: "malformed-json-ffprobe",
+    ffmpegVp8Output: "Encoder libvpx [libvpx VP8]:",
+    ffmpegWebmOutput: "Muxer webm [WebM]:",
+    ffprobeOutput: '{"program_version":',
+    ffmpegVp8Available: true,
+    ffmpegWebmAvailable: true,
+    ffprobeUsable: false,
+    blockingReasons: ["ffprobe_unusable"],
+  },
+  {
+    name: "wrong-shape-ffprobe",
+    ffmpegVp8Output: "Encoder libvpx [libvpx VP8]:",
+    ffmpegWebmOutput: "Muxer webm [WebM]:",
+    ffprobeOutput: '{"program_version":{"version":7},"secret":"test-token"}',
     ffmpegVp8Available: true,
     ffmpegWebmAvailable: true,
     ffprobeUsable: false,
@@ -175,7 +201,7 @@ for (const variant of [
     name: "all-unavailable",
     ffmpegVp8Output: "VP8 HELP OMITTED",
     ffmpegWebmOutput: "WEBM HELP OMITTED",
-    ffprobeOutput: "FFPROBE VERSION OMITTED",
+    ffprobeOutput: "FFPROBE JSON OMITTED",
     ffmpegVp8Available: false,
     ffmpegWebmAvailable: false,
     ffprobeUsable: false,
@@ -221,7 +247,7 @@ for (const variant of [
     assert.deepEqual(result.blockingReasons, variant.blockingReasons);
     assert.doesNotMatch(
       JSON.stringify(result),
-      /Encoder libvpx|Muxer webm|ffprobe version|HELP OMITTED|VERSION OMITTED/,
+      /Encoder libvpx|Muxer webm|ffprobe version|program_version|test-token|HELP OMITTED|JSON OMITTED/,
     );
   });
 }

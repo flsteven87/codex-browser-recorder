@@ -355,6 +355,21 @@ test("accepts only the exact approved top-level URL", async () => {
   assert.deepEqual(methods, ["Page.getFrameTree"]);
 });
 
+test("rejects invalid top-level URL verification configuration", async () => {
+  for (const variant of [
+    { cdp: {}, expectedUrl: "https://example.com/" },
+    { cdp: { async send() {} }, expectedUrl: "" },
+    { cdp: { async send() {} }, expectedUrl: 42 },
+  ]) {
+    await assert.rejects(
+      assertTopLevelUrl(variant),
+      (error) =>
+        error.code === "invalid_configuration" &&
+        error.message === "Top-level URL verification configuration is invalid",
+    );
+  }
+});
+
 test("rejects a different URL without exposing it", async () => {
   const secretUrl = "https://example.com/?token=must-not-leak";
   const cdp = {

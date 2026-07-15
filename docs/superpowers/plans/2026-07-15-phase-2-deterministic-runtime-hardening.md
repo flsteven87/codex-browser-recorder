@@ -1210,16 +1210,16 @@ git commit -m "docs: record deterministic runtime gate"
 
 | Gate | Result | Numeric evidence |
 | --- | --- | --- |
-| Complete Node test suite | PASS | 89 passed, 0 failed, 0 skipped, 0 cancelled |
-| Coverage thresholds | PASS | Lines 91.06%, branches 85.24%, functions 92.31% |
+| Complete Node test suite | PASS | 94 passed, 0 failed, 0 skipped, 0 cancelled |
+| Coverage thresholds | PASS | Lines 91.39%, branches 85.64%, functions 91.67% |
 | Plugin validator | PASS | 1 validator passed, 0 errors |
 | Skill validator | PASS | 1 validator passed, 0 errors |
 | Isolated plugin installation and cache-only import | PASS | 1 passed, 0 failed |
-| Exact-origin and same-session verification | PASS | 4 passed, 0 failed |
-| Fixed 20-second policy and singleton lifecycle | PASS | 7 passed, 0 failed |
-| Startup cleanup transaction | PASS | 3 passed, 0 failed |
+| Exact-origin and same-session verification | PASS | 5 passed, 0 failed |
+| Fixed 20-second policy and singleton lifecycle | PASS | 8 passed, 0 failed |
+| Startup cleanup and sanitized failure transaction | PASS | 4 passed, 0 failed |
 | Encoder stderr and diagnostic redaction boundary | PASS | 2 passed, 0 failed |
-| VP8/WebM/FFprobe feature probes | PASS | 5 passed, 0 failed |
+| VP8/WebM/FFprobe feature probes | PASS | 7 passed, 0 failed |
 | Strict VP8/WebM/FFprobe media validation | PASS | 11 passed, 0 failed |
 | Repository whitespace | PASS | 0 errors |
 | Repository recording artifacts | PASS | 0 WebM files, 0 partial files, 0 result JSON files, 0 recording temporary directories |

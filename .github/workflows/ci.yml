@@ -45,4 +45,4 @@ jobs:
           fi
 
       - name: Check whitespace
-        run: git diff --check
+        run: git show --check --format= HEAD

@@ -19,12 +19,21 @@ function deferred() {
   return { promise, reject, resolve };
 }
 
+async function waitForCondition(predicate) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.fail("condition was not satisfied");
+}
+
 function createHarness({
   create,
   ready = Promise.resolve(),
   stopError,
 } = {}) {
   const calls = { create: 0, stop: 0 };
+  const stopped = deferred();
   let receivedOptions;
   const inner = {
     ready,
@@ -34,9 +43,12 @@ function createHarness({
     async stop() {
       calls.stop += 1;
       if (stopError !== undefined) {
+        stopped.resolve({ error: stopError });
         throw stopError;
       }
-      return { result: { status: "passed" } };
+      const result = { result: { status: "passed" } };
+      stopped.resolve(result);
+      return result;
     },
   };
   return {
@@ -52,6 +64,10 @@ function createHarness({
       },
     },
     inner,
+    stopped,
+    terminate() {
+      receivedOptions?._onTerminal?.();
+    },
     get receivedOptions() {
       return receivedOptions;
     },
@@ -77,6 +93,7 @@ test("applies the complete fixed recording policy", async () => {
   assert.equal(EXAMPLE_PAGE_URL, "https://example.com/");
   assert.equal(EXAMPLE_RECORDING_MAX_DURATION_MS, 20_000);
   assert.deepEqual(harness.receivedOptions, {
+    _onTerminal: harness.receivedOptions._onTerminal,
     expectedTopLevelUrl: "https://example.com/",
     ffmpegPath: "/usr/local/bin/ffmpeg",
     ffprobePath: "/usr/local/bin/ffprobe",
@@ -91,6 +108,7 @@ test("applies the complete fixed recording policy", async () => {
     tab,
     temporaryRoot: "/private/tmp",
   });
+  assert.equal(typeof harness.receivedOptions._onTerminal, "function");
 });
 
 test("rejects a concurrent recording before allocating another session", async () => {
@@ -233,4 +251,26 @@ test("automatically stops and releases the singleton after readiness failure", a
 
   const next = await createExampleRecording(options);
   await next.stop();
+});
+
+test("automatically finalizes and releases after an after-ready terminal failure", async () => {
+  const harness = createHarness();
+  const options = {
+    _dependencies: harness.dependencies,
+    ffmpegPath: "ffmpeg",
+    ffprobePath: "ffprobe",
+    tab: {},
+  };
+  const handle = await createExampleRecording(options);
+  await handle.ready;
+
+  harness.terminate();
+  const result = await harness.stopped.promise;
+
+  assert.equal(result.result.status, "passed");
+  assert.equal(harness.calls.stop, 1);
+  await waitForCondition(() => globalThis[activeKey] == null);
+  const next = await createExampleRecording(options);
+  await next.stop();
+  assert.equal(harness.calls.create, 2);
 });

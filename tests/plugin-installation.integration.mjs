@@ -90,22 +90,34 @@ test("installs from an isolated marketplace and imports only from cache", async 
     const listed = JSON.parse(runCodex(["plugin", "list", "--json"]));
     assert.match(JSON.stringify(listed), /codex-browser-recorder/);
 
-    const cacheModules = findFiles(codexHome, "run-browser-recording.mjs");
-    assert.equal(
-      cacheModules.length,
-      1,
-      `expected one cached recorder, found ${cacheModules
-        .map((path) => relative(codexHome, path))
-        .join(", ")}`,
+    const cachedFiles = Object.fromEntries(
+      ["doctor.mjs", "example-recording-gate.mjs"].map((filename) => {
+        const matches = findFiles(codexHome, filename);
+        assert.equal(
+          matches.length,
+          1,
+          `expected one cached ${filename}, found ${matches
+            .map((path) => relative(codexHome, path))
+            .join(", ")}`,
+        );
+        return [filename, realpathSync(matches[0])];
+      }),
     );
-    const cacheModule = realpathSync(cacheModules[0]);
     const canonicalCodexHome = realpathSync(codexHome);
-    assert.equal(basename(cacheModule), "run-browser-recording.mjs");
-    assert.ok(cacheModule.startsWith(`${canonicalCodexHome}${sep}`));
+    for (const [filename, cachedFile] of Object.entries(cachedFiles)) {
+      assert.equal(basename(cachedFile), filename);
+      assert.ok(cachedFile.startsWith(`${canonicalCodexHome}${sep}`));
+    }
 
     rmSync(marketplaceRoot, { force: true, recursive: true });
-    const imported = await import(pathToFileURL(cacheModule).href);
-    assert.equal(typeof imported.createBrowserRecording, "function");
+    const gate = await import(
+      pathToFileURL(cachedFiles["example-recording-gate.mjs"]).href
+    );
+    const environmentDoctor = await import(
+      pathToFileURL(cachedFiles["doctor.mjs"]).href
+    );
+    assert.equal(typeof gate.createExampleRecording, "function");
+    assert.equal(typeof environmentDoctor.doctor, "function");
   } finally {
     rmSync(testRoot, { force: true, recursive: true });
   }

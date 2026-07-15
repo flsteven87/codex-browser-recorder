@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { createBrowserRecording } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/run-browser-recording.mjs";
@@ -44,6 +47,7 @@ function createHarness({
     sessionStop: 0,
     start: 0,
   };
+  const finalized = deferred();
   const paths = {
     directory: "/private/temporary/recording",
     outputPath: "/private/temporary/recording/recording.webm",
@@ -98,14 +102,18 @@ function createHarness({
         calls.finalize += 1;
         finalizedOptions = options;
         await options.session.stop();
-        if (finalizeError) throw finalizeError;
-        return (
+        if (finalizeError) {
+          finalized.resolve({ error: finalizeError });
+          throw finalizeError;
+        }
+        const result =
           finalResult ?? {
             failureCode: null,
             status: "passed",
             videoFile: "recording.webm",
-          }
-        );
+          };
+        finalized.resolve(result);
+        return result;
       },
       async prepareBrowserPoc() {
         calls.prepare += 1;
@@ -123,6 +131,7 @@ function createHarness({
     get finalizedOptions() {
       return finalizedOptions;
     },
+    finalized,
     paths,
     session,
     setFinalizeError(error) {
@@ -142,12 +151,25 @@ async function createHandle(harness) {
 }
 
 test("cleans the prepared directory when session startup fails", async () => {
-  const startupError = Object.assign(new Error("CDP startup failed"), {
+  const secret = "Bearer startup-secret-must-not-leak";
+  const startupError = Object.assign(new Error(secret), {
     code: "cdp_unavailable",
+    diagnostic: secret,
   });
   const harness = createHarness({ startError: startupError });
 
-  await assert.rejects(createHandle(harness), (error) => error === startupError);
+  await assert.rejects(createHandle(harness), (error) => {
+    assert.notEqual(error, startupError);
+    assert.equal(error.code, "cdp_unavailable");
+    assert.equal(error.message, "Recording startup failed");
+    assert.equal("cause" in error, false);
+    assert.equal("diagnostic" in error, false);
+    assert.doesNotMatch(
+      `${error.message}\n${JSON.stringify(error)}`,
+      /startup-secret/,
+    );
+    return true;
+  });
 
   assert.equal(harness.calls.prepare, 1);
   assert.equal(harness.calls.start, 1);
@@ -157,15 +179,25 @@ test("cleans the prepared directory when session startup fails", async () => {
 });
 
 test("preserves the startup error when directory cleanup also fails", async () => {
-  const startupError = Object.assign(new Error("Primary startup failure"), {
-    code: "cdp_unavailable",
-  });
+  const startupError = Object.assign(
+    new Error("private primary startup secret"),
+    { code: "cdp_unavailable" },
+  );
   const harness = createHarness({
     cleanupError: new Error("private cleanup diagnostic"),
     startError: startupError,
   });
 
-  await assert.rejects(createHandle(harness), (error) => error === startupError);
+  await assert.rejects(createHandle(harness), (error) => {
+    assert.notEqual(error, startupError);
+    assert.equal(error.code, "cdp_unavailable");
+    assert.equal(error.message, "Recording startup failed");
+    assert.doesNotMatch(
+      `${error.message}\n${JSON.stringify(error)}`,
+      /private primary startup secret|private cleanup diagnostic/,
+    );
+    return true;
+  });
   assert.equal(harness.calls.cleanup, 1);
   assert.equal(harness.cleanupPaths, harness.paths);
 });
@@ -243,9 +275,16 @@ test("readiness failure is retained as the primary cleanup error", async () => {
   assert.equal(handle.status().state, "failed");
 });
 
-test("an automatic capture failure updates status before explicit stop", async () => {
+test("an automatic capture failure finalizes without an explicit stop", async () => {
   const completed = deferred();
-  const harness = createHarness({ completion: completed.promise });
+  const harness = createHarness({
+    completion: completed.promise,
+    finalResult: {
+      failureCode: "frame_stream_stalled",
+      status: "failed",
+      videoFile: "recording.webm",
+    },
+  });
   const handle = await createHandle(harness);
   await handle.ready;
 
@@ -256,9 +295,133 @@ test("an automatic capture failure updates status before explicit stop", async (
     result: null,
   });
   await completed.promise;
-  await new Promise((resolve) => setImmediate(resolve));
+  const result = await harness.finalized.promise;
 
   assert.equal(handle.status().state, "failed");
+  assert.equal(result.status, "failed");
+  assert.equal(result.failureCode, "frame_stream_stalled");
+  assert.equal(harness.calls.finalize, 1);
+  assert.equal(harness.calls.sessionStop, 1);
+});
+
+test("sanitizes every pre-handle Browser and CDP startup failure after rollback", async () => {
+  const variants = [
+    {
+      code: "cdp_unavailable",
+      name: "capability acquisition",
+      tab(secret) {
+        return {
+          capabilities: {
+            async get() {
+              throw Object.assign(new Error(secret), {
+                code: "cdp_unavailable",
+                diagnostic: secret,
+              });
+            },
+          },
+        };
+      },
+    },
+    {
+      code: "integration_failed",
+      name: "event baseline",
+      tab(secret) {
+        return {
+          capabilities: {
+            async get() {
+              return {
+                async readEvents() {
+                  throw new Error(secret);
+                },
+                async send() {},
+              };
+            },
+          },
+        };
+      },
+    },
+    {
+      code: "integration_failed",
+      name: "Page.enable",
+      tab(secret) {
+        return {
+          capabilities: {
+            async get() {
+              return {
+                async readEvents() {
+                  return { cursor: 0 };
+                },
+                async send(method) {
+                  if (method === "Page.enable") throw new Error(secret);
+                },
+              };
+            },
+          },
+        };
+      },
+    },
+    {
+      code: "integration_failed",
+      name: "Page.startScreencast",
+      tab(secret, methods) {
+        return {
+          capabilities: {
+            async get() {
+              return {
+                async readEvents() {
+                  return { cursor: 0 };
+                },
+                async send(method) {
+                  methods.push(method);
+                  if (method === "Page.startScreencast") {
+                    throw new Error(secret);
+                  }
+                },
+              };
+            },
+          },
+        };
+      },
+    },
+  ];
+
+  for (const variant of variants) {
+    const temporaryRoot = mkdtempSync(join(tmpdir(), "startup-privacy-test-"));
+    const secret = `secret-${variant.name}-must-not-leak`;
+    const methods = [];
+    try {
+      await assert.rejects(
+        createBrowserRecording({
+          ffmpegPath: "unused",
+          ffprobePath: "unused",
+          tab: variant.tab(secret, methods),
+          temporaryRoot,
+        }),
+        (error) => {
+          assert.equal(error.code, variant.code);
+          assert.equal(error.message, "Recording startup failed");
+          assert.equal("cause" in error, false);
+          assert.equal("diagnostic" in error, false);
+          assert.doesNotMatch(
+            `${error.message}\n${JSON.stringify(error)}`,
+            /secret-.*-must-not-leak/,
+          );
+          return true;
+        },
+        variant.name,
+      );
+      assert.deepEqual(readdirSync(temporaryRoot), []);
+      if (variant.name === "Page.startScreencast") {
+        assert.deepEqual(methods, [
+          "Page.enable",
+          "Page.startScreencast",
+          "Page.stopScreencast",
+        ]);
+      }
+    } finally {
+      rmSync(temporaryRoot, { force: true, recursive: true });
+    }
+  }
 });
 
 test("finalization failure is memoized and leaves the handle failed", async () => {
