@@ -11,7 +11,7 @@ import {
 import {
   createFfmpegSink,
   startFramePump,
-} from "./screencast-recorder.mjs";
+} from "./media-recorder.mjs";
 import {
   originOf,
   RECORDING_FPS,
@@ -29,10 +29,10 @@ const SCREENCAST_EVENT_METHODS = [
   "Page.screencastVisibilityChanged",
 ];
 
-class PocError extends Error {
+class BrowserRecordingError extends Error {
   constructor(code, message) {
     super(message);
-    this.name = "PocError";
+    this.name = "BrowserRecordingError";
     this.code = code;
   }
 }
@@ -49,7 +49,7 @@ function waitForFirstFrame(ready, timeoutMs) {
     timer = setTimeout(
       () =>
         reject(
-          new PocError(
+          new BrowserRecordingError(
             "frame_stream_unavailable",
             "No screencast frame arrived before the timeout",
           ),
@@ -118,14 +118,14 @@ function validateStartConfiguration({
         typeof signal?.removeEventListener !== "function")) ||
     typeof sinkFactory !== "function"
   ) {
-    throw new PocError(
+    throw new BrowserRecordingError(
       "invalid_configuration",
       "Browser recording configuration is invalid",
     );
   }
 }
 
-export async function startBrowserPoc({
+export async function startBrowserRecording({
   approvedOrigin,
   cdp,
   ffmpegPath,
@@ -162,7 +162,7 @@ export async function startBrowserPoc({
   });
   let startupCancellation = null;
   const startupAbortListener = () => {
-    startupCancellation ??= new PocError(
+    startupCancellation ??= new BrowserRecordingError(
       "recording_cancelled",
       "Recording was cancelled",
     );
@@ -204,7 +204,7 @@ export async function startBrowserPoc({
       !Number.isInteger(baseline.cursor) ||
       baseline.cursor < 0
     ) {
-      throw new PocError(
+      throw new BrowserRecordingError(
         "event_stream_invalid",
         "CDP event stream returned an invalid baseline",
       );
@@ -259,7 +259,7 @@ export async function startBrowserPoc({
     },
     onTopFrameNavigation(url) {
       if (originOf(url) !== approvedOrigin) {
-        throw new PocError(
+        throw new BrowserRecordingError(
           "origin_changed_during_recording",
           "The recording page left the approved origin",
         );
@@ -286,7 +286,7 @@ export async function startBrowserPoc({
       if (stopPromise !== null) return;
       durationTimer = setTimeout(() => {
         terminate(
-          new PocError(
+          new BrowserRecordingError(
             "recording_duration_limit",
             "Recording reached the configured duration limit",
           ),
@@ -317,7 +317,7 @@ export async function startBrowserPoc({
       );
       if (outputBytes > maxOutputBytes) {
         terminate(
-          new PocError(
+          new BrowserRecordingError(
             "recording_output_limit",
             "Recording exceeded the configured output size limit",
           ),
@@ -330,7 +330,7 @@ export async function startBrowserPoc({
         now() - lastFrameAt > maxFrameStallMs
       ) {
         terminate(
-          new PocError(
+          new BrowserRecordingError(
             "frame_stream_stalled",
             "Fresh screencast frames stopped arriving",
           ),
@@ -338,9 +338,9 @@ export async function startBrowserPoc({
       }
     } catch (error) {
       terminate(
-        error instanceof PocError
+        error instanceof BrowserRecordingError
           ? error
-          : new PocError(
+          : new BrowserRecordingError(
               "output_monitor_failed",
               "Recording output could not be monitored",
             ),
@@ -354,7 +354,7 @@ export async function startBrowserPoc({
   const abortListener = () => {
     terminate(
       startupCancellation ??
-        new PocError("recording_cancelled", "Recording was cancelled"),
+        new BrowserRecordingError("recording_cancelled", "Recording was cancelled"),
     );
   };
   signal?.addEventListener("abort", abortListener, { once: true });
@@ -364,7 +364,7 @@ export async function startBrowserPoc({
     void sink.completion.then(() => {
       if (stopPromise === null) {
         terminate(
-          new PocError(
+          new BrowserRecordingError(
             "encoder_failed",
             "FFmpeg exited before recording was stopped",
           ),
@@ -482,7 +482,7 @@ export async function inspectTopLevelFrame({ approvedOrigin, cdp }) {
     typeof cdp?.send !== "function" ||
     originOf(approvedOrigin) !== approvedOrigin
   ) {
-    throw new PocError(
+    throw new BrowserRecordingError(
       "invalid_configuration",
       "Top-level origin verification configuration is invalid",
     );
@@ -492,7 +492,7 @@ export async function inspectTopLevelFrame({ approvedOrigin, cdp }) {
   try {
     frameTree = await cdp.send("Page.getFrameTree");
   } catch {
-    throw new PocError(
+    throw new BrowserRecordingError(
       "origin_verification_failed",
       "The recording page origin could not be verified",
     );
@@ -504,7 +504,7 @@ export async function inspectTopLevelFrame({ approvedOrigin, cdp }) {
     frame.id.length === 0 ||
     originOf(frame.url) !== approvedOrigin
   ) {
-    throw new PocError(
+    throw new BrowserRecordingError(
       originOf(frame?.url) === null
         ? "origin_verification_failed"
         : "origin_not_allowed",
@@ -514,13 +514,13 @@ export async function inspectTopLevelFrame({ approvedOrigin, cdp }) {
   return { frameId: frame.id };
 }
 
-export async function startBrowserPocForTab({
+export async function startBrowserRecordingForTab({
   approvedOrigin,
   tab,
   ...options
 }) {
   if (typeof tab?.capabilities?.get !== "function") {
-    throw new PocError(
+    throw new BrowserRecordingError(
       "cdp_unavailable",
       "The selected Browser tab does not expose capabilities",
     );
@@ -531,13 +531,13 @@ export async function startBrowserPocForTab({
     typeof cdp?.readEvents !== "function" ||
     typeof cdp?.send !== "function"
   ) {
-    throw new PocError(
+    throw new BrowserRecordingError(
       "cdp_unavailable",
       "Full CDP access is unavailable for the selected Browser tab",
     );
   }
 
-  return startBrowserPoc({ ...options, approvedOrigin, cdp });
+  return startBrowserRecording({ ...options, approvedOrigin, cdp });
 }
 
 export async function createBrowserRecording({
@@ -545,7 +545,7 @@ export async function createBrowserRecording({
     cleanupRecordingArtifacts,
     finalizeRecordingArtifacts,
     prepareRecordingArtifacts,
-    startBrowserPocForTab,
+    startBrowserRecordingForTab,
   },
   _onTerminal,
   approvedOrigin,
@@ -572,7 +572,7 @@ export async function createBrowserRecording({
   });
   let session;
   try {
-    session = await _dependencies.startBrowserPocForTab({
+    session = await _dependencies.startBrowserRecordingForTab({
       approvedOrigin,
       ffmpegPath,
       firstFrameTimeoutMs,
@@ -683,126 +683,4 @@ export async function createBrowserRecording({
   }
 
   return { completion, ready, status, stop };
-}
-
-function createRecordingWindow(durationMs, signal) {
-  let timer;
-  const abortListener = () => {
-    clearTimeout(timer);
-    rejectWindow(
-      new PocError("recording_cancelled", "Recording was cancelled"),
-    );
-  };
-  let rejectWindow;
-  const promise = new Promise((resolve, reject) => {
-    rejectWindow = reject;
-    timer = setTimeout(resolve, durationMs);
-    signal?.addEventListener("abort", abortListener, { once: true });
-  });
-  return {
-    cancel() {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", abortListener);
-    },
-    promise,
-  };
-}
-
-function emptyCaptureSession() {
-  const result = {
-    backpressureDrops: 0,
-    elapsedMs: 0,
-    encoderExitCode: null,
-    framesAcknowledged: 0,
-    framesDropped: 0,
-    framesReceived: 0,
-    invalidFrames: 0,
-    lastFrameTimestamp: null,
-    maxObservedOutputBytes: 0,
-    outputSamples: 0,
-    terminationReason: null,
-    truncations: 0,
-    visibilityChanges: 0,
-    visibilityState: null,
-  };
-  return {
-    stats: {},
-    async stop() {
-      return result;
-    },
-  };
-}
-
-/**
- * Historical Phase 0 end-to-end regression harness.
- *
- * The installed skill uses createExampleRecording(); this helper remains only
- * to preserve the original complete capture-window regression coverage.
- */
-export async function runBrowserPocGate({
-  durationToleranceSeconds,
-  ffmpegPath,
-  ffprobePath,
-  fps,
-  maxDecodedBytes,
-  maxHeight,
-  maxWidth,
-  minBytes,
-  recordingDurationMs,
-  signal,
-  tab,
-  temporaryRoot,
-  ...recordingOptions
-}) {
-  if (!Number.isInteger(recordingDurationMs) || recordingDurationMs <= 0) {
-    throw new PocError(
-      "invalid_configuration",
-      "Recording gate duration is invalid",
-    );
-  }
-
-  const paths = await prepareRecordingArtifacts({ temporaryRoot });
-  let captureError = null;
-  let session;
-  try {
-    session = await startBrowserPocForTab({
-      ...recordingOptions,
-      ffmpegPath,
-      fps,
-      maxDecodedBytes,
-      outputPath: paths.outputPath,
-      signal,
-      tab,
-    });
-    await session.ready;
-    const recordingWindow = createRecordingWindow(recordingDurationMs, signal);
-    let outcome;
-    try {
-      outcome = await Promise.race([
-        recordingWindow.promise.then(() => null),
-        session.completion,
-      ]);
-    } finally {
-      recordingWindow.cancel();
-    }
-    if (outcome?.error) {
-      throw outcome.error;
-    }
-  } catch (error) {
-    captureError = error;
-    session ??= emptyCaptureSession();
-  }
-
-  const result = await finalizeRecordingArtifacts({
-    captureError,
-    durationToleranceSeconds,
-    ffprobePath,
-    maxHeight,
-    maxWidth,
-    minBytes,
-    outputPath: paths.outputPath,
-    resultPath: paths.resultPath,
-    session,
-  });
-  return { paths, result };
 }
