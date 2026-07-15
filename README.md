@@ -129,8 +129,11 @@ system's temporary root. A successful run contains:
   counters, validation metadata, an output filename, and allowlisted status or
   failure information.
 
-The video is a validated VP8 WebM with no audio. Failed or cancelled runs remove
-partial or finalized video output as required by the artifact transaction.
+The video is a validated VP8 WebM with no audio. Capture, cancellation, and
+cross-origin failures discard working media. A result-persistence failure rolls
+back finalized media. A validation-rejected finalized WebM may remain in the
+private operating-system temporary directory. The failure response does not
+promise an absolute output path. The user must delete that recording directory.
 Result data excludes raw frames, CDP payloads, FFmpeg output, full URLs, page
 text, credentials, and internal plugin paths.
 

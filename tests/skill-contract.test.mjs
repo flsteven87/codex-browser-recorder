@@ -5,6 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+const privacy = readFileSync(join(repositoryRoot, "PRIVACY.md"), "utf8");
 const readme = readFileSync(join(repositoryRoot, "README.md"), "utf8");
 const skillRoot = join(
   repositoryRoot,
@@ -171,6 +172,39 @@ test("README documents the public recording contract", () => {
     readme,
     /(?:run|invoke|use|start)[^\n.]{0,80}integration gate/i,
   );
+});
+
+test("public docs disclose failure-specific local media retention", () => {
+  for (const [label, source] of [
+    ["README", readme],
+    ["privacy policy", privacy],
+  ]) {
+    assert.match(
+      source,
+      /Capture,\s+cancellation,\s+and\s+cross-origin\s+failures\s+discard\s+working\s+media[.]/i,
+      `${label} must disclose working-media discard cases`,
+    );
+    assert.match(
+      source,
+      /A\s+result-persistence\s+failure\s+rolls\s+back\s+finalized\s+media[.]/i,
+      `${label} must disclose finalized-media rollback`,
+    );
+    assert.match(
+      source,
+      /A\s+validation-rejected\s+finalized\s+WebM\s+may\s+remain\s+in\s+the\s+private\s+operating-system\s+temporary\s+directory[.]/i,
+      `${label} must disclose validation-rejected media retention`,
+    );
+    assert.match(
+      source,
+      /The\s+user\s+must\s+delete\s+that\s+recording\s+directory[.]/i,
+      `${label} must disclose deletion responsibility`,
+    );
+    assert.doesNotMatch(
+      source,
+      /(?:Failed or cancelled runs|Failed and cancelled recording transactions)[^.]{0,100}(?:remove|delete)[^.]{0,60}(?:finalized|video output)/i,
+      `${label} must not claim blanket failed-output deletion`,
+    );
+  }
 });
 
 test("skill requires explicit user recording intent and one consolidated consent", () => {
