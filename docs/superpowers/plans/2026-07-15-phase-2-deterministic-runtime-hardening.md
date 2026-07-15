@@ -1242,23 +1242,36 @@ git commit -m "docs: record deterministic runtime gate"
 | Codex app version | `26.707.72221` |
 | FFmpeg version | `8.1.2` |
 | FFprobe version | `8.1.2` |
-| Status | `Blocked` |
-| Stable failure code | `browser_plugin_unavailable` |
-| Stable reason | The fresh runtime surface did not expose the in-app Browser backend, and it did not expose a task-control surface for creating the one approved fresh repository task. The only discoverable browser backend was the disallowed Chrome fallback. |
-| Recording elapsed duration | Not produced — blocked before tab creation |
-| Received / acknowledged / invalid frames | Not produced — blocked before capture |
-| Dropped / truncated frames / output samples | Not produced — blocked before capture |
-| Codec / dimensions / media duration | Not produced — blocked before capture |
-| Video / audio stream counts / file size | Not produced — blocked before capture |
-| Cleanup state | PASS — 0 recording handles created, 0 Browser-owned tabs created, 0 repository recording artifacts |
-| Second sequential invocation | Not run — first invocation could not acquire the required in-app Browser backend |
+| Fresh repository task | PASS — one repository-scoped local task identifier exists |
+| Explicit invocation | PASS — `$record-browser` ran twice sequentially on Codex in-app Browser |
+| Overall status | `passed` |
+| Stable failure code | `null` |
+| Singleton released between runs | `true` |
+| Run 1 elapsed duration | 12079.8315 ms |
+| Run 1 received / acknowledged / invalid frames | 700 / 700 / 0 |
+| Run 1 dropped / backpressure-dropped / truncated frames | 0 / 0 / 0 |
+| Run 1 output samples | 120 |
+| Run 1 codec / container / dimensions | VP8 / WebM / 1280×720 |
+| Run 1 media duration | 12 s |
+| Run 1 total / video / audio streams | 1 / 1 / 0 |
+| Run 1 file size | 161867 bytes |
+| Run 1 cleanup | PASS — active handle released; tab closed |
+| Run 2 elapsed duration | 12060.655375 ms |
+| Run 2 received / acknowledged / invalid frames | 641 / 641 / 0 |
+| Run 2 dropped / backpressure-dropped / truncated frames | 0 / 0 / 0 |
+| Run 2 output samples | 120 |
+| Run 2 codec / container / dimensions | VP8 / WebM / 1280×720 |
+| Run 2 media duration | 12 s |
+| Run 2 total / video / audio streams | 1 / 1 / 0 |
+| Run 2 file size | 163235 bytes |
+| Run 2 cleanup | PASS — active handle released; tab closed |
+| Final cleanup | PASS — active handle released; 0 owned tabs; Browser session finalized; 0 repository delta |
 
-**Phase 2 decision: `Blocked`.** Every automated contract and the supported real
-plugin reinstall passed, but the required fresh `$record-browser` desktop gate
-could not start on the available runtime surface. This is an environment gate,
-not a reproducible recorder contract failure, so it is not a `No-Go`; it cannot
-be promoted to `Go` without two successful sequential in-app Browser runs and
-their sanitized media and cleanup evidence.
+**Phase 2 decision: `Go`.** Every automated contract, the supported real plugin
+reinstall, both sequential fresh `$record-browser` in-app Browser runs, media
+validation, singleton release, and final cleanup passed. The earlier verifier
+surface limitation was not a recorder failure and was disproven by the
+successful fresh repository task.
 
 ## Explicit Follow-up Scope
 
