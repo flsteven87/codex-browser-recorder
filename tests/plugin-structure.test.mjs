@@ -88,6 +88,15 @@ test("record-browser is an explicit skill with one canonical script tree", () =>
     "compatibility must stay in the skill body for Codex validator support",
   );
   assert.match(agentManifest, /^policy:\n(?: {2}.+\n)* {2}allow_implicit_invocation: false$/m);
+  assert.match(
+    agentManifest,
+    /short_description: "Record one approved Browser test flow to local WebM"/,
+  );
+  assert.match(
+    agentManifest,
+    /default_prompt: "Use \$record-browser to record an approved Browser test flow[.]"/,
+  );
+  assert.doesNotMatch(agentManifest, /integration gate|example[.]com/i);
   for (const script of requiredScripts) {
     assert.ok(existsSync(join(skillRoot, "scripts", script)), `${script} must exist`);
   }

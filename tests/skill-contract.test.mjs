@@ -45,53 +45,41 @@ function readBracedBlockAfter(source, marker, fromIndex = 0) {
   assert.fail(`missing closing brace for ${marker} block`);
 }
 
-test("skill invocation remains explicit", () => {
-  assert.match(agent, /^policy:\n(?: {2}.+\n)* {2}allow_implicit_invocation: false$/m);
-  assert.match(agent, /\$record-browser/);
+test("skill requires explicit user recording intent and one consolidated consent", () => {
+  assert.match(agent, /allow_implicit_invocation: false/);
+  assert.match(frontmatter, /explicitly invokes \$record-browser/);
+  assert.match(skill, /target URL/i);
+  assert.match(skill, /planned Browser actions/i);
+  assert.match(skill, /recording duration/i);
+  assert.match(skill, /one consolidated consent/i);
+  assert.match(skill, /before any Browser action/i);
   assert.match(frontmatter, /^license: MIT$/m);
-  assert.match(
-    frontmatter,
-    /^description: .*user explicitly invokes \$record-browser.*$/m,
-  );
   assert.doesNotMatch(frontmatter, /^compatibility:/m);
-  assert.match(
-    skill,
-    /Compatibility:.*Codex desktop.*macOS.*Browser.*FFmpeg.*FFprobe.*VP8.*WebM/is,
-  );
-  assert.match(skill, /confirm.{0,80}(?:scope|duration|output)/is);
 });
 
-test("skill reuses the installed Browser runtime and a fresh test tab", () => {
-  assert.match(skill, /Browser plugin/);
-  assert.match(skill, /scripts\/browser-client[.]mjs/);
-  assert.match(skill, /agent[.]browsers/);
-  assert.match(skill, /documentation[(][)]/);
-  assert.match(skill, /fresh.{0,40}https:\/\/example[.]com\//is);
-  assert.match(skill, /full-CDP approval/i);
-  assert.match(skill, /Runtime[.]evaluate/);
-  assert.match(skill, /exceptionDetails/);
-  assert.match(skill, /do not read.{0,120}process[.]platform/is);
-});
-
-test("skill delegates fixed policy to the deterministic gate", () => {
+test("skill validates before Browser activity and delegates recording to production code", () => {
   assert.match(skill, /pathToFileURL/);
-  assert.match(skill, /scripts\/example-recording-gate[.]mjs/);
+  assert.match(skill, /scripts\/recording-policy[.]mjs/);
+  assert.match(skill, /scripts\/recording-artifacts[.]mjs/);
+  assert.match(skill, /scripts\/create-recording[.]mjs/);
   assert.match(skill, /scripts\/doctor[.]mjs/);
-  assert.match(skill, /createExampleRecording/);
-  assert.match(skill, /https:\/\/example[.]com\//);
-  assert.match(skill, /10[–-]15 seconds/);
-  assert.doesNotMatch(skill, /Symbol[.]for/);
-  assert.doesNotMatch(skill, /maxDurationMs\s*:/);
-  assert.doesNotMatch(skill, /maxDecodedBytes\s*:/);
+  assert.match(skill, /validateRecordingRequest/);
+  assert.match(skill, /createRecording/);
   assert.match(skill, /await handle[.]ready/);
   assert.match(skill, /handle[.]status[(][)]/);
   assert.match(skill, /handle[.]stop[(][)]/);
+  assert.match(skill, /stop performing Browser actions/i);
+  assert.doesNotMatch(skill, /example[.]com|integration gate|createExampleRecording/i);
+  assert.match(skill, /Do not inject clocks, animations, test text/i);
+  assert.doesNotMatch(
+    skill,
+    /(?:add|receive).{0,60}(?:disposable clock|CSS animation|DOM state change)/i,
+  );
 });
 
 test("skill keeps one outer-scoped handle through deterministic cleanup", () => {
   const lifecycle = javascriptBlocks.find(
-    (source) =>
-      source.includes("createExampleRecording") && source.includes("finally"),
+    (source) => source.includes("createRecording") && source.includes("finally"),
   );
   assert.ok(lifecycle, "skill must show the complete recording lifecycle");
   const outerTry = readBracedBlockAfter(lifecycle, "try");
@@ -99,17 +87,13 @@ test("skill keeps one outer-scoped handle through deterministic cleanup", () => 
 
   assert.match(lifecycle, /let handle\s*;/);
   assert.doesNotMatch(lifecycle, /const handle\s*=/);
-  assert.doesNotMatch(
-    lifecycle.slice(0, outerTry.start),
-    /https:\/\/example[.]com\//,
-  );
   assert.match(
     outerTry.body.trimStart(),
-    /^await navigateFreshTab[(]["']https:\/\/example[.]com\/["'][)];/,
+    /^await navigateFreshTab[(]request[.]targetUrl[)];/,
   );
   assert.match(
     outerTry.body,
-    /handle\s*=\s*await createExampleRecording[(][\s\S]*await handle[.]ready/,
+    /handle\s*=\s*createRecording[(][\s\S]*await handle[.]ready/,
   );
   assert.match(
     lifecycle.slice(outerTry.end, cleanup.markerIndex),
@@ -135,15 +119,29 @@ test("skill keeps one outer-scoped handle through deterministic cleanup", () => 
   );
 });
 
-test("skill cleanup and result reporting preserve the security boundary", () => {
-  assert.match(skill, /finally/);
-  assert.match(skill, /close.{0,50}fresh.{0,20}tab|fresh.{0,20}tab.{0,50}close/is);
+test("skill enforces cancellation, sensitive-flow, and same-origin boundaries", () => {
   assert.match(skill, /denial.{0,80}cancelled|denied.{0,80}cancelled/is);
   assert.match(skill, /never retry|do not retry/i);
-  assert.match(skill, /audio-free VP8 WebM/i);
-  assert.match(skill, /stable failure code/i);
-  assert.match(skill, /raw frames/i);
-  assert.match(skill, /full URLs/i);
+  assert.match(skill, /credentials/);
+  assert.match(skill, /payment data/);
+  assert.match(skill, /passkeys/);
+  assert.match(skill, /recovery secrets/);
+  assert.match(skill, /health data/);
+  assert.match(skill, /confidential communications/);
+  assert.match(skill, /approved origin/);
+  assert.match(skill, /broaden the origin/i);
+  assert.match(skill, /one fresh blank Browser tab/i);
+});
+
+test("skill reports product results before bounded diagnostics", () => {
+  assert.match(skill, /Recording completed/);
+  assert.match(skill, /duration/i);
+  assert.match(skill, /VP8 WebM/i);
+  assert.match(skill, /no audio/i);
+  assert.match(skill, /saved locally/i);
+  assert.match(skill, /diagnostics/i);
+  assert.match(skill, /summary/i);
+  assert.match(skill, /remediation/i);
 });
 
 test("skill has no source-checkout or hard-coded cache fallback", () => {

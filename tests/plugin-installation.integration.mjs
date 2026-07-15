@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -110,6 +111,11 @@ test("installs from an isolated marketplace and imports only from cache", async 
     }
 
     rmSync(marketplaceRoot, { force: true, recursive: true });
+    assert.equal(
+      existsSync(marketplaceRoot),
+      false,
+      "source checkout must be removed before cached module imports",
+    );
     const coordinator = await import(
       pathToFileURL(cachedFiles["create-recording.mjs"]).href
     );
