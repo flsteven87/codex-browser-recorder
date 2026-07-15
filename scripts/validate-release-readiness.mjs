@@ -49,6 +49,36 @@ const candidateVersionPattern = /^0[.]1[.]0(?:[+]codex[.][0-9A-Za-z-]+)?$/u;
 const fullShaPattern = /^[0-9a-f]{40}$/u;
 const recordingArtifactPattern =
   /(?:^|\/)(?:[^/]+[.](?:webm|mp4|mov|mkv|part)|result[.]json|recording-[^/]+\/)/iu;
+const requiredCiSteps = [
+  {
+    name: "Install pinned Codex CLI",
+    commands: ["run: npm install --global @openai/codex@0.144.4"],
+  },
+  {
+    name: "Run official plugin validator",
+    commands: [
+      'curl --fail --location --silent --show-error "https://raw.githubusercontent.com/openai/codex/08924bca0058eeaf179d2291af2c485123dbf2a2/codex-rs/skills/src/assets/samples/plugin-creator/scripts/validate_plugin.py" --output "$RUNNER_TEMP/validate_plugin.py"',
+      'echo "ebda00d55d7518b127f675f062fb5c6e7a1ffdc0a99df1a55ac594400d7d3228  $RUNNER_TEMP/validate_plugin.py" | shasum -a 256 -c -',
+      'uv run --no-project --with pyyaml python "$RUNNER_TEMP/validate_plugin.py" plugins/codex-browser-recorder',
+    ],
+  },
+  {
+    name: "Run official skill validator",
+    commands: [
+      'curl --fail --location --silent --show-error "https://raw.githubusercontent.com/openai/skills/49f948faa9258a0c61caceaf225e179651397431/skills/.system/skill-creator/scripts/quick_validate.py" --output "$RUNNER_TEMP/quick_validate.py"',
+      'echo "6cc9dc3199c935916cf6f73fcbbbb0e3bb1b58c8f5109fefa499978908164f51  $RUNNER_TEMP/quick_validate.py" | shasum -a 256 -c -',
+      'uv run --no-project --with pyyaml python "$RUNNER_TEMP/quick_validate.py" plugins/codex-browser-recorder/skills/record-browser',
+    ],
+  },
+  {
+    name: "Verify isolated plugin installation",
+    commands: ["run: npm run test:plugin-install"],
+  },
+  {
+    name: "Verify release candidate",
+    commands: ["run: npm run check:release-candidate"],
+  },
+];
 
 export class ReleaseReadinessError extends Error {
   constructor(mode, failures) {
@@ -180,7 +210,13 @@ async function validateReleaseChangelog(repositoryRoot, existing, failures) {
     repositoryPath(repositoryRoot, "CHANGELOG.md"),
     "utf8",
   );
-  if (!/^## \[0[.]1[.]0\] - \d{4}-\d{2}-\d{2}$/mu.test(changelog)) {
+  const releaseHeadings = [
+    ...changelog.matchAll(/^## \[0[.]1[.]0\] - (.+)$/gmu),
+  ];
+  const datedHeadings = releaseHeadings.filter(([, value]) =>
+    /^\d{4}-\d{2}-\d{2}$/u.test(value),
+  );
+  if (releaseHeadings.length !== 1 || datedHeadings.length !== 1) {
     addFailure(failures, "CHANGELOG_RELEASE_INCOMPLETE", "CHANGELOG.md");
   }
 }
@@ -209,6 +245,50 @@ function hasRunLine(source, command) {
     .some((line) => line.trim() === `run: ${command}` || line.trim() === command);
 }
 
+function namedWorkflowStep(source, name) {
+  const lines = source.split("\n");
+  const start = lines.findIndex(
+    (line) => line.trim() === `- name: ${name}`,
+  );
+  if (start === -1) return null;
+  const indent = lines[start].slice(0, lines[start].indexOf("-"));
+  let end = start + 1;
+  while (
+    end < lines.length &&
+    !(
+      lines[end].startsWith(indent) &&
+      lines[end].slice(indent.length).startsWith("- ")
+    )
+  ) {
+    end += 1;
+  }
+  return lines.slice(start, end).join("\n");
+}
+
+function requiredCiStepsAreUnconditional(source) {
+  const lines = source.split("\n");
+  const testJobStart = lines.findIndex((line) => line === "  test:");
+  let testJobEnd = testJobStart + 1;
+  while (
+    testJobEnd < lines.length &&
+    !/^ {2}\S/u.test(lines[testJobEnd])
+  ) {
+    testJobEnd += 1;
+  }
+  const testJob =
+    testJobStart === -1 ? "" : lines.slice(testJobStart, testJobEnd).join("\n");
+  if (/^ {4}(?:if|continue-on-error):/mu.test(testJob)) return false;
+
+  const forbiddenControl =
+    /^\s+(?:if|continue-on-error):|\b(?:if|elif|else|fi|false)\b|(?:[|]{2}|&&|;)\s*(?:true|:|exit\s+0)\b/imu;
+  return requiredCiSteps.every(({ commands, name }) => {
+    const step = namedWorkflowStep(testJob, name);
+    if (step == null || forbiddenControl.test(step)) return false;
+    const lines = new Set(step.split("\n").map((line) => line.trim()));
+    return commands.every((command) => lines.has(command));
+  });
+}
+
 async function validateCi(repositoryRoot, existing, failures) {
   if (!existing.has(ciPath)) return;
   const source = await readFile(repositoryPath(repositoryRoot, ciPath), "utf8");
@@ -218,17 +298,21 @@ async function validateCi(repositoryRoot, existing, failures) {
   ].every((command) => hasRunLine(source, command));
   const skipBranchPresent =
     /command\s+-v\s+codex|codex\s+cli\s+unavailable/iu.test(source);
-  if (!codexCommandsPresent || skipBranchPresent) {
+  const codexGateInvalid = !codexCommandsPresent || skipBranchPresent;
+  if (codexGateInvalid) {
     addFailure(failures, "CI_CODEX_GATE_INVALID", ciPath);
+  }
+  if (!codexGateInvalid && !requiredCiStepsAreUnconditional(source)) {
+    addFailure(failures, "CI_REQUIRED_STEP_INVALID", ciPath);
   }
 
   const requiredFragments = [
     "node-version: 24",
+    "astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990",
+    "uv-version: 0.11.29",
     "command -v ffmpeg >/dev/null || brew install ffmpeg",
     "npm run check",
     "npm run test:coverage",
-    'validate_plugin.py" plugins/codex-browser-recorder',
-    'quick_validate.py" plugins/codex-browser-recorder/skills/record-browser',
     "npm run check:release-candidate",
     "git show --check --format= HEAD",
     "RECORDING_ARTIFACT_PATTERN",
@@ -289,10 +373,11 @@ export async function validateReleaseReadiness({ mode, repositoryRoot }) {
   await validateCi(repositoryRoot, existing, failures);
   await validateGitArtifacts(repositoryRoot, failures);
 
-  failures.sort(
-    (left, right) =>
-      left.path.localeCompare(right.path) || left.code.localeCompare(right.code),
-  );
+  failures.sort((left, right) => {
+    if (left.path !== right.path) return left.path < right.path ? -1 : 1;
+    if (left.code === right.code) return 0;
+    return left.code < right.code ? -1 : 1;
+  });
   if (failures.length > 0) throw new ReleaseReadinessError(mode, failures);
   return { status: "pass", mode };
 }
