@@ -9,6 +9,7 @@
     "check": "npm run check:syntax && npm test",
     "check:syntax": "for file in plugins/codex-browser-recorder/skills/record-browser/scripts/*.mjs tests/*.mjs; do node --check \"$file\"; done",
     "test": "node --test tests/*.test.mjs",
-    "test:coverage": "node --test --experimental-test-coverage tests/*.test.mjs"
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=80 tests/*.test.mjs",
+    "test:plugin-install": "node --test tests/plugin-installation.integration.mjs"
   }
 }

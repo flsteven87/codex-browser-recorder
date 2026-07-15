@@ -36,5 +36,13 @@ jobs:
       - name: Collect test coverage
         run: npm run test:coverage
 
+      - name: Verify isolated plugin installation when Codex is available
+        run: |
+          if command -v codex >/dev/null; then
+            npm run test:plugin-install
+          else
+            echo "Codex CLI unavailable; isolated installation remains a local release gate."
+          fi
+
       - name: Check whitespace
         run: git diff --check

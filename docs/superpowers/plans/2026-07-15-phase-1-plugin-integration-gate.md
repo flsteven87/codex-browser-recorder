@@ -362,7 +362,7 @@ git commit -m "feat: define explicit browser recording workflow"
 - It verifies the listed installation, locates the isolated cache copy, temporarily makes the source plugin unavailable, and imports the recorder only from the cache copy.
 - Cleanup removes both the temporary marketplace fixture and temporary Codex home even after failure.
 
-- [ ] **Step 1: Write the failing isolated installation test**
+- [x] **Step 1: Write the isolated installation test**
 
 Use `node:child_process`, `node:fs`, `node:os`, `node:path`, and `node:url`. Every `codex` subprocess receives an environment with the temporary `CODEX_HOME`. Never inherit or resolve plugin data from the real home.
 
@@ -377,7 +377,7 @@ assert.ok(cacheModule.startsWith(realpathSync(codexHome)));
 assert.equal(typeof imported.createBrowserRecording, "function");
 ```
 
-- [ ] **Step 2: Run the install test and verify RED**
+- [x] **Step 2: Run the install test and verify the existing scaffold behavior**
 
 Run:
 
@@ -385,9 +385,12 @@ Run:
 node --test tests/plugin-installation.integration.mjs
 ```
 
-Expected: FAIL until the exact CLI/cache discovery behavior is implemented correctly.
+Observed: PASS on the first run. Task 1's official scaffold already produced the
+required CLI-installable package, so no production-code change was needed for
+this gate. The test still proved isolated installation, source removal, and
+cache-only module import.
 
-- [ ] **Step 3: Implement deterministic isolated install helpers**
+- [x] **Step 3: Implement deterministic isolated install helpers**
 
 Parse `--json` output when available rather than scraping presentation text. Locate exactly one installed plugin cache root beneath the isolated home and reject ambiguity. Remove only the copied temporary source fixture after installation, import from the cache via `pathToFileURL`, and leave the repository source untouched.
 
@@ -399,7 +402,7 @@ Add:
 
 Do not add this Codex-CLI-dependent test to the portable default unit-test glob. Add a CI step that runs it only when `command -v codex` succeeds; the local release gate still requires a real PASS.
 
-- [ ] **Step 4: Run the isolated install gate and regressions**
+- [x] **Step 4: Run the isolated install gate and regressions**
 
 Run:
 
@@ -418,7 +421,7 @@ Update `test:coverage` so the thresholds precede the test-file arguments:
 
 Expected: isolated installation PASS; unit/integration tests PASS; coverage meets thresholds. If current branch coverage legitimately misses the threshold, add focused behavioral tests rather than exclusions or lower thresholds.
 
-- [ ] **Step 5: Commit the installation proof**
+- [x] **Step 5: Commit the installation proof**
 
 ```bash
 git add tests/plugin-installation.integration.mjs package.json .github/workflows/ci.yml
