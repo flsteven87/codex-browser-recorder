@@ -1,6 +1,6 @@
 interface:
   display_name: "Record Browser"
-  short_description: "Record one approved Browser tab to local WebM"
-  default_prompt: "Use $record-browser to record the approved Browser tab."
+  short_description: "Run the approved Browser recording integration gate"
+  default_prompt: "Use $record-browser to run the approved integration gate."
 policy:
   allow_implicit_invocation: false

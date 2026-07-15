@@ -440,11 +440,11 @@ git commit -m "test: verify isolated plugin installation"
 - Status distinguishes automated PASS from fresh desktop task BLOCKED/PENDING.
 - No documentation claims unsupported platforms, audio, browser chrome, or arbitrary background capture.
 
-- [ ] **Step 1: Write the public README around verified behavior**
+- [x] **Step 1: Write the public README around verified behavior**
 
 Use copy-pasteable commands with `codex plugin marketplace add` and `codex plugin add`. State that the Browser plugin remains a separate prerequisite and that recording starts only after explicit user selection and normal approvals. Link the approved design and implementation plan.
 
-- [ ] **Step 2: Run documentation and metadata checks**
+- [x] **Step 2: Run documentation and metadata checks**
 
 Run:
 
@@ -461,16 +461,35 @@ git status --short
 
 Expected: no stale implementation paths or placeholders; all validators and tests PASS; only intended files are modified.
 
-- [ ] **Step 3: Update implementation status with exact evidence**
+- [x] **Step 3: Update implementation status with exact evidence**
 
 Mark completed checkboxes and add an evidence table for plugin validation, skill validation, unit tests, coverage, isolated install, cache-only import, and desktop fresh-task integration. Mark the desktop gate `BLOCKED — explicit user approval required` until the user authorizes modifying real Codex plugin state and starting a fresh task.
 
-- [ ] **Step 4: Commit the public documentation and plan status**
+- [x] **Step 4: Commit the public documentation and plan status**
 
 ```bash
 git add README.md docs/superpowers/specs/2026-07-15-phase-1-plugin-integration-gate-design.md docs/superpowers/plans/2026-07-15-phase-1-plugin-integration-gate.md
 git commit -m "docs: publish plugin integration guidance"
 ```
+
+## Automated Execution Status — 2026-07-15
+
+| Gate | Status | Evidence |
+| --- | --- | --- |
+| Plugin manifest validation | PASS | Official `validate_plugin.py` completed successfully. |
+| Skill validation | PASS | Official `quick_validate.py` completed successfully. |
+| Syntax and default suite | PASS | `npm run check`: 70 tests passed, 0 failed. |
+| Coverage policy | PASS | 91.56% lines, 84.04% branches, 93.67% functions; enforced minimums are 90% lines and 80% branches. |
+| Isolated marketplace install | PASS | Codex CLI installed the plugin with disposable `HOME` and `CODEX_HOME`. |
+| Cache-only module import | PASS | The copied marketplace source was removed before importing `createBrowserRecording` from the isolated cache. |
+| CI workflow syntax | PASS | Workflow YAML parsed successfully and portable checks remain unconditional. |
+| Repository hygiene | PASS | No stale implementation paths, placeholder markers, whitespace errors, generated WebM, partial file, or result JSON in the worktree. |
+| Real user Codex state | UNCHANGED | Automated work did not modify the user's real marketplace, plugin cache, or Codex configuration. |
+| Fresh desktop task integration | BLOCKED | Requires explicit approval for real user-level plugin installation and a new Codex task. |
+
+Automated implementation is complete. The overall Phase 1 decision remains
+**Blocked** until Task 7 is explicitly authorized and the fresh desktop gate
+passes.
 
 ### Task 7: Execute the user-approved fresh desktop integration gate
 

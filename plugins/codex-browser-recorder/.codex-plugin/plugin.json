@@ -1,7 +1,7 @@
 {
   "name": "codex-browser-recorder",
   "version": "0.1.0",
-  "description": "Record one approved Codex Browser tab to a local, validated WebM file.",
+  "description": "Run an explicit local recording gate against one approved Codex Browser test tab.",
   "author": {
     "name": "Steven Wu",
     "url": "https://github.com/flsteven87"
@@ -18,16 +18,16 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Codex Browser Recorder",
-    "shortDescription": "Record an approved Browser tab to local WebM.",
-    "longDescription": "Captures the page content of one explicitly approved Codex Browser tab and produces a validated, audio-free VP8 WebM file on the local machine.",
+    "shortDescription": "Run the approved Browser recording integration gate.",
+    "longDescription": "Runs a fixed example.com integration gate in one explicitly approved Codex Browser tab and produces a validated, audio-free VP8 WebM file on the local machine.",
     "developerName": "Steven Wu",
     "category": "Developer Tools",
     "capabilities": [
-      "Local browser-page recording"
+      "Local browser recording integration gate"
     ],
     "websiteURL": "https://github.com/flsteven87/codex-browser-recorder",
     "defaultPrompt": [
-      "Record the approved Browser tab to a local WebM file."
+      "Run the approved Browser recording integration gate."
     ]
   }
 }
