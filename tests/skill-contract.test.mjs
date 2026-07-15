@@ -17,6 +17,9 @@ const agent = readFileSync(join(skillRoot, "agents", "openai.yaml"), "utf8");
 const frontmatterMatch = skill.match(/^---\n([\s\S]*?)\n---(?:\n|$)/);
 assert.ok(frontmatterMatch, "skill must have frontmatter");
 const frontmatter = frontmatterMatch[1];
+const javascriptBlocks = [...skill.matchAll(/```js\n([\s\S]*?)\n```/g)].map(
+  ([, source]) => source,
+);
 
 test("skill invocation remains explicit", () => {
   assert.match(agent, /^policy:\n(?: {2}.+\n)* {2}allow_implicit_invocation: false$/m);
@@ -59,6 +62,45 @@ test("skill delegates fixed policy to the deterministic gate", () => {
   assert.match(skill, /await handle[.]ready/);
   assert.match(skill, /handle[.]status[(][)]/);
   assert.match(skill, /handle[.]stop[(][)]/);
+});
+
+test("skill keeps one outer-scoped handle through deterministic cleanup", () => {
+  const lifecycle = javascriptBlocks.find(
+    (source) =>
+      source.includes("createExampleRecording") && source.includes("finally"),
+  );
+  assert.ok(lifecycle, "skill must show the complete recording lifecycle");
+  assert.match(lifecycle, /let handle\s*;/);
+  assert.doesNotMatch(lifecycle, /const handle\s*=/);
+  assert.match(
+    lifecycle,
+    /try\s*{[\s\S]*handle\s*=\s*await createExampleRecording[(][\s\S]*await handle[.]ready/,
+  );
+  assert.match(
+    lifecycle,
+    /catch [(]error[)]\s*{\s*primaryFailure\s*=\s*error;\s*throw error;\s*}/,
+  );
+  assert.match(
+    lifecycle,
+    /finally\s*{\s*let cleanupFailure;/,
+  );
+  assert.match(
+    lifecycle,
+    /try\s*{\s*await handle[?][.]stop[(][)];\s*}\s*catch [(]error[)]\s*{\s*cleanupFailure [?][?]= error;\s*}/,
+  );
+  assert.match(
+    lifecycle,
+    /try\s*{\s*await closeFreshTab[(][)];\s*}\s*catch [(]error[)]\s*{\s*cleanupFailure [?][?]= error;\s*}/,
+  );
+  assert.ok(
+    lifecycle.indexOf("await handle?.stop()") <
+      lifecycle.indexOf("await closeFreshTab()"),
+    "skill must attempt recorder cleanup before closing the fresh tab",
+  );
+  assert.match(
+    lifecycle,
+    /if [(]primaryFailure == null && cleanupFailure != null[)]\s*{\s*throw cleanupFailure;\s*}/,
+  );
 });
 
 test("skill cleanup and result reporting preserve the security boundary", () => {

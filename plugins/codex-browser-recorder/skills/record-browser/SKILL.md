@@ -76,6 +76,11 @@ fails, report `plugin_module_unavailable` without revealing the internal path.
 
 ## Recording Workflow
 
+After creating the fresh tab, run every remaining action inside the single
+outer lifecycle block shown below. Bind `closeFreshTab` immediately after tab
+creation as a zero-argument closure that uses the documented Browser tab API to
+close only `freshTab`.
+
 1. Use the Browser documentation's supported tab API to create a fresh tab and
    navigate it to exactly `https://example.com/`. Keep its binding only in the
    existing Browser runtime.
@@ -92,17 +97,48 @@ fails, report `plugin_module_unavailable` without revealing the internal path.
    reacquires the current capability for the recording session. Exact URL
    verification, the non-overridable 20-second hard stop, and singleton
    enforcement are runtime policy and cannot be overridden by the skill.
-5. Start the deterministic fixed-policy gate and wait for readiness:
+5. Keep the handle in outer scope, start the deterministic fixed-policy gate,
+   and wait for readiness. Perform steps 2–4 and 6–8 at the marked positions:
 
 ```js
-const handle = await createExampleRecording({
-  tab: freshTab,
-  temporaryRoot,
-  ffmpegPath: environment.ffmpegPath,
-  ffprobePath: environment.ffprobePath,
-});
-await handle.ready;
+let handle;
+let recordingResult;
+let primaryFailure;
+try {
+  // Complete approval and doctor steps 2–4 here.
+  handle = await createExampleRecording({
+    tab: freshTab,
+    temporaryRoot,
+    ffmpegPath: environment.ffmpegPath,
+    ffprobePath: environment.ffprobePath,
+  });
+  await handle.ready;
+
+  // Complete disposable interactions and progress steps 6–7 here.
+  recordingResult = await handle.stop();
+} catch (error) {
+  primaryFailure = error;
+  throw error;
+} finally {
+  let cleanupFailure;
+  try {
+    await handle?.stop();
+  } catch (error) {
+    cleanupFailure ??= error;
+  }
+  try {
+    await closeFreshTab();
+  } catch (error) {
+    cleanupFailure ??= error;
+  }
+  if (primaryFailure == null && cleanupFailure != null) {
+    throw cleanupFailure;
+  }
+}
 ```
+
+Use `recordingResult` for the final response only after the lifecycle block has
+finished and the fresh tab is closed.
 
 6. After readiness, reacquire the approved `cdp` capability and use bounded
    `Runtime.evaluate` calls with static quoted expressions to add the visible
@@ -122,7 +158,7 @@ await handle.ready;
 ## Mandatory Cleanup
 
 Use a `try`/`finally` around every action after the fresh tab is created. In the
-`finally` path, preserve the primary failure while performing all of these:
+`finally` path, always attempt both of these in order:
 
 1. call `await handle?.stop()` when a handle exists;
 2. close the fresh test tab using the documented Browser tab API.
@@ -130,7 +166,11 @@ Use a `try`/`finally` around every action after the fresh tab is created. In the
 The runtime gate owns recorder startup rollback and cleanup. The skill must
 still stop its stored handle and close its fresh tab. Never leave a screencast,
 frame pump, FFmpeg process, partial output, or fresh tab behind. Never retry a
-denied approval.
+denied approval. Keep the first cleanup failure only for the case where no
+primary failure exists. When a primary failure exists, do not throw, return, or
+report a cleanup failure from `finally`; let the primary failure keep its stable
+code and actionable message. Sanitize a cleanup-only failure through the same
+result contract.
 
 ## Report Only the Result Contract
 
