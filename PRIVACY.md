@@ -26,10 +26,12 @@ to the user after cleanup completes.
 
 The plugin does not automatically copy, move, delete, upload, or share a
 successful recording. Capture, cancellation, and cross-origin failures discard
-working media. A result-persistence failure rolls back finalized media. A
-validation-rejected finalized WebM may remain in the private operating-system
-temporary directory. The skill's failure response does not promise an absolute
-output path. The user must delete that recording directory.
+working media. A result-persistence failure attempts to roll back the entire
+private recording directory. If that cleanup is incomplete, the skill reports
+the local directory that the user must delete. A validation-rejected finalized
+WebM may remain in the private operating-system temporary directory. Other
+failure responses do not promise an absolute output path. The user must delete
+that recording directory.
 
 ## User responsibilities
 

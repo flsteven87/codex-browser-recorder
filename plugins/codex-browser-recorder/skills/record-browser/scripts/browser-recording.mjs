@@ -43,6 +43,50 @@ function sanitizeStartupError(error) {
   });
 }
 
+function cancellationFailure() {
+  return new BrowserRecordingError(
+    "recording_cancelled",
+    "Recording was cancelled",
+  );
+}
+
+function awaitAbortable(operation, signal, onLateSuccess) {
+  const operationPromise = Promise.resolve(operation);
+  if (signal === undefined) return operationPromise;
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finishLateSuccess = (value) => {
+      if (typeof onLateSuccess !== "function") return;
+      void Promise.resolve(onLateSuccess(value)).catch(() => {});
+    };
+    const abort = () => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", abort);
+      operationPromise.then(finishLateSuccess, () => {});
+      reject(cancellationFailure());
+    };
+
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    operationPromise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
+}
+
 function waitForFirstFrame(ready, timeoutMs) {
   let timer;
   const timeout = new Promise((_, reject) => {
@@ -174,9 +218,9 @@ export async function startBrowserRecording({
     if (startupCancellation !== null) throw startupCancellation;
   }
 
-  async function awaitStartup(operation) {
+  async function awaitStartup(operation, onLateSuccess) {
     try {
-      const result = await operation;
+      const result = await awaitAbortable(operation, signal, onLateSuccess);
       throwIfStartupCancelled();
       return result;
     } catch (error) {
@@ -187,6 +231,7 @@ export async function startBrowserRecording({
   let baseline;
   let mainFrameId;
   let screencastAttempted = false;
+  let screencastPending = false;
   let sink;
   try {
     throwIfStartupCancelled();
@@ -214,7 +259,8 @@ export async function startBrowserRecording({
       inspectTopLevelFrame({ approvedOrigin, cdp }),
     ));
     screencastAttempted = true;
-    await awaitStartup(
+    screencastPending = true;
+    const startScreencast = Promise.resolve(
       cdp.send("Page.startScreencast", {
         everyNthFrame: 1,
         format: "jpeg",
@@ -222,11 +268,17 @@ export async function startBrowserRecording({
         maxWidth: RECORDING_MAX_WIDTH,
         quality: RECORDING_JPEG_QUALITY,
       }),
+    ).finally(() => {
+      screencastPending = false;
+    });
+    await awaitStartup(
+      startScreencast,
+      () => cdp.send("Page.stopScreencast"),
     );
     sink = sinkFactory({ ffmpegPath, fps, maxOutputBytes, outputPath });
     throwIfStartupCancelled();
   } catch (error) {
-    if (screencastAttempted) {
+    if (screencastAttempted && !screencastPending) {
       try {
         await cdp.send("Page.stopScreencast");
       } catch {
@@ -516,6 +568,7 @@ export async function inspectTopLevelFrame({ approvedOrigin, cdp }) {
 
 export async function startBrowserRecordingForTab({
   approvedOrigin,
+  signal,
   tab,
   ...options
 }) {
@@ -526,7 +579,7 @@ export async function startBrowserRecordingForTab({
     );
   }
 
-  const cdp = await tab.capabilities.get("cdp");
+  const cdp = await awaitAbortable(tab.capabilities.get("cdp"), signal);
   if (
     typeof cdp?.readEvents !== "function" ||
     typeof cdp?.send !== "function"
@@ -537,7 +590,7 @@ export async function startBrowserRecordingForTab({
     );
   }
 
-  return startBrowserRecording({ ...options, approvedOrigin, cdp });
+  return startBrowserRecording({ ...options, approvedOrigin, cdp, signal });
 }
 
 export async function createBrowserRecording({

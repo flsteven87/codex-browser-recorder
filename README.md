@@ -123,15 +123,17 @@ broaden the approved origin during a run.
 Each run uses a unique private directory with mode `0700` under the operating
 system's temporary root. A successful run contains:
 
-- `recording.webm`, atomically published only after encoder finalization and
-  media validation; and
+- `recording.webm`, atomically published after encoder finalization; a run is
+  reported as successful only after media validation; and
 - `result.json`, written with mode `0600` and containing schema-v3 bounded
   counters, validation metadata, an output filename, and allowlisted status or
   failure information.
 
 The video is a validated VP8 WebM with no audio. Capture, cancellation, and
-cross-origin failures discard working media. A result-persistence failure rolls
-back finalized media. A validation-rejected finalized WebM may remain in the
+cross-origin failures discard working media. A result-persistence failure
+attempts to roll back the entire private recording directory. If that cleanup
+is incomplete, the skill reports the local directory that the user must delete.
+A validation-rejected finalized WebM may remain in the
 private operating-system temporary directory. The failure response does not
 promise an absolute output path. The user must delete that recording directory.
 Result data excludes raw frames, CDP payloads, FFmpeg output, full URLs, page

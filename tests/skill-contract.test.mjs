@@ -133,6 +133,54 @@ function assertPrivacyReportingContract(source) {
   }
 }
 
+function assertOperationalWorkflow(source) {
+  for (const marker of [
+    'import { resolve } from "node:path"',
+    'import { tmpdir } from "node:os"',
+    'import { pathToFileURL } from "node:url"',
+    "const installedSkillRoot =",
+    "const browserPluginRoot =",
+    "const temporaryRoot = tmpdir()",
+    "setupBrowserRuntime",
+    'agent.browsers.getForUrl(request.targetUrl)',
+    "nodeRepl.write(await browser.documentation())",
+    "freshTab = await browser.tabs.new()",
+    "await freshTab.goto(request.targetUrl)",
+    'freshTab.capabilities.get("cdp")',
+    "preflightCdp = null",
+    "doctor({",
+    "cdpAvailable,",
+    "outputDirectory: temporaryRoot",
+    "if (!environment.supported)",
+    "environment.blockingReasons[0]",
+    "handle = createRecording({",
+    "pollDeadline",
+    "handle.status()",
+    "recordingResult.result.status === \"passed\"",
+    "recordingResult.result.status === \"failed\"",
+    "getRecordingCleanupDetails(primaryFailure)",
+    "incompleteCleanup ??= getRecordingCleanupDetails(error)",
+    "await freshTab?.close()",
+  ]) {
+    assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+
+  assert.ok(
+    source.indexOf('freshTab.capabilities.get("cdp")') <
+      source.indexOf("doctor({"),
+    "preflight CDP acquisition must precede doctor",
+  );
+  assert.ok(
+    source.indexOf("doctor({") < source.indexOf("handle = createRecording({"),
+    "doctor must block unsupported environments before recording",
+  );
+  assert.ok(
+    source.indexOf("preflightCdp = null") <
+      source.indexOf("handle = createRecording({"),
+    "preflight CDP capability must be discarded before coordinator startup",
+  );
+}
+
 function readBracedBlockAfter(source, marker, fromIndex = 0) {
   const markerIndex = source.indexOf(marker, fromIndex);
   assert.notEqual(markerIndex, -1, `missing ${marker} block`);
@@ -186,8 +234,13 @@ test("public docs disclose failure-specific local media retention", () => {
     );
     assert.match(
       source,
-      /A\s+result-persistence\s+failure\s+rolls\s+back\s+finalized\s+media[.]/i,
-      `${label} must disclose finalized-media rollback`,
+      /A\s+result-persistence\s+failure\s+attempts\s+to\s+roll\s+back\s+the\s+entire\s+private\s+recording\s+directory[.]/i,
+      `${label} must disclose attempted directory rollback`,
+    );
+    assert.match(
+      source,
+      /If\s+that\s+cleanup\s+is\s+incomplete,\s+the\s+skill\s+reports\s+the\s+local\s+directory\s+that\s+the\s+user\s+must\s+delete[.]/i,
+      `${label} must disclose actionable incomplete cleanup`,
     );
     assert.match(
       source,
@@ -269,6 +322,30 @@ test("skill validates before Browser activity and delegates recording to product
   );
 });
 
+test("skill defines an operational Browser binding, preflight, and result workflow", () => {
+  assertOperationalWorkflow(skill);
+});
+
+test("operational workflow guard rejects missing preflight and result branches", () => {
+  assert.throws(
+    () =>
+      assertOperationalWorkflow(
+        skill.replaceAll('freshTab.capabilities.get("cdp")', "missingPreflight()"),
+      ),
+    /capabilities/,
+  );
+  assert.throws(
+    () =>
+      assertOperationalWorkflow(
+        skill.replace(
+          'recordingResult.result.status === "failed"',
+          "recordingResult.result.failureCode",
+        ),
+      ),
+    /recordingResult[.]result[.]status/,
+  );
+});
+
 test("skill keeps one outer-scoped handle through deterministic cleanup", () => {
   const lifecycle = javascriptBlocks.find(
     (source) => source.includes("createRecording") && source.includes("finally"),
@@ -294,7 +371,7 @@ test("skill keeps one outer-scoped handle through deterministic cleanup", () => 
   assert.match(cleanup.body, /^\s*let cleanupFailure;/);
   assert.match(
     cleanup.body,
-    /try\s*{\s*await handle[?][.]stop[(][)];\s*}\s*catch [(]error[)]\s*{\s*cleanupFailure [?][?]= error;\s*}/,
+    /try\s*{\s*await handle[?][.]stop[(][)];\s*}\s*catch [(]error[)]\s*{\s*cleanupFailure [?][?]= error;\s*incompleteCleanup [?][?]= getRecordingCleanupDetails[(]error[)];\s*}/,
   );
   assert.match(
     cleanup.body,
@@ -307,7 +384,7 @@ test("skill keeps one outer-scoped handle through deterministic cleanup", () => 
   );
   assert.match(
     cleanup.body,
-    /if [(]primaryFailure == null && cleanupFailure != null[)]\s*{\s*throw cleanupFailure;\s*}/,
+    /if [(]primaryFailure == null && cleanupFailure != null[)]\s*{\s*primaryFailure = cleanupFailure;\s*throw cleanupFailure;\s*}/,
   );
 });
 

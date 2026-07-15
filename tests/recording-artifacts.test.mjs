@@ -20,6 +20,7 @@ import {
   prepareRecordingArtifacts,
   sanitizeRecordingFailure,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-artifacts.mjs";
+import * as recordingArtifacts from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-artifacts.mjs";
 import { resolveExecutable } from "./test-tools.mjs";
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), "recording-artifacts-test-"));
@@ -403,12 +404,16 @@ test("removes finalized media when result persistence fails", async () => {
 test("preserves persistence failure precedence when rollback also fails", async () => {
   const paths = await prepareRecordingArtifacts({ temporaryRoot });
   const secret = "private rollback diagnostic";
+  const removals = [];
+  let persistenceError;
+  await writeFile(paths.outputPath, "residual-finalized-media");
 
   await assert.rejects(
     finalizeRecordingArtifacts({
       ...finalizeOptions(paths, sessionWithResult()),
       _dependencies: {
-        rm: async () => {
+        rm: async (...arguments_) => {
+          removals.push(arguments_);
           throw new Error(secret);
         },
         validateVideo: async () => expectedValidation,
@@ -418,11 +423,33 @@ test("preserves persistence failure precedence when rollback also fails", async 
       },
     }),
     (error) => {
+      persistenceError = error;
       assert.equal(error.code, "artifact_persistence_failed");
       assert.equal("cause" in error, false);
       assert.equal("diagnostic" in error, false);
       assert.doesNotMatch(JSON.stringify(error), /private .* diagnostic/);
       return true;
+    },
+  );
+  assert.deepEqual(removals, [
+    [paths.directory, { force: true, recursive: true }],
+  ]);
+  assert.equal(existsSync(paths.outputPath), true);
+  assert.deepEqual(
+    recordingArtifacts.getRecordingCleanupDetails?.(persistenceError),
+    {
+      cleanupIncomplete: true,
+      directory: paths.directory,
+    },
+  );
+  assert.equal(JSON.stringify(persistenceError).includes(paths.directory), false);
+
+  const resanitized = sanitizeRecordingFailure(persistenceError);
+  assert.deepEqual(
+    recordingArtifacts.getRecordingCleanupDetails?.(resanitized),
+    {
+      cleanupIncomplete: true,
+      directory: paths.directory,
     },
   );
 });
