@@ -37,6 +37,7 @@ function deferred() {
 function createHarness({
   cleanupError,
   completion,
+  finalizeGate,
   finalResult,
   ready = Promise.resolve(),
   startError,
@@ -103,6 +104,7 @@ function createHarness({
         calls.finalize += 1;
         finalizedOptions = options;
         await options.session.stop();
+        await finalizeGate?.promise;
         if (finalizeError) {
           finalized.resolve({ error: finalizeError });
           throw finalizeError;
@@ -220,7 +222,12 @@ test("returns the public handle before first-frame readiness resolves", async ()
   const harness = createHarness({ ready: firstFrame.promise });
   const handle = await createHandle(harness);
 
-  assert.deepEqual(Object.keys(handle).sort(), ["ready", "status", "stop"]);
+  assert.deepEqual(Object.keys(handle).sort(), [
+    "completion",
+    "ready",
+    "status",
+    "stop",
+  ]);
   assert.equal(handle.status().state, "recording");
 
   firstFrame.resolve();
@@ -266,6 +273,23 @@ test("stop memoizes one finalization promise and completes once", async () => {
   assert.equal(harness.calls.sessionStop, 1);
 });
 
+test("completion settles with the same finalized output as explicit stop", async () => {
+  const harness = createHarness();
+  const handle = await createHandle(harness);
+  await handle.ready;
+
+  assert.deepEqual(Object.keys(handle).sort(), [
+    "completion",
+    "ready",
+    "status",
+    "stop",
+  ]);
+  const stopped = handle.stop();
+  assert.deepEqual(await handle.completion, await stopped);
+  assert.equal(harness.calls.finalize, 1);
+  assert.equal(harness.calls.sessionStop, 1);
+});
+
 test("readiness failure is retained as the primary cleanup error", async () => {
   const readinessError = Object.assign(new Error("No source frame"), {
     code: "frame_stream_unavailable",
@@ -282,7 +306,8 @@ test("readiness failure is retained as the primary cleanup error", async () => {
 
   await assert.rejects(handle.ready, (error) => error === readinessError);
   assert.equal(handle.status().state, "failed");
-  await handle.stop();
+  const output = await handle.stop();
+  assert.deepEqual(await handle.completion, output);
   assert.equal(harness.finalizedOptions.captureError, readinessError);
   assert.equal(harness.calls.sessionStop, 1);
   assert.equal(handle.status().state, "failed");
@@ -313,6 +338,45 @@ test("an automatic capture failure finalizes without an explicit stop", async ()
   assert.equal(handle.status().state, "failed");
   assert.equal(result.status, "failed");
   assert.equal(result.failureCode, "frame_stream_stalled");
+  assert.equal(harness.calls.finalize, 1);
+  assert.equal(harness.calls.sessionStop, 1);
+});
+
+test("automatic terminal completion stays pending until finalization finishes", async () => {
+  const captured = deferred();
+  const finalizeGate = deferred();
+  const harness = createHarness({
+    completion: captured.promise,
+    finalizeGate,
+    finalResult: {
+      failureCode: "frame_stream_stalled",
+      status: "failed",
+      outputFile: "recording.webm",
+    },
+  });
+  const handle = await createHandle(harness);
+  await handle.ready;
+
+  captured.resolve({
+    error: Object.assign(new Error("Fresh frames stalled"), {
+      code: "frame_stream_stalled",
+    }),
+    result: null,
+  });
+  await captured.promise;
+  while (harness.calls.finalize === 0) await Promise.resolve();
+  assert.equal(
+    await Promise.race([
+      handle.completion.then(() => "completed"),
+      Promise.resolve("pending"),
+    ]),
+    "pending",
+  );
+
+  finalizeGate.resolve();
+  const output = await handle.completion;
+  assert.equal(output.result.status, "failed");
+  assert.equal(output.result.failureCode, "frame_stream_stalled");
   assert.equal(harness.calls.finalize, 1);
   assert.equal(harness.calls.sessionStop, 1);
 });
@@ -462,6 +526,10 @@ test("finalization failure is memoized and leaves the handle failed", async () =
   const firstStop = handle.stop();
   const secondStop = handle.stop();
   await assert.rejects(firstStop, (error) => error === finalizationError);
+  await assert.rejects(
+    handle.completion,
+    (error) => error === finalizationError,
+  );
 
   assert.equal(firstStop, secondStop);
   assert.equal(handle.status().state, "failed");

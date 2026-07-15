@@ -564,8 +564,15 @@ export async function createBrowserRecording({
 
   let finalizationPromise = null;
   let readinessError = null;
+  let rejectCompletion;
+  let resolveCompletion;
   let state = "recording";
   let terminalNotified = false;
+  const completion = new Promise((resolve, reject) => {
+    rejectCompletion = reject;
+    resolveCompletion = resolve;
+  });
+  void completion.catch(() => {});
   const ready = Promise.resolve(session.ready).catch((error) => {
     readinessError = error;
     state = "failed";
@@ -637,10 +644,11 @@ export async function createBrowserRecording({
           throw error;
         },
       );
+    void finalizationPromise.then(resolveCompletion, rejectCompletion);
     return finalizationPromise;
   }
 
-  return { ready, status, stop };
+  return { completion, ready, status, stop };
 }
 
 function createRecordingWindow(durationMs, signal) {
