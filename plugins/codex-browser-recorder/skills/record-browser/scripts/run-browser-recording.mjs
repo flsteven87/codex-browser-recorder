@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -22,6 +22,19 @@ export async function prepareBrowserPoc({ temporaryRoot }) {
     outputPath: join(directory, "recording.webm"),
     resultPath: join(directory, "result.json"),
   };
+}
+
+export async function cleanupPreparedBrowserPoc(paths) {
+  if (
+    typeof paths?.directory !== "string" ||
+    paths.directory.length === 0
+  ) {
+    throw new PocError(
+      "invalid_configuration",
+      "Prepared recording paths are invalid",
+    );
+  }
+  await rm(paths.directory, { force: true, recursive: true });
 }
 
 const CAPTURE_RESULT_FIELDS = [
@@ -577,6 +590,7 @@ export async function startBrowserPocForTab({
 
 export async function createBrowserRecording({
   _dependencies = {
+    cleanupPreparedBrowserPoc,
     finalizeBrowserPoc,
     prepareBrowserPoc,
     startBrowserPocForTab,
@@ -601,21 +615,31 @@ export async function createBrowserRecording({
   temporaryRoot = tmpdir(),
 }) {
   const paths = await _dependencies.prepareBrowserPoc({ temporaryRoot });
-  const session = await _dependencies.startBrowserPocForTab({
-    expectedTopLevelUrl,
-    ffmpegPath,
-    firstFrameTimeoutMs,
-    fps,
-    maxDecodedBytes,
-    maxDurationMs,
-    maxFrameStallMs,
-    maxOutputBytes,
-    outputPath: paths.outputPath,
-    readTimeoutMs,
-    resourceCheckIntervalMs,
-    signal,
-    tab,
-  });
+  let session;
+  try {
+    session = await _dependencies.startBrowserPocForTab({
+      expectedTopLevelUrl,
+      ffmpegPath,
+      firstFrameTimeoutMs,
+      fps,
+      maxDecodedBytes,
+      maxDurationMs,
+      maxFrameStallMs,
+      maxOutputBytes,
+      outputPath: paths.outputPath,
+      readTimeoutMs,
+      resourceCheckIntervalMs,
+      signal,
+      tab,
+    });
+  } catch (error) {
+    try {
+      await _dependencies.cleanupPreparedBrowserPoc(paths);
+    } catch {
+      // Preserve the bounded startup failure as the primary error.
+    }
+    throw error;
+  }
 
   let finalizationPromise = null;
   let readinessError = null;

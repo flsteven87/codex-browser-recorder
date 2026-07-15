@@ -31,11 +31,19 @@ function deferred() {
 }
 
 function createHarness({
+  cleanupError,
   completion,
   finalResult,
   ready = Promise.resolve(),
+  startError,
 } = {}) {
-  const calls = { finalize: 0, prepare: 0, sessionStop: 0, start: 0 };
+  const calls = {
+    cleanup: 0,
+    finalize: 0,
+    prepare: 0,
+    sessionStop: 0,
+    start: 0,
+  };
   const paths = {
     directory: "/private/temporary/recording",
     outputPath: "/private/temporary/recording/recording.webm",
@@ -80,6 +88,11 @@ function createHarness({
   return {
     calls,
     dependencies: {
+      async cleanupPreparedBrowserPoc(preparedPaths) {
+        calls.cleanup += 1;
+        assert.equal(preparedPaths, paths);
+        if (cleanupError) throw cleanupError;
+      },
       async finalizeBrowserPoc(options) {
         calls.finalize += 1;
         finalizedOptions = options;
@@ -99,6 +112,7 @@ function createHarness({
       },
       async startBrowserPocForTab() {
         calls.start += 1;
+        if (startError) throw startError;
         return session;
       },
     },
@@ -122,6 +136,33 @@ async function createHandle(harness) {
     temporaryRoot: "/private/temporary",
   });
 }
+
+test("cleans the prepared directory when session startup fails", async () => {
+  const startupError = Object.assign(new Error("CDP startup failed"), {
+    code: "cdp_unavailable",
+  });
+  const harness = createHarness({ startError: startupError });
+
+  await assert.rejects(createHandle(harness), (error) => error === startupError);
+
+  assert.equal(harness.calls.prepare, 1);
+  assert.equal(harness.calls.start, 1);
+  assert.equal(harness.calls.cleanup, 1);
+  assert.equal(harness.calls.finalize, 0);
+});
+
+test("preserves the startup error when directory cleanup also fails", async () => {
+  const startupError = Object.assign(new Error("Primary startup failure"), {
+    code: "cdp_unavailable",
+  });
+  const harness = createHarness({
+    cleanupError: new Error("private cleanup diagnostic"),
+    startError: startupError,
+  });
+
+  await assert.rejects(createHandle(harness), (error) => error === startupError);
+  assert.equal(harness.calls.cleanup, 1);
+});
 
 test("returns the public handle before first-frame readiness resolves", async () => {
   const firstFrame = deferred();

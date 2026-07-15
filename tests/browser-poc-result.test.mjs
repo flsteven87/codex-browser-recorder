@@ -1,12 +1,20 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import test from "node:test";
 
 import {
   assertTopLevelUrl,
+  cleanupPreparedBrowserPoc,
   finalizeBrowserPoc,
   prepareBrowserPoc,
   runBrowserPocGate,
@@ -73,6 +81,20 @@ test("prepares unique private paths under the configured temporary root", async 
   assert.equal(basename(first.resultPath), "result.json");
   assert.equal(first.directory.startsWith(`${temporaryRoot}/`), true);
   assert.equal(statSync(first.directory).mode & 0o077, 0);
+});
+
+test("removes a prepared recording directory as one cleanup unit", async () => {
+  const temporaryRoot = mkdtempSync(join(tmpdir(), "browser-recorder-cleanup-"));
+  try {
+    const paths = await prepareBrowserPoc({ temporaryRoot });
+    writeFileSync(`${paths.outputPath}.partial`, "partial");
+
+    await cleanupPreparedBrowserPoc(paths);
+
+    assert.equal(existsSync(paths.directory), false);
+  } finally {
+    rmSync(temporaryRoot, { force: true, recursive: true });
+  }
 });
 
 test("finalizes a valid capture into a sanitized private JSON result", async () => {
