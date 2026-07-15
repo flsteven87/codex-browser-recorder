@@ -469,7 +469,7 @@ test("reports encoder failure when the process exits before consuming frames", a
   const failingProcessPath = join(directory, "failing-process.sh");
   writeFileSync(
     failingProcessPath,
-    "#!/bin/sh\nfor last do :; done\n: > \"$last\"\nexit 7\n",
+    "#!/bin/sh\nfor last do :; done\n: > \"$last\"\nprintf 'sensitive encoder diagnostic\\n' >&2\nexit 7\n",
   );
   chmodSync(failingProcessPath, 0o755);
 
@@ -482,9 +482,15 @@ test("reports encoder failure when the process exits before consuming frames", a
     sink.accept(Buffer.alloc(1024 * 1024));
     await new Promise((resolve) => setTimeout(resolve, 25));
 
-    await assert.rejects(
-      sink.stop(),
-      (error) => error.code === "encoder_failed",
+    let observedError;
+    await assert.rejects(sink.stop(), (error) => {
+      observedError = error;
+      return error.code === "encoder_failed";
+    });
+    assert.equal("diagnostic" in observedError, false);
+    assert.doesNotMatch(
+      JSON.stringify(observedError),
+      /sensitive encoder diagnostic/,
     );
     assert.equal(existsSync(join(directory, "unused.webm")), false);
     assert.equal(existsSync(join(directory, "unused.webm.partial")), false);

@@ -280,13 +280,12 @@ export function createFfmpegSink({
       "-y",
       workingOutputPath,
     ],
-    { stdio: ["pipe", "ignore", "pipe"] },
+    { stdio: ["pipe", "ignore", "ignore"] },
   );
 
   let latestFrame = null;
   let backpressured = false;
   let stopped = false;
-  let stderrTail = "";
   let stdinError = null;
   let processExited = false;
   let stopPromise = null;
@@ -297,11 +296,6 @@ export function createFfmpegSink({
     outputBytes: 0,
     outputSamples: 0,
   };
-
-  child.stderr.setEncoding("utf8");
-  child.stderr.on("data", (chunk) => {
-    stderrTail = `${stderrTail}${chunk}`.slice(-4096);
-  });
 
   const exited = new Promise((resolve) => {
     let settled = false;
@@ -404,7 +398,7 @@ export function createFfmpegSink({
         stats.encoderExitCode = code;
         if (processError !== null || code !== 0 || stdinError !== null) {
           await rm(workingOutputPath, { force: true });
-          const error = new RecorderError(
+          throw new RecorderError(
             "encoder_failed",
             processError !== null
               ? "FFmpeg could not be started"
@@ -412,8 +406,6 @@ export function createFfmpegSink({
                 ? `FFmpeg exited unsuccessfully (${signal ?? code})`
                 : "FFmpeg input stream failed",
           );
-          error.diagnostic = stderrTail;
-          throw error;
         }
 
         try {
