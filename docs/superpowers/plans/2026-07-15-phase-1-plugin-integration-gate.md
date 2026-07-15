@@ -299,11 +299,11 @@ git commit -m "feat: add browser recording adapter"
 - Ask for recording scope confirmation and wait for Browser site/full-CDP approval before capture.
 - Always call `stop()` and close the fresh test tab in cleanup.
 
-- [ ] **Step 1: Write failing static contract tests**
+- [x] **Step 1: Write failing static contract tests**
 
 Read `SKILL.md` as text and assert that it contains the explicit workflow requirements, the global symbol, `pathToFileURL`, `ready`, `status()`, `stop()`, fresh-tab cleanup, and approval/cancellation behavior. Reject hard-coded plugin cache paths, imports from `poc/`, wildcard capture scope, retry-on-denial language, and implicit invocation.
 
-- [ ] **Step 2: Run contract tests and verify RED**
+- [x] **Step 2: Run contract tests and verify RED**
 
 Run:
 
@@ -313,7 +313,7 @@ node --test tests/plugin-structure.test.mjs tests/skill-contract.test.mjs
 
 Expected: FAIL because the scaffold skill does not define the complete workflow.
 
-- [ ] **Step 3: Write the production skill instructions**
+- [x] **Step 3: Write the production skill instructions**
 
 Keep the skill concise and deterministic. Its ordered workflow must:
 
@@ -329,7 +329,7 @@ Keep the skill concise and deterministic. Its ordered workflow must:
 
 The agent metadata must describe the skill accurately without broadening invocation.
 
-- [ ] **Step 4: Validate the skill and run all tests**
+- [x] **Step 4: Validate the skill and run all tests**
 
 Run:
 
@@ -342,7 +342,7 @@ git diff --check
 
 Expected: all commands PASS.
 
-- [ ] **Step 5: Commit the explicit skill workflow**
+- [x] **Step 5: Commit the explicit skill workflow**
 
 ```bash
 git add plugins/codex-browser-recorder/skills/record-browser tests/plugin-structure.test.mjs tests/skill-contract.test.mjs
