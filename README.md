@@ -12,16 +12,15 @@ profile, and it does not add an upload or sharing path.
 
 ## Status
 
-As of 2026-07-16, this repository contains locally verified `v0.1.0`
-release-ready source: the complete repository test, coverage, eval,
-isolated-install, metadata, asset, final-release, and two-run installed-desktop
-gates pass. It remains pre-release software until the canonical tag and public
-release exist; the mutable `main` branch is not a supported release.
+Version `v0.1.0` is the first supported source release. The complete repository
+test, coverage, eval, isolated-install, metadata, asset, final-release, and
+two-run installed-desktop gates pass. Use the immutable `v0.1.0` tag for a
+reproducible installation; the mutable `main` branch is not a supported
+release source.
 
-Public release remains blocked on the following separately authorized work:
-
-- public GitHub settings, push, tag, and release; and
-- OpenAI verified identity, portal access, listing review, and submission.
+Publication in the universal Plugin Directory is a separate OpenAI review and
+publisher-controlled release process. Until that listing is available, install
+the plugin from the pinned `v0.1.0` tag.
 
 Authenticated or sensitive flows remain out of scope. Use the plugin only for
 non-sensitive test pages and actions that every affected person has agreed may
@@ -59,11 +58,9 @@ development and verification.
 
 ## Pinned Release and Local Installation
 
-A reproducible public installation must use the canonical `v0.1.0` tag once
-that release exists. The manifest is prepared at version `0.1.0`, but that tag
-has not been created, so the current mutable repository is suitable for local
-development and review only. Do not copy files into the Codex plugin cache or
-edit cache contents by hand.
+A reproducible installation uses the canonical `v0.1.0` tag. Do not install
+from the mutable `main` branch, copy files into the Codex plugin cache, or edit
+cache contents by hand.
 
 For local development, add the repository root as a local marketplace and
 install the plugin:
@@ -73,8 +70,8 @@ codex plugin marketplace add /absolute/path/to/codex-browser-recorder
 codex plugin add codex-browser-recorder@codex-browser-recorder
 ```
 
-After the separate release process publishes `v0.1.0`, a pinned installation
-can use a checkout of that exact tag as the local marketplace source:
+A pinned installation can use a checkout of that exact tag as the local
+marketplace source:
 
 ```sh
 git clone --branch v0.1.0 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git

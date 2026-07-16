@@ -1,7 +1,6 @@
 # Support
 
-Browser Recorder for Codex is pre-release software with a deliberately narrow
-support boundary.
+Browser Recorder for Codex `v0.1.0` has a deliberately narrow support boundary.
 
 ## Non-sensitive bugs and questions
 

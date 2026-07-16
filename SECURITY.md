@@ -2,8 +2,9 @@
 
 ## Supported versions
 
-This repository contains pre-release software. Security fixes are prepared on
-the latest commit on `main`; there is no supported public release yet.
+Version `0.1.0` is supported. Security fixes are prepared on `main`, validated
+through the repository release gates, and published in the latest supported
+release.
 
 ## Reporting a vulnerability
 

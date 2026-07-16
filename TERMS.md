@@ -1,8 +1,8 @@
 # Terms of Use
 
-Browser Recorder for Codex is experimental, pre-release software for recording
-one explicitly approved, non-sensitive Browser test flow to a private local
-WebM file.
+Browser Recorder for Codex is experimental software for recording one
+explicitly approved, non-sensitive Browser test flow to a private local WebM
+file.
 
 ## Responsible use
 
