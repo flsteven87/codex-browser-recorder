@@ -84,13 +84,13 @@ approved Browser actions begin. It uses public `Page`, `Runtime`, `DOM`, and
 
 1. enable required domains in the root target and Browser-managed attached
    iframe targets;
-2. discover the top document and existing frames, and replay the bounded
-   Browser-managed child-target history so already-attached OOPIF sessions are
-   not lost at the event baseline;
+2. establish the current retained event baseline, discover the top document
+   and existing frames, and address already-attached OOPIFs through their
+   public frame target identifiers;
 3. add one name-scoped Runtime binding per target;
 4. create an isolated world for each participating frame;
-5. install capture-phase listeners for trusted move, press, release, click,
-   double-click, and wheel lifecycle events;
+5. install capture-phase listeners for Browser-dispatched move, press, release,
+   click, double-click, and wheel lifecycle events;
 6. consume binding and frame/target lifecycle events from its own event cursor;
 7. re-arm new execution contexts after navigation, reload, attachment, or
    process changes; and
@@ -99,14 +99,16 @@ approved Browser actions begin. It uses public `Page`, `Runtime`, `DOM`, and
 
 The page-side listener emits only a versioned, bounded cursor payload. Move
 events are coalesced to a bounded cadence while press and release boundaries
-are never coalesced. Page-scripted synthetic events are ignored. The recorder
-includes `performance.timeOrigin + event.timeStamp` as a bounded occurrence
-time so the live workflow can prove that an event belongs to the current
-approved action rather than a delayed earlier event. It separately timestamps
-accepted events before geometry queries with its injected monotonic `now()`
-clock for composition, so CDP query latency cannot shift click feedback. The
-occurrence time is live status only and is not persisted in schema-v3 results.
-Malformed payloads are rejected rather than repaired.
+are never coalesced. DOM `isTrusted` is not used as an eligibility signal
+because Codex in-app Browser control calls intentionally expose their input as
+untrusted DOM events. Instead, each approved action must advance the event
+counter at or after its own action boundary or the run fails closed. The
+recorder includes `performance.timeOrigin + event.timeStamp` as that bounded
+occurrence time. It separately timestamps accepted events before geometry
+queries with its injected monotonic `now()` clock for composition, so CDP query
+latency cannot shift click feedback. The occurrence time is live status only
+and is not persisted in schema-v3 results. Malformed payloads are rejected
+rather than repaired.
 
 Frame-local CSS coordinates are mapped through the public frame-owner geometry
 for every ancestor until they reach top-level viewport CSS coordinates. The
@@ -225,6 +227,7 @@ Browser-managed OOPIF sessions, current geometry refresh, bounded overflow,
 cleanup, and fail-closed behavior.
 
 The live integration also established that the Browser plugin rejects a direct
-`Target.setAutoAttach` command. The implementation therefore consumes the
-Browser-managed `Target.attachedToTarget` and `Target.detachedFromTarget`
+`Target.setAutoAttach` command. The implementation therefore addresses
+already-present OOPIFs through public frame target identifiers and consumes
+future Browser-managed `Target.attachedToTarget` and `Target.detachedFromTarget`
 events instead of attempting to own target attachment.

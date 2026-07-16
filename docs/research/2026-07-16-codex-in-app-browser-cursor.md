@@ -106,8 +106,8 @@ The installed Browser client uses two channels for one action:
 
 1. `Jd.dispatchMouseMove(...)` calls internal `ui.moveMouse(...)`, ultimately
    sending a session-scoped backend `moveMouse` request; and
-2. it separately calls CDP `Input.dispatchMouseEvent` so the page receives a
-   trusted mouse event.
+2. it separately calls CDP `Input.dispatchMouseEvent` so the page receives the
+   corresponding mouse event.
 
 `Jd.clickPoint(...)` follows the same pattern: await UI movement, then dispatch
 CDP move/press/release commands. See `Jd.dispatchMouseMove`, `Jd.clickPoint`,
@@ -117,7 +117,10 @@ CDP move/press/release commands. See `Jd.dispatchMouseMove`, `Jd.clickPoint`,
 This explains both the visible Browser cursor and why it is absent from page
 captures. It also supplies the observation seam: although CDP does not emit the
 input command itself as an event, the page receives corresponding DOM mouse
-events that an isolated world can observe.
+events that an isolated world can observe. A live IAB probe confirmed that both
+Playwright and CUA clicks arrive with correct viewport coordinates but DOM
+`isTrusted: false`; that flag therefore cannot distinguish Codex Browser input
+from page-scripted input on this surface.
 
 ### 2. Both screenshot paths omit the Browser UI cursor
 
@@ -286,16 +289,16 @@ commands. This distinction matters for security, cleanup, and iframe coverage.
 
 ### Instrumentation lifecycle
 
-Use one recorder-scoped binding name and isolated-world name in the fresh tab.
-The existing process-local recording singleton prevents conflicting sessions,
-so another naming subsystem is unnecessary. The recorder owns this lifecycle
+Use one recorder-scoped isolated-world name and one private binding name per
+participating target in the fresh tab. The existing process-local recording
+singleton prevents conflicting sessions. The recorder owns this lifecycle
 inside the existing CDP transaction:
 
 1. capture the shared CDP event cursor baseline;
 2. enable `Page` and `Runtime`;
 3. verify the approved top-frame origin;
 4. use the recorder-owned binding and world names;
-5. add the binding once with `executionContextName: worldName`;
+5. add the target's binding with `executionContextName: worldName`;
 6. create the isolated world with `grantUniveralAccess: false`;
 7. evaluate an idempotent installer in that context;
 8. consume `Runtime.bindingCalled`, frame lifecycle, and Browser-managed target
@@ -307,9 +310,12 @@ inside the existing CDP transaction:
     closes.
 
 The installer attaches capture-phase listeners for the minimum event set:
-`mousemove`, `mousedown`, `mouseup`, `click`, `dblclick`, and `wheel`. It
-ignores untrusted page-scripted events and does not capture event targets,
-selectors, page text, URLs, keys, deltas, or arbitrary event objects.
+`mousemove`, `mousedown`, `mouseup`, `click`, `dblclick`, and `wheel`. It does
+not use DOM `isTrusted` as a filter because that would discard Codex Browser
+input. Instead, the live workflow requires the event counter and occurrence
+timestamp to advance within every approved pointer-action boundary. It does
+not capture event targets, selectors, page text, URLs, keys, deltas, or
+arbitrary event objects.
 
 A versioned payload should remain small and explicit:
 

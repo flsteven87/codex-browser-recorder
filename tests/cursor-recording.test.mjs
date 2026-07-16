@@ -84,6 +84,62 @@ function visibleBounds(videoPath, frameIndex) {
   return maxX < 0 ? null : { maxX, maxY, minX, minY };
 }
 
+test("starts cursor capture at the current retained IAB event baseline", async () => {
+  const eventRead = deferred();
+  const reads = [];
+  const cdp = {
+    async readEvents(options) {
+      reads.push(options);
+      if (options.afterSequence === 0) {
+        return {
+          cursor: 100,
+          events: [],
+          hasMore: false,
+          truncated: true,
+        };
+      }
+      if (options.afterSequence === undefined) {
+        return {
+          cursor: 100,
+          events: [],
+          hasMore: false,
+          truncated: false,
+        };
+      }
+      if (reads.length === 2) return eventRead.promise;
+      throw new Error("unexpected event read");
+    },
+    async send(method) {
+      if (method === "Page.getFrameTree") {
+        return { frameTree: { frame: { id: "main-frame" } } };
+      }
+      if (method === "Page.createIsolatedWorld") {
+        return { executionContextId: 7 };
+      }
+      if (method === "Runtime.evaluate") {
+        return { result: { value: { height: 720, width: 1280 } } };
+      }
+    },
+  };
+
+  const capture = await startCursorCapture({
+    cdp,
+    mainFrameId: "main-frame",
+    now: () => 0,
+  });
+  assert.equal(reads[0].afterSequence, undefined);
+  assert.equal(reads[1].afterSequence, 100);
+
+  const stopping = capture.stop();
+  eventRead.resolve({
+    cursor: 100,
+    events: [],
+    hasMore: false,
+    truncated: false,
+  });
+  assert.deepEqual((await stopping).events, []);
+});
+
 test("captures a top-frame pointer event through an isolated world", async () => {
   const eventRead = deferred();
   const finalRead = deferred();
@@ -476,21 +532,7 @@ test("captures an out-of-process iframe through its flattened target", async () 
       if (reads === 1) {
         return {
           cursor: 1,
-          events: [
-            {
-              method: "Target.attachedToTarget",
-              params: {
-                sessionId: "oopif-session",
-                targetInfo: {
-                  targetId: "oopif-frame",
-                  type: "iframe",
-                  url: "https://embedded.example/",
-                },
-                waitingForDebugger: false,
-              },
-              sequence: 1,
-            },
-          ],
+          events: [],
           hasMore: false,
           truncated: false,
         };
@@ -499,10 +541,11 @@ test("captures an out-of-process iframe through its flattened target", async () 
       return finalRead.promise;
     },
     async send(method, params, options) {
-      const target = options?.target?.sessionId ?? null;
+      const target =
+        options?.target?.sessionId ?? options?.target?.targetId ?? null;
       operations.push([method, params, target]);
       if (method === "Page.getFrameTree") {
-        if (target === "oopif-session") {
+        if (target === "oopif-frame") {
           return {
             frameTree: {
               frame: {
@@ -540,14 +583,14 @@ test("captures an out-of-process iframe through its flattened target", async () 
           throw new Error("private renderer diagnostic");
         }
         return {
-          executionContextId: target === "oopif-session" ? 41 : 40,
+          executionContextId: target === "oopif-frame" ? 41 : 40,
         };
       }
       if (method === "Runtime.evaluate") {
         return {
           result: {
             value:
-              target === "oopif-session"
+              target === "oopif-frame"
                 ? { height: 100, width: 200 }
                 : { height: 300, width: 400 },
           },
@@ -556,11 +599,16 @@ test("captures an out-of-process iframe through its flattened target", async () 
     },
   };
 
-  const starting = startCursorCapture({
+  const capture = await startCursorCapture({
     cdp,
     mainFrameId: "main-frame",
     now: () => clock,
   });
+  const oopifBinding = operations.find(
+    ([method, , target]) =>
+      method === "Runtime.addBinding" && target === "oopif-frame",
+  )?.[1]?.name;
+  assert.equal(typeof oopifBinding, "string");
   clock = 300;
   eventRead.resolve({
     cursor: 2,
@@ -569,7 +617,7 @@ test("captures an out-of-process iframe through its flattened target", async () 
         method: "Runtime.bindingCalled",
         params: {
           executionContextId: 41,
-          name: "__codexBrowserRecorderCursor",
+          name: oopifBinding,
           payload: JSON.stringify({
             button: 0,
             buttons: 0,
@@ -583,13 +631,12 @@ test("captures an out-of-process iframe through its flattened target", async () 
           }),
         },
         sequence: 2,
-        source: { sessionId: "oopif-session" },
+        source: { sessionId: "unreplayed-oopif-session" },
       },
     ],
     hasMore: false,
     truncated: false,
   });
-  const capture = await starting;
   await waitFor(() => reads === 3);
   const stopping = capture.stop();
   finalRead.resolve({
@@ -619,7 +666,7 @@ test("captures an out-of-process iframe through its flattened target", async () 
       ([method, params, target]) =>
         method === "Page.createIsolatedWorld" &&
         params.frameId === "oopif-frame" &&
-        target === "oopif-session",
+        target === "oopif-frame",
     ),
   );
 });
@@ -711,7 +758,7 @@ test("uses frame attachment state to map a dynamically attached OOPIF", async ()
         method: "Runtime.bindingCalled",
         params: {
           executionContextId: 51,
-          name: "__codexBrowserRecorderCursor",
+          name: "__codexBrowserRecorderCursor_1",
           payload: JSON.stringify({
             button: 0,
             buttons: 0,
@@ -875,7 +922,7 @@ test("rejects perspective frame geometry instead of shifting endpoints", async (
   assert.equal(reads >= 1, true);
 });
 
-test("ignores synthetic pointer events and captures a trusted wheel", async () => {
+test("captures pointer events dispatched by Codex Browser controls", async () => {
   const eventRead = deferred();
   const finalRead = deferred();
   const listeners = new Map();
@@ -940,36 +987,37 @@ test("ignores synthetic pointer events and captures a trusted wheel", async () =
     clientY: 30,
     timeStamp: 600,
   };
-  listeners.get("wheel")({ ...event, isTrusted: false });
+  listeners.get("click")({ ...event, isTrusted: false });
   listeners.get("wheel")({ ...event, isTrusted: true });
-  assert.equal(payloads.length, 1);
+  assert.equal(payloads.length, 2);
 
   clock = 100;
   eventRead.resolve({
-    cursor: 1,
-    events: [
-      {
-        method: "Runtime.bindingCalled",
-        params: {
-          executionContextId: 91,
-          name: "__codexBrowserRecorderCursor",
-          payload: payloads[0],
-        },
-        sequence: 1,
+    cursor: 2,
+    events: payloads.map((payload, index) => ({
+      method: "Runtime.bindingCalled",
+      params: {
+        executionContextId: 91,
+        name: "__codexBrowserRecorderCursor",
+        payload,
       },
-    ],
+      sequence: index + 1,
+    })),
     hasMore: false,
     truncated: false,
   });
   await waitFor(() => reads === 3);
   const stopping = capture.stop();
   finalRead.resolve({
-    cursor: 1,
+    cursor: 2,
     events: [],
     hasMore: false,
     truncated: false,
   });
-  assert.deepEqual((await stopping).events.map(({ type }) => type), ["wheel"]);
+  assert.deepEqual((await stopping).events.map(({ type }) => type), [
+    "click",
+    "wheel",
+  ]);
 });
 
 test("fails closed when the bounded cursor timeline overflows", async () => {
