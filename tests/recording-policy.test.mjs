@@ -12,15 +12,15 @@ import {
   RECORDING_MAX_HEIGHT,
   RECORDING_MAX_OUTPUT_BYTES,
   RECORDING_MAX_WIDTH,
-  hasPointerActionEvidence,
+  hasPointerEvidenceAfterActionBoundary,
   originOf,
   validateRecordingRequest,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-policy.mjs";
 
-test("requires pointer evidence captured after the current action boundary", () => {
+test("accepts only new pointer evidence observed after the action boundary", () => {
   const firstActionStartedAt = 1_000;
   assert.equal(
-    hasPointerActionEvidence({
+    hasPointerEvidenceAfterActionBoundary({
       actionStartedAtEpochMs: firstActionStartedAt,
       beforeEvents: 0,
       capture: {
@@ -33,7 +33,7 @@ test("requires pointer evidence captured after the current action boundary", () 
 
   const secondActionStartedAt = 1_020;
   assert.equal(
-    hasPointerActionEvidence({
+    hasPointerEvidenceAfterActionBoundary({
       actionStartedAtEpochMs: secondActionStartedAt,
       beforeEvents: 4,
       capture: {
@@ -45,7 +45,7 @@ test("requires pointer evidence captured after the current action boundary", () 
     "a delayed tail from the first action must not satisfy the second action",
   );
   assert.equal(
-    hasPointerActionEvidence({
+    hasPointerEvidenceAfterActionBoundary({
       actionStartedAtEpochMs: secondActionStartedAt,
       beforeEvents: 4,
       capture: {

@@ -6,11 +6,25 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-16
+
+### Changed
+
+- Reframed the visible cursor guarantee around observable per-action evidence
+  instead of claiming event provenance that the Browser runtime cannot prove.
+- Replaced the private loopback submission case with a public, no-login W3C
+  fixture and made reviewer expectations explicit.
+- Made the release validator derive the release version from the manifest.
+
+### Fixed
+
+- Corrected the privacy disclosure for page-scripted synthetic pointer events.
+
 ## [0.2.0] - 2026-07-16
 
 ### Added
 
-- Cursor-complete recording for top-level and supported embedded-frame pointer
+- Visible cursor recording for top-level and supported embedded-frame pointer
   actions using public-CDP isolated-world observation, a project-owned
   Codex-style cursor, and 200 ms click feedback.
 - Fail-closed cursor coverage across dynamic frames, reloads, cross-origin

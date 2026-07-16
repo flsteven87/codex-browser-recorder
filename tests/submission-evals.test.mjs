@@ -10,7 +10,7 @@ const evalPath = new URL("../evals/plugin-submission-cases.json", import.meta.ur
 const expectedCaseIds = [
   "positive-basic-https",
   "positive-same-origin-navigation",
-  "positive-loopback-development",
+  "positive-pointer-click",
   "positive-minimum-duration",
   "positive-maximum-duration",
   "negative-sensitive-flow",
@@ -22,18 +22,19 @@ const allowedNegativeOutcomes = new Set([
   "target_credentials_present",
   "origin_changed_during_recording",
 ]);
-const allowedExampleHosts = new Set([
+const allowedPublicHosts = new Set([
   "example.com",
   "example.org",
   "example.net",
+  "www.w3.org",
 ]);
-const allowedLoopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
-const topLevelKeys = ["cases", "plugin", "schemaVersion"];
+const topLevelKeys = ["cases", "fixtures", "plugin", "schemaVersion"];
 const caseKeys = ["expected", "id", "kind", "prompt", "setup"];
 const expectedKeys = [
   "allowedFailureCodes",
   "browserActivityBeforeConsent",
   "outcome",
+  "reviewerExpectation",
   "requiredSignals",
 ];
 
@@ -81,23 +82,15 @@ function normalizedUrl(url) {
 function assertAllowedEvalUrl(url, itemId) {
   const parsed = new URL(url);
   const hostname = parsed.hostname.toLowerCase();
-  if (allowedExampleHosts.has(hostname)) {
+  if (allowedPublicHosts.has(hostname)) {
     assert.equal(
       parsed.protocol,
       "https:",
-      `${itemId} example-domain URLs must use HTTPS`,
+      `${itemId} public fixture URLs must use HTTPS`,
     );
     return;
   }
-  if (allowedLoopbackHosts.has(hostname)) {
-    assert.equal(
-      parsed.protocol,
-      "http:",
-      `${itemId} loopback development URLs must use HTTP`,
-    );
-    return;
-  }
-  assert.fail(`${itemId} URL must use an approved example or loopback host`);
+  assert.fail(`${itemId} URL must use an approved public fixture host`);
 }
 
 function assertUrlCredentialContract(cases) {
@@ -245,7 +238,7 @@ test("rejects private, link-local, and non-approved URL mutants", async () => {
     mutant[0].setup.plannedActions = [`inspect ${url}`];
     assert.throws(
       () => assertCorpusUrlContract(mutant),
-      /approved example or loopback host/,
+      /approved public fixture host/,
     );
   }
 });
@@ -255,7 +248,7 @@ test("rejects prompt, origin, and schema mismatch mutants", async () => {
 
   const promptMutant = structuredClone(corpus.cases);
   promptMutant[0].prompt = promptMutant[0].prompt.replace(
-    "https://example.com/guide",
+    "https://www.w3.org/TR/pointerevents/",
     "https://example.org/guide",
   );
   assert.throws(
@@ -288,6 +281,25 @@ test("rejects prompt, origin, and schema mismatch mutants", async () => {
 test("validates positive targets through the production recording policy", async () => {
   const { cases } = await loadCases();
   assertPositivePolicyContract(cases);
+});
+
+test("gives reviewers one public fixture with no account or setup dependency", async () => {
+  const corpus = await loadCases();
+  assert.deepEqual(corpus.fixtures, {
+    "w3c-pointer-events": {
+      authentication: "none",
+      instructions: "No setup required; open the public HTTPS page.",
+      url: "https://www.w3.org/TR/pointerevents/",
+    },
+  });
+  for (const item of corpus.cases.filter(({ kind }) => kind === "positive")) {
+    assert.equal(item.setup.fixtureId, "w3c-pointer-events");
+    assert.equal(item.setup.targetUrl, corpus.fixtures[item.setup.fixtureId].url);
+    assert.match(item.expected.reviewerExpectation, /Saved Recording|recording/i);
+  }
+  for (const item of corpus.cases.filter(({ kind }) => kind === "negative")) {
+    assert.match(item.expected.reviewerExpectation, /must|refus|stop|discard/i);
+  }
 });
 
 test("rejects username credential mutants through the production policy", async () => {
@@ -392,9 +404,13 @@ test("keeps every eval explicit, consent-bound, and free of sensitive flows", as
         item.setup.preBrowserRefusal === true,
       `${item.id} must declare an approved origin or a pre-Browser refusal`,
     );
-    assert.ok(item.expected.requiredSignals.includes("consolidated_consent"));
-    assert.ok(item.expected.requiredSignals.includes("saved_recording_destination"));
-    assert.ok(item.expected.requiredSignals.includes("h264_mp4"));
+    if (item.setup.preBrowserRefusal === true) {
+      assert.deepEqual(item.expected.requiredSignals, ["pre_browser_refusal"]);
+    } else {
+      assert.ok(item.expected.requiredSignals.includes("consolidated_consent"));
+      assert.ok(item.expected.requiredSignals.includes("saved_recording_destination"));
+      assert.ok(item.expected.requiredSignals.includes("h264_mp4"));
+    }
     assert.doesNotMatch(JSON.stringify(item), /password|payment|passkey|health record/i);
   }
 });
@@ -430,11 +446,10 @@ test("covers the requested duration, navigation, and refusal boundaries", async 
     new URL(sameOrigin.setup.navigationTarget).origin,
     sameOrigin.setup.approvedOrigin,
   );
-  assert.match(new URL(sameOrigin.setup.navigationTarget).search, /view=/);
+  assert.equal(new URL(sameOrigin.setup.navigationTarget).hash, "#intro");
 
-  const loopback = byId.get("positive-loopback-development");
-  assert.equal(new URL(loopback.setup.targetUrl).hostname, "127.0.0.1");
-  assert.equal(new URL(loopback.setup.targetUrl).protocol, "http:");
+  const pointerClick = byId.get("positive-pointer-click");
+  assert.ok(pointerClick.setup.plannedActions.includes("click_table_of_contents_link"));
 
   assert.equal(byId.get("positive-minimum-duration").setup.durationSeconds, 5);
   const maximum = byId.get("positive-maximum-duration");

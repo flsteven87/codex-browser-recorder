@@ -1,14 +1,22 @@
 {
   "schemaVersion": 1,
   "plugin": "codex-browser-recorder",
+  "fixtures": {
+    "w3c-pointer-events": {
+      "authentication": "none",
+      "instructions": "No setup required; open the public HTTPS page.",
+      "url": "https://www.w3.org/TR/pointerevents/"
+    }
+  },
   "cases": [
     {
       "id": "positive-basic-https",
       "kind": "positive",
-      "prompt": "$record-browser Open https://example.com/guide, scroll the visible page once, and record the approved flow using the default duration.",
+      "prompt": "$record-browser Open https://www.w3.org/TR/pointerevents/, scroll the visible page once, and record the approved flow using the default duration.",
       "setup": {
-        "targetUrl": "https://example.com/guide",
-        "approvedOrigin": "https://example.com",
+        "fixtureId": "w3c-pointer-events",
+        "targetUrl": "https://www.w3.org/TR/pointerevents/",
+        "approvedOrigin": "https://www.w3.org",
         "plannedActions": ["scroll_visible_page"],
         "durationSeconds": 15,
         "usesDefaultDuration": true,
@@ -23,17 +31,19 @@
           "consolidated_consent",
           "saved_recording_destination",
           "h264_mp4"
-        ]
+        ],
+        "reviewerExpectation": "A validated Saved Recording is published only after the approved scroll produces new observed pointer evidence."
       }
     },
     {
       "id": "positive-same-origin-navigation",
       "kind": "positive",
-      "prompt": "$record-browser Open https://example.com/start, navigate in the fresh tab to https://example.com/results?view=list, and save the approved recording to my Desktop as navigation-smoke.",
+      "prompt": "$record-browser Open https://www.w3.org/TR/pointerevents/, navigate in the fresh tab to https://www.w3.org/TR/pointerevents/#intro, and save the approved recording to my Desktop as navigation-smoke.",
       "setup": {
-        "targetUrl": "https://example.com/start",
-        "approvedOrigin": "https://example.com",
-        "navigationTarget": "https://example.com/results?view=list",
+        "fixtureId": "w3c-pointer-events",
+        "targetUrl": "https://www.w3.org/TR/pointerevents/",
+        "approvedOrigin": "https://www.w3.org",
+        "navigationTarget": "https://www.w3.org/TR/pointerevents/#intro",
         "plannedActions": ["navigate_same_origin"],
         "destinationKind": "desktop",
         "recordingName": "navigation-smoke",
@@ -49,17 +59,19 @@
           "consolidated_consent",
           "saved_recording_destination",
           "h264_mp4"
-        ]
+        ],
+        "reviewerExpectation": "The same-origin fragment navigation remains inside the approved Recording Session and publishes one Saved Recording."
       }
     },
     {
-      "id": "positive-loopback-development",
+      "id": "positive-pointer-click",
       "kind": "positive",
-      "prompt": "$record-browser Open http://127.0.0.1:4173/demo, scroll the visible development page once, and record it for 15 seconds.",
+      "prompt": "$record-browser Open https://www.w3.org/TR/pointerevents/, click the 1. Introduction link in the table of contents, and record the approved flow for 15 seconds.",
       "setup": {
-        "targetUrl": "http://127.0.0.1:4173/demo",
-        "approvedOrigin": "http://127.0.0.1:4173",
-        "plannedActions": ["scroll_visible_page"],
+        "fixtureId": "w3c-pointer-events",
+        "targetUrl": "https://www.w3.org/TR/pointerevents/",
+        "approvedOrigin": "https://www.w3.org",
+        "plannedActions": ["click_table_of_contents_link"],
         "durationSeconds": 15,
         "requiresExplicitConsent": true,
         "approvalBypassAllowed": false
@@ -72,16 +84,18 @@
           "consolidated_consent",
           "saved_recording_destination",
           "h264_mp4"
-        ]
+        ],
+        "reviewerExpectation": "The recording includes a visible cursor and click feedback after new pointer evidence is observed for the approved click."
       }
     },
     {
       "id": "positive-minimum-duration",
       "kind": "positive",
-      "prompt": "$record-browser Open https://example.org/demo, scroll the visible page once, and record the approved flow for 5 seconds.",
+      "prompt": "$record-browser Open https://www.w3.org/TR/pointerevents/, scroll the visible page once, and record the approved flow for 5 seconds.",
       "setup": {
-        "targetUrl": "https://example.org/demo",
-        "approvedOrigin": "https://example.org",
+        "fixtureId": "w3c-pointer-events",
+        "targetUrl": "https://www.w3.org/TR/pointerevents/",
+        "approvedOrigin": "https://www.w3.org",
         "plannedActions": ["scroll_visible_page"],
         "durationSeconds": 5,
         "requiresExplicitConsent": true,
@@ -95,16 +109,18 @@
           "consolidated_consent",
           "saved_recording_destination",
           "h264_mp4"
-        ]
+        ],
+        "reviewerExpectation": "The minimum-duration recording completes as a validated Saved Recording."
       }
     },
     {
       "id": "positive-maximum-duration",
       "kind": "positive",
-      "prompt": "$record-browser Open https://example.net/demo, scroll the visible page once, and record the approved flow for 60 seconds without changing the hard limit.",
+      "prompt": "$record-browser Open https://www.w3.org/TR/pointerevents/, scroll the visible page once, and record the approved flow for 60 seconds without changing the hard limit.",
       "setup": {
-        "targetUrl": "https://example.net/demo",
-        "approvedOrigin": "https://example.net",
+        "fixtureId": "w3c-pointer-events",
+        "targetUrl": "https://www.w3.org/TR/pointerevents/",
+        "approvedOrigin": "https://www.w3.org",
         "plannedActions": ["scroll_visible_page"],
         "durationSeconds": 60,
         "hardLimitSeconds": 65,
@@ -119,7 +135,8 @@
           "consolidated_consent",
           "saved_recording_destination",
           "h264_mp4"
-        ]
+        ],
+        "reviewerExpectation": "The maximum-duration recording remains bounded and completes as one validated Saved Recording."
       }
     },
     {
@@ -138,12 +155,8 @@
         "browserActivityBeforeConsent": false,
         "outcome": "cancelled",
         "allowedFailureCodes": ["cancelled"],
-        "requiredSignals": [
-          "consolidated_consent",
-          "saved_recording_destination",
-          "h264_mp4",
-          "pre_browser_refusal"
-        ]
+        "requiredSignals": ["pre_browser_refusal"],
+        "reviewerExpectation": "The plugin must refuse the sensitive authenticated flow before any Browser activity because it is outside the recording policy."
       }
     },
     {
@@ -162,12 +175,8 @@
         "browserActivityBeforeConsent": false,
         "outcome": "target_credentials_present",
         "allowedFailureCodes": ["target_credentials_present"],
-        "requiredSignals": [
-          "consolidated_consent",
-          "saved_recording_destination",
-          "h264_mp4",
-          "pre_browser_refusal"
-        ]
+        "requiredSignals": ["pre_browser_refusal"],
+        "reviewerExpectation": "The plugin must stop before Browser activity because URL credentials are prohibited."
       }
     },
     {
@@ -192,7 +201,8 @@
           "saved_recording_destination",
           "h264_mp4",
           "media_discard"
-        ]
+        ],
+        "reviewerExpectation": "The plugin must stop at the cross-origin navigation and discard the Working Recording."
       }
     }
   ]

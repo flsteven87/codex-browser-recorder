@@ -1,7 +1,7 @@
 {
   "name": "codex-browser-recorder",
-  "version": "0.2.0",
-  "description": "Save one approved Codex Browser test flow as a cursor-complete local H.264 MP4 recording.",
+  "version": "0.2.1",
+  "description": "Save one approved Codex Browser test flow as a local H.264 MP4 with a visible cursor.",
   "author": {
     "name": "Steven Wu",
     "url": "https://github.com/flsteven87"
@@ -19,12 +19,12 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Codex Browser Recorder",
-    "shortDescription": "Save a cursor-complete Browser flow as local MP4.",
+    "shortDescription": "Save a Browser flow as MP4 with a visible cursor.",
     "longDescription": "Saves one approved Codex Browser test flow with visible cursor and click feedback as a validated, audio-free H.264 MP4 in a user-visible local folder.",
     "developerName": "Steven Wu",
     "category": "Developer Tools",
     "capabilities": [
-      "Cursor-complete local Browser test-flow recording"
+      "Local Browser test-flow recording with a visible cursor"
     ],
     "websiteURL": "https://github.com/flsteven87/codex-browser-recorder",
     "privacyPolicyURL": "https://github.com/flsteven87/codex-browser-recorder/blob/main/PRIVACY.md",
@@ -32,7 +32,7 @@
     "defaultPrompt": [
       "Use $record-browser to record one approved non-sensitive flow on a public HTTPS test page.",
       "Use $record-browser to save one approved same-origin navigation flow as a local MP4.",
-      "Use $record-browser to save one approved loopback development flow as a local MP4."
+      "Use $record-browser to record one approved pointer-driven Browser flow with a visible cursor."
     ],
     "brandColor": "#E5484D",
     "composerIcon": "./assets/icon.png",

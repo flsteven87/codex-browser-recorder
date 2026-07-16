@@ -922,7 +922,7 @@ test("rejects perspective frame geometry instead of shifting endpoints", async (
   assert.equal(reads >= 1, true);
 });
 
-test("captures pointer events dispatched by Codex Browser controls", async () => {
+test("captures observed pointer events without relying on DOM trust provenance", async () => {
   const eventRead = deferred();
   const finalRead = deferred();
   const listeners = new Map();
@@ -1342,7 +1342,7 @@ test("coordinates cursor capture and composition inside the recording transactio
     maxDurationMs: 1000,
     maxOutputBytes: 1024,
     now: () => 100,
-    outputPath: "/tmp/cursor-complete.mp4",
+    outputPath: "/tmp/visible-cursor.mp4",
     readTimeoutMs: 0,
     resourceCheckIntervalMs: 1000,
     sinkFactory: (options) => {
@@ -1367,13 +1367,13 @@ test("coordinates cursor capture and composition inside the recording transactio
   const result = await stopping;
 
   const sinkStart = operations.find(([name]) => name === "sink.start");
-  assert.notEqual(sinkStart[1], "/tmp/cursor-complete.mp4");
+  assert.notEqual(sinkStart[1], "/tmp/visible-cursor.mp4");
   const render = operations.find(([name]) => name === "cursor.render");
   assert.equal(render[1].inputPath, sinkStart[1]);
-  assert.equal(render[1].outputPath, "/tmp/cursor-complete.mp4");
+  assert.equal(render[1].outputPath, "/tmp/visible-cursor.mp4");
   assert.deepEqual(render[1].timeline, timeline);
   assert.equal(result.cursorEventsCaptured, 1);
   assert.equal(result.cursorFramesObserved, 1);
-  assert.equal(result.outputPath, "/tmp/cursor-complete.mp4");
+  assert.equal(result.outputPath, "/tmp/visible-cursor.mp4");
   assert.ok(operations.indexOf("cursor.stop") < operations.indexOf(render));
 });

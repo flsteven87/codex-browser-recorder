@@ -118,11 +118,11 @@ test("plugin manifest and repository marketplace stay aligned", () => {
   assert.match(plugin.version, strictSemver);
   assert.equal(
     plugin.description,
-    "Save one approved Codex Browser test flow as a cursor-complete local H.264 MP4 recording.",
+    "Save one approved Codex Browser test flow as a local H.264 MP4 with a visible cursor.",
   );
   assert.equal(
     plugin.interface.shortDescription,
-    "Save a cursor-complete Browser flow as local MP4.",
+    "Save a Browser flow as MP4 with a visible cursor.",
   );
   assert.doesNotMatch(
     JSON.stringify(plugin.interface),
@@ -205,7 +205,7 @@ test("record-browser is an explicit skill with one canonical script tree", () =>
   assert.match(agentManifest, /^policy:\n(?: {2}.+\n)* {2}allow_implicit_invocation: false$/m);
   assert.match(
     agentManifest,
-    /short_description: "Save one cursor-complete Browser flow as local MP4"/,
+    /short_description: "Save one Browser flow as MP4 with a visible cursor"/,
   );
   assert.match(
     agentManifest,
