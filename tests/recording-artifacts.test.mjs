@@ -15,12 +15,14 @@ import test from "node:test";
 
 import {
   cleanupRecordingArtifacts,
-  describeRecordingFailure,
   finalizeRecordingArtifacts,
   prepareRecordingArtifacts,
-  sanitizeRecordingFailure,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-artifacts.mjs";
-import * as recordingArtifacts from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-artifacts.mjs";
+import {
+  describeRecordingFailure,
+  getRecordingCleanupDetails,
+  sanitizeRecordingFailure,
+} from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-outcome.mjs";
 import { resolveExecutable } from "./test-tools.mjs";
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), "recording-artifacts-test-"));
@@ -293,12 +295,18 @@ test("keeps preparation failure primary when directory rollback fails", async ()
       },
       temporaryRoot,
     }),
-    (error) =>
+    (error) => {
       assertBoundedPersistenceFailure(error, [
         createdDirectory,
         chmodDiagnostic,
         rollbackDiagnostic,
-      ]),
+      ]);
+      assert.deepEqual(getRecordingCleanupDetails(error), {
+        cleanupIncomplete: true,
+        directory: createdDirectory,
+      });
+      return true;
+    },
   );
   assert.deepEqual(rmCalls, [
     [createdDirectory, { force: true, recursive: true }],
@@ -436,7 +444,7 @@ test("preserves persistence failure precedence when rollback also fails", async 
   ]);
   assert.equal(existsSync(paths.outputPath), true);
   assert.deepEqual(
-    recordingArtifacts.getRecordingCleanupDetails?.(persistenceError),
+    getRecordingCleanupDetails(persistenceError),
     {
       cleanupIncomplete: true,
       directory: paths.directory,
@@ -446,7 +454,7 @@ test("preserves persistence failure precedence when rollback also fails", async 
 
   const resanitized = sanitizeRecordingFailure(persistenceError);
   assert.deepEqual(
-    recordingArtifacts.getRecordingCleanupDetails?.(resanitized),
+    getRecordingCleanupDetails(resanitized),
     {
       cleanupIncomplete: true,
       directory: paths.directory,

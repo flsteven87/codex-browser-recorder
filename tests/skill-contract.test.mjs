@@ -69,7 +69,7 @@ function assertPublicWorkflowOrdering(source) {
   const cleanupIndex = sectionIndexes[5];
   for (const marker of [
     "scripts/recording-policy.mjs",
-    "scripts/recording-artifacts.mjs",
+    "scripts/recording-outcome.mjs",
     "validateRecordingRequest",
     "describeRecordingFailure(error.code)",
   ]) {
@@ -85,9 +85,9 @@ function assertPublicWorkflowOrdering(source) {
 
   const runSection = source.slice(runIndex, cleanupIndex);
   for (const [label, marker] of [
-    ["fresh-tab creation", "Create one fresh blank Browser tab"],
-    ["fresh-tab navigation", "navigateFreshTab(request.targetUrl)"],
-    ["CDP activity", "full-CDP approval"],
+    ["recording transaction", "handle = createRecording({"],
+    ["fresh-tab ownership", "exactly one fresh blank Browser tab"],
+    ["CDP activity", "full-CDP preflight"],
   ]) {
     const markerIndexes = indexesOf(source, marker);
     assert.ok(markerIndexes.length > 0, `missing ${label} instruction`);
@@ -133,183 +133,44 @@ function assertPrivacyReportingContract(source) {
   }
 }
 
-function assertOperationalWorkflow(source) {
-  for (const marker of [
-    'import { resolve } from "node:path"',
-    'import { tmpdir } from "node:os"',
-    'import { pathToFileURL } from "node:url"',
-    "const installedSkillRoot =",
-    "const browserPluginRoot =",
-    "const temporaryRoot = tmpdir()",
-    "setupBrowserRuntime",
-    'agent.browsers.getForUrl(request.targetUrl)',
-    "nodeRepl.write(await browser.documentation())",
-    "freshTab = await browser.tabs.new()",
-    "await freshTab.goto(request.targetUrl)",
-    'freshTab.capabilities.get("cdp")',
-    "preflightCdp = null",
-    "doctor({",
-    "cdpAvailable,",
-    "outputDirectory: temporaryRoot",
-    "if (!environment.supported)",
-    "environment.blockingReasons[0]",
-    "handle = createRecording({",
-    "pollDeadline",
-    "handle.status()",
-    "recordingResult.result.status === \"passed\"",
-    "recordingResult.result.status === \"failed\"",
-    "getRecordingCleanupDetails(primaryFailure)",
-    "incompleteCleanup ??= getRecordingCleanupDetails(error)",
-    "await freshTab?.close()",
-  ]) {
-    assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  }
-
-  assert.ok(
-    source.indexOf('freshTab.capabilities.get("cdp")') <
-      source.indexOf("doctor({"),
-    "preflight CDP acquisition must precede doctor",
-  );
-  assert.ok(
-    source.indexOf("doctor({") < source.indexOf("handle = createRecording({"),
-    "doctor must block unsupported environments before recording",
-  );
-  assert.ok(
-    source.indexOf("preflightCdp = null") <
-      source.indexOf("handle = createRecording({"),
-    "preflight CDP capability must be discarded before coordinator startup",
-  );
-}
-
-function assertBrowserRuntimeFailureMapping(source) {
-  const lifecycle = [...source.matchAll(/```js\n([\s\S]*?)\n```/g)]
-    .map(([, block]) => block)
-    .find(
-      (block) =>
-        block.includes("navigateFreshTab") &&
-        block.includes('freshTab.capabilities.get("cdp")'),
-    );
-  assert.ok(lifecycle, "missing Browser recording lifecycle");
+function assertOfficialBrowserSelection(source) {
   assert.match(
-    lifecycle,
-    /const isBrowserApprovalDenial = \(error\) =>/,
-    "workflow must classify Browser approval denial explicitly",
-  );
-  assert.match(
-    lifecycle,
-    /The user has requested that/,
-    "denial classifier must use the Browser runtime's documented error convention",
-  );
-  assert.match(
-    lifecycle,
-    /isBrowserApprovalDenial\(error\)\s*\?\s*"cancelled"\s*:\s*"integration_failed"/,
-    "Browser denial and non-denial failures must map to distinct allowlisted codes",
+    source,
+    /Set `requestedBrowser` to `"iab"` only when the user explicitly requests the Codex in-app Browser, to `"chrome"` only when the user explicitly requests Chrome, and to `null` otherwise[.]/,
+    "skill must preserve the user's explicit Browser choice",
   );
 
-  const navigation = readBracedBlockAfter(
-    lifecycle,
-    "const navigateFreshTab = async () =>",
+  const setup = javascriptBlocksFor(source).find((block) =>
+    block.includes("const browserPluginRoot ="),
   );
-  assert.match(navigation.body, /freshTab = await browser[.]tabs[.]new\(\)/);
-  assert.match(navigation.body, /await freshTab[.]goto\(request[.]targetUrl\)/);
+  assert.ok(setup, "missing installed Browser setup");
   assert.match(
-    navigation.body,
-    /catch \(error\)\s*{\s*throw mapBrowserRuntimeFailure\(error\);\s*}/,
-    "tab creation and navigation must sanitize Browser runtime failures",
-  );
-
-  const preflight = lifecycle.slice(
-    lifecycle.indexOf("let preflightCdp;"),
-    lifecycle.indexOf("const cdpAvailable"),
-  );
-  assert.match(
-    preflight,
-    /catch \(error\)\s*{\s*throw mapBrowserRuntimeFailure\(error\);\s*}/,
-    "CDP preflight must use the same denial-aware sanitized mapping",
-  );
-}
-
-function assertSetupFailureBoundaries(source) {
-  const validation = [...source.matchAll(/```js\n([\s\S]*?)\n```/g)]
-    .map(([, block]) => block)
-    .find((block) => block.includes("scripts/recording-policy.mjs"));
-  assert.ok(validation, "missing local validation module setup");
-  assert.match(validation, /const stableFailure = \(code\) =>/);
-  assert.match(
-    validation,
-    /typeof sanitizeRecordingFailure === "function"[\s\S]*return sanitizeRecordingFailure\({ code }\);/,
-    "stable setup failures must pass arbitrary codes through the allowlist sanitizer",
-  );
-  assert.match(
-    validation,
-    /catch\s*{\s*throw stableFailure\("plugin_module_unavailable"\);\s*}/,
-    "local module resolution and imports must map to plugin_module_unavailable",
-  );
-  assert.doesNotMatch(validation, /catch[^}]*throw error/s);
-
-  const setup = [...source.matchAll(/```js\n([\s\S]*?)\n```/g)]
-    .map(([, block]) => block)
-    .find((block) => block.includes("const browserPluginRoot ="));
-  assert.ok(setup, "missing installed module and Browser setup");
-  for (const [label, marker, code] of [
-    ["recorder modules", "const doctorUrl", "plugin_module_unavailable"],
-    ["Browser client", "if (globalThis.agent?.browsers == null)", "browser_plugin_unavailable"],
-    ["Browser selection and docs", "if (globalThis.browser == null)", "integration_failed"],
-  ]) {
-    const markerIndex = setup.indexOf(marker);
-    assert.notEqual(markerIndex, -1, `missing ${label} setup`);
-    const setupTryIndex = setup.lastIndexOf("try", markerIndex);
-    assert.notEqual(setupTryIndex, -1, `missing ${label} try boundary`);
-    const setupTry = readBracedBlockAfter(setup, "try", setupTryIndex);
-    const following = setup.slice(setupTry.end, setupTry.end + 180);
-    assert.match(
-      following,
-      new RegExp(
-        `catch\\s*{\\s*throw stableFailure\\("${code}"\\);\\s*}`,
-      ),
-      `${label} failures must map to ${code}`,
-    );
-  }
-  assert.doesNotMatch(
     setup,
-    /catch[^}]*throw error/s,
-    "setup must never expose raw module or Browser diagnostics",
+    /requestedBrowser === "iab"[\s\S]*globalThis[.]iab == null[\s\S]*globalThis[.]iab = await agent[.]browsers[.]get[(]"iab"[)][\s\S]*selectedBrowser = globalThis[.]iab/,
+    "explicit in-app Browser requests must select the iab Browser",
   );
+  assert.match(
+    setup,
+    /requestedBrowser === "chrome"[\s\S]*globalThis[.]chrome == null[\s\S]*globalThis[.]chrome = await agent[.]browsers[.]get[(]"extension"[)][\s\S]*selectedBrowser = globalThis[.]chrome/,
+    "explicit Chrome requests must select the extension Browser",
+  );
+  assert.match(
+    setup,
+    /else[\s\S]*globalThis[.]browser == null[\s\S]*globalThis[.]browser = await agent[.]browsers[.]getForUrl[(]request[.]targetUrl[)][\s\S]*selectedBrowser = globalThis[.]browser/,
+    "only unspecified Browser requests may use URL-based selection",
+  );
+  for (const binding of ["iab", "chrome", "browser"]) {
+    assert.equal(
+      indexesOf(setup, `nodeRepl.write(await ${binding}.documentation())`).length,
+      1,
+      `the ${binding} Browser's complete documentation must be emitted once when initialized`,
+    );
+  }
 }
 
-function assertFreshTabCleanupBoundary(source) {
-  const lifecycle = [...source.matchAll(/```js\n([\s\S]*?)\n```/g)]
-    .map(([, block]) => block)
-    .find((block) => block.includes("const closeFreshTab = async () =>"));
-  assert.ok(lifecycle, "missing fresh-tab lifecycle");
-  assert.match(lifecycle, /let freshTabCleanupIncomplete = false;/);
-  const close = readBracedBlockAfter(
-    lifecycle,
-    "const closeFreshTab = async () =>",
-  );
-  assert.match(close.body, /await freshTab[?][.]close\(\)/);
-  assert.match(
-    close.body,
-    /catch\s*{\s*freshTabCleanupIncomplete = true;\s*throw stableFailure\("integration_failed"\);\s*}/,
-    "fresh-tab close must retain bounded state and throw a sanitized failure",
-  );
-  assert.doesNotMatch(close.body, /throw error/);
-  assert.match(
-    lifecycle,
-    /if \(primaryFailure == null && cleanupFailure != null\)\s*{\s*primaryFailure = cleanupFailure;\s*throw cleanupFailure;\s*}/,
-    "cleanup failures must never replace an existing primary failure",
-  );
-
-  const report = source.slice(source.indexOf("## Report The Result"));
-  assert.match(
-    report,
-    /When `freshTabCleanupIncomplete` is true, add `Browser cleanup incomplete; close the fresh recording tab manually[.]`/,
-    "final reporting must expose bounded actionable tab cleanup state",
-  );
-  assert.doesNotMatch(
-    report,
-    /freshTabCleanupIncomplete[^.]{0,160}(?:URL|targetUrl|request[.]targetUrl)/,
-    "tab cleanup reporting must not expose the recording URL",
+function javascriptBlocksFor(source) {
+  return [...source.matchAll(/```js\n([\s\S]*?)\n```/g)].map(
+    ([, block]) => block,
   );
 }
 
@@ -465,7 +326,7 @@ test("skill requires explicit user recording intent and one consolidated consent
   );
   assert.match(
     skill,
-    /Create one fresh blank Browser tab in the browser selected by the installed Browser plugin/,
+    /exactly one fresh blank Browser tab/,
   );
 });
 
@@ -486,7 +347,7 @@ test("workflow ordering guard rejects reordered and pre-consent activity mutants
     /public workflow sections must remain in their required order/,
   );
 
-  const freshTabDirective = "Create one fresh blank Browser tab";
+  const freshTabDirective = "exactly one fresh blank Browser tab";
   const preConsentActivity = skill
     .replace(freshTabDirective, "")
     .replace(
@@ -495,19 +356,19 @@ test("workflow ordering guard rejects reordered and pre-consent activity mutants
     );
   assert.throws(
     () => assertPublicWorkflowOrdering(preConsentActivity),
-    /fresh-tab creation must occur only in the post-consent Run section/,
+    /fresh-tab ownership must occur only in the post-consent Run section/,
   );
 });
 
 test("skill validates before Browser activity and delegates recording to production code", () => {
   assert.match(skill, /pathToFileURL/);
   assert.match(skill, /scripts\/recording-policy[.]mjs/);
-  assert.match(skill, /scripts\/recording-artifacts[.]mjs/);
+  assert.match(skill, /scripts\/recording-outcome[.]mjs/);
   assert.match(skill, /scripts\/create-recording[.]mjs/);
-  assert.match(skill, /scripts\/doctor[.]mjs/);
+  assert.doesNotMatch(skill, /resolve\(installedSkillRoot, "scripts\/doctor[.]mjs"\)/);
   assert.match(skill, /validateRecordingRequest/);
   assert.match(skill, /createRecording/);
-  assert.match(skill, /await handle[.]ready/);
+  assert.match(skill, /freshTab = await handle[.]ready/);
   assert.match(skill, /handle[.]status[(][)]/);
   assert.match(skill, /handle[.]stop[(][)]/);
   assert.match(skill, /stop performing Browser actions/i);
@@ -519,117 +380,43 @@ test("skill validates before Browser activity and delegates recording to product
   );
 });
 
-test("skill defines an operational Browser binding, preflight, and result workflow", () => {
-  assertOperationalWorkflow(skill);
-  assertBrowserRuntimeFailureMapping(skill);
-  assertSetupFailureBoundaries(skill);
-  assertFreshTabCleanupBoundary(skill);
+test("skill delegates the deterministic Browser transaction to createRecording", () => {
+  const runSection = skill.slice(
+    skill.indexOf("## Run The Recording"),
+    skill.indexOf("## Clean Up"),
+  );
+  assert.match(runSection, /handle = createRecording[(][{][\s\S]*browser: selectedBrowser,/);
+  assert.match(runSection, /freshTab = await handle[.]ready;/);
+  assert.doesNotMatch(runSection, /browser[.]tabs[.]new[(]/);
+  assert.doesNotMatch(runSection, /capabilities[.]get[(]"cdp"[)]/);
+  assert.doesNotMatch(runSection, /doctor[(][{]/);
+  assert.doesNotMatch(runSection, /freshTab[?]?[.]close[(]/);
+});
+
+test("skill defines the Browser binding, action guard, and result workflow", () => {
+  assertOfficialBrowserSelection(skill);
   assertActionFailureBoundary(skill);
+  assert.match(skill, /recordingResult[.]result[.]status === "passed"/);
+  assert.match(skill, /recordingResult[.]result[.]status === "failed"/);
 });
 
-test("operational workflow guard rejects missing preflight and result branches", () => {
+test("official Browser selection guard rejects implicit overrides", () => {
   assert.throws(
     () =>
-      assertOperationalWorkflow(
-        skill.replaceAll('freshTab.capabilities.get("cdp")', "missingPreflight()"),
+      assertOfficialBrowserSelection(
+        skill.replace('agent.browsers.get("iab")', "agent.browsers.getForUrl(request.targetUrl)"),
       ),
-    /capabilities/,
+    /explicit in-app Browser requests must select the iab Browser/,
   );
   assert.throws(
     () =>
-      assertOperationalWorkflow(
+      assertOfficialBrowserSelection(
         skill.replace(
-          'recordingResult.result.status === "failed"',
-          "recordingResult.result.failureCode",
+          'agent.browsers.get("extension")',
+          "agent.browsers.getForUrl(request.targetUrl)",
         ),
       ),
-    /recordingResult[.]result[.]status/,
-  );
-});
-
-test("Browser runtime mapping guard rejects removed navigation and denial branches", () => {
-  assert.throws(
-    () =>
-      assertBrowserRuntimeFailureMapping(
-        skill.replace(
-          "throw mapBrowserRuntimeFailure(error);",
-          "throw error;",
-        ),
-      ),
-    /tab creation and navigation must sanitize Browser runtime failures/,
-  );
-  assert.throws(
-    () =>
-      assertBrowserRuntimeFailureMapping(
-        skill.replace(
-          'isBrowserApprovalDenial(error) ? "cancelled" : "integration_failed"',
-          '"integration_failed"',
-        ),
-      ),
-    /denial and non-denial failures must map to distinct allowlisted codes/,
-  );
-});
-
-test("setup boundary guard rejects raw and misclassified setup failures", () => {
-  assert.throws(
-    () =>
-      assertSetupFailureBoundaries(
-        skill.replace(
-          'throw stableFailure("browser_plugin_unavailable");',
-          "throw error;",
-        ),
-      ),
-    /Browser client failures must map to browser_plugin_unavailable|raw module or Browser diagnostics/,
-  );
-  assert.throws(
-    () =>
-      assertSetupFailureBoundaries(
-        skill.replace(
-          'throw stableFailure("integration_failed");',
-          'throw stableFailure("browser_plugin_unavailable");',
-        ),
-      ),
-    /Browser selection and docs failures must map to integration_failed/,
-  );
-});
-
-test("fresh-tab cleanup guard rejects raw cleanup and missing manual action", () => {
-  assert.throws(
-    () =>
-      assertFreshTabCleanupBoundary(
-        skill.replace("freshTabCleanupIncomplete = true;", ""),
-      ),
-    /fresh-tab close must retain bounded state/,
-  );
-  assert.throws(
-    () =>
-      assertFreshTabCleanupBoundary(
-        skill.replace(
-          'freshTabCleanupIncomplete = true;\n    throw stableFailure("integration_failed");',
-          "freshTabCleanupIncomplete = true;\n    throw error;",
-        ),
-      ),
-    /sanitized failure|throw error/,
-  );
-  assert.throws(
-    () =>
-      assertFreshTabCleanupBoundary(
-        skill.replace(
-          "if (primaryFailure == null && cleanupFailure != null)",
-          "if (cleanupFailure != null)",
-        ),
-      ),
-    /never replace an existing primary failure/,
-  );
-  assert.throws(
-    () =>
-      assertFreshTabCleanupBoundary(
-        skill.replace(
-          "Browser cleanup incomplete; close the fresh recording tab manually.",
-          "Cleanup failed.",
-        ),
-      ),
-    /bounded actionable tab cleanup state/,
+    /explicit Chrome requests must select the extension Browser/,
   );
 });
 
@@ -672,7 +459,7 @@ test("skill keeps one outer-scoped handle through deterministic cleanup", () => 
   );
   assert.ok(lifecycle, "skill must show the complete recording lifecycle");
   const recordingTryIndex = lifecycle.indexOf(
-    "try {\n  await navigateFreshTab(request.targetUrl);",
+    "try {\n  handle = createRecording({",
   );
   assert.notEqual(recordingTryIndex, -1, "missing outer recording try block");
   const outerTry = readBracedBlockAfter(lifecycle, "try", recordingTryIndex);
@@ -682,11 +469,11 @@ test("skill keeps one outer-scoped handle through deterministic cleanup", () => 
   assert.doesNotMatch(lifecycle, /const handle\s*=/);
   assert.match(
     outerTry.body.trimStart(),
-    /^await navigateFreshTab[(]request[.]targetUrl[)];/,
+    /^handle = createRecording[(][{]/,
   );
   assert.match(
     outerTry.body,
-    /handle\s*=\s*createRecording[(][\s\S]*await handle[.]ready/,
+    /handle\s*=\s*createRecording[(][\s\S]*freshTab = await handle[.]ready/,
   );
   assert.match(
     lifecycle.slice(outerTry.end, cleanup.markerIndex),
@@ -697,15 +484,7 @@ test("skill keeps one outer-scoped handle through deterministic cleanup", () => 
     cleanup.body,
     /try\s*{\s*await handle[?][.]stop[(][)];\s*}\s*catch [(]error[)]\s*{\s*cleanupFailure [?][?]= error;\s*incompleteCleanup [?][?]= getRecordingCleanupDetails[(]error[)];\s*}/,
   );
-  assert.match(
-    cleanup.body,
-    /try\s*{\s*await closeFreshTab[(][)];\s*}\s*catch [(]error[)]\s*{\s*cleanupFailure [?][?]= error;\s*}/,
-  );
-  assert.ok(
-    cleanup.body.indexOf("await handle?.stop()") <
-      cleanup.body.indexOf("await closeFreshTab()"),
-    "skill must attempt recorder cleanup before closing the fresh tab",
-  );
+  assert.doesNotMatch(cleanup.body, /closeFreshTab|freshTab[?]?[.]close/);
   assert.match(
     cleanup.body,
     /if [(]primaryFailure == null && cleanupFailure != null[)]\s*{\s*primaryFailure = cleanupFailure;\s*throw cleanupFailure;\s*}/,
@@ -735,6 +514,8 @@ test("skill reports product results before bounded diagnostics", () => {
   assert.match(skill, /diagnostics/i);
   assert.match(skill, /summary/i);
   assert.match(skill, /remediation/i);
+  assert.match(skill, /artifactCleanupIncomplete/);
+  assert.match(skill, /operating-system temporary directory/);
   assertPrivacyReportingContract(skill);
 });
 

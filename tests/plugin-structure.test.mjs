@@ -21,6 +21,7 @@ const requiredScripts = [
   "doctor.mjs",
   "media-recorder.mjs",
   "recording-artifacts.mjs",
+  "recording-outcome.mjs",
   "recording-policy.mjs",
   "validate-video.mjs",
 ];

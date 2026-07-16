@@ -1,6 +1,6 @@
 {
   "name": "codex-browser-recorder",
-  "version": "0.1.0+codex.20260715074512",
+  "version": "0.1.0+codex.20260716031806",
   "description": "Record one explicitly approved Codex Browser test flow to a private local WebM file.",
   "author": {
     "name": "Steven Wu",
