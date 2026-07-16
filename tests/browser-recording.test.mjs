@@ -7,9 +7,8 @@ import test from "node:test";
 import {
   describeRecordingFailure,
   getRecordingCleanupDetails,
-} from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-artifacts.mjs";
+} from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-outcome.mjs";
 import {
-  createBrowserRecording,
   inspectTopLevelFrame,
   startBrowserRecordingForTab,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/browser-recording.mjs";
@@ -152,12 +151,30 @@ function createHarness({
 }
 
 async function createHandle(harness) {
-  return createBrowserRecording({
-    _dependencies: harness.dependencies,
-    approvedOrigin: "https://example.com",
-    ffmpegPath: "/usr/local/bin/ffmpeg",
-    ffprobePath: "/usr/local/bin/ffprobe",
-    tab: { secretTabState: "must-not-leak" },
+  const tab = {
+    capabilities: {
+      async get() {
+        return { readEvents() {}, send() {} };
+      },
+    },
+    async close() {},
+    async goto() {},
+  };
+  return createRecording({
+    _dependencies: {
+      ...harness.dependencies,
+      clock: { clearTimeout, setTimeout },
+      async doctor() {
+        return {
+          blockingReasons: [],
+          ffmpegPath: "/usr/local/bin/ffmpeg",
+          ffprobePath: "/usr/local/bin/ffprobe",
+          supported: true,
+        };
+      },
+    },
+    browser: { tabs: { async new() { return tab; } } },
+    targetUrl: "https://example.com/",
     temporaryRoot: "/private/temporary",
   });
 }
@@ -170,7 +187,8 @@ test("cleans the prepared directory when session startup fails", async () => {
   });
   const harness = createHarness({ startError: startupError });
 
-  await assert.rejects(createHandle(harness), (error) => {
+  const handle = await createHandle(harness);
+  await assert.rejects(handle.ready, (error) => {
     assert.notEqual(error, startupError);
     assert.equal(error.code, "cdp_unavailable");
     assert.equal(
@@ -204,19 +222,30 @@ test("external abort cancels capability acquisition and cleans late startup", as
   const controller = new AbortController();
   const methods = [];
   let acquisitionStarted = false;
-  const starting = createBrowserRecording({
-    approvedOrigin: "https://example.com",
-    ffmpegPath: "/unused/ffmpeg",
-    ffprobePath: "/unused/ffprobe",
-    signal: controller.signal,
-    tab: {
+  const starting = createRecording({
+    _dependencies: {
+      clock: { clearTimeout, setTimeout },
+      async doctor() {
+        return {
+          blockingReasons: [],
+          ffmpegPath: "/unused/ffmpeg",
+          ffprobePath: "/unused/ffprobe",
+          supported: true,
+        };
+      },
+    },
+    browser: { tabs: { async new() { return {
       capabilities: {
         async get() {
           acquisitionStarted = true;
           return capability.promise;
         },
       },
-    },
+      async close() {},
+      async goto() {},
+    }; } } },
+    signal: controller.signal,
+    targetUrl: "https://example.com/",
     temporaryRoot,
   });
 
@@ -227,7 +256,7 @@ test("external abort cancels capability acquisition and cleans late startup", as
     controller.abort();
     assert.equal(
       await Promise.race([
-        starting.then(
+        starting.ready.then(
           () => "resolved",
           (error) => error.code,
         ),
@@ -249,7 +278,7 @@ test("external abort cancels capability acquisition and cleans late startup", as
     assert.deepEqual(methods, []);
   } finally {
     capability.resolve(null);
-    await starting.catch(() => {});
+    await starting.ready.catch(() => {});
     rmSync(temporaryRoot, { force: true, recursive: true });
   }
 });
@@ -260,9 +289,18 @@ test("public stop cancels a pending Page.enable and releases its artifacts", asy
   const methods = [];
   let enableStarted = false;
   const handle = createRecording({
-    ffmpegPath: "/unused/ffmpeg",
-    ffprobePath: "/unused/ffprobe",
-    tab: {
+    _dependencies: {
+      clock: { clearTimeout, setTimeout },
+      async doctor() {
+        return {
+          blockingReasons: [],
+          ffmpegPath: "/unused/ffmpeg",
+          ffprobePath: "/unused/ffprobe",
+          supported: true,
+        };
+      },
+    },
+    browser: { tabs: { async new() { return {
       capabilities: {
         async get() {
           return {
@@ -279,7 +317,11 @@ test("public stop cancels a pending Page.enable and releases its artifacts", asy
           };
         },
       },
-    },
+      async close() {},
+      async goto() {},
+    }; } } },
+    ffmpegPath: "/unused/ffmpeg",
+    ffprobePath: "/unused/ffprobe",
     targetUrl: "https://example.com/",
     temporaryRoot,
   });
@@ -325,7 +367,8 @@ test("preserves the startup error when directory cleanup also fails", async () =
   });
 
   let publicError;
-  await assert.rejects(createHandle(harness), (error) => {
+  const handle = await createHandle(harness);
+  await assert.rejects(handle.ready, (error) => {
     publicError = error;
     assert.notEqual(error, startupError);
     assert.equal(error.code, "cdp_unavailable");
@@ -355,17 +398,18 @@ test("returns the public handle before first-frame readiness resolves", async ()
   const handle = await createHandle(harness);
 
   assert.deepEqual(Object.keys(handle).sort(), [
-    "completion",
     "ready",
     "status",
     "stop",
   ]);
-  assert.equal(handle.status().state, "recording");
+  assert.equal(handle.status().state, "preparing");
 
   firstFrame.resolve();
   await handle.ready;
+  assert.equal(handle.status().state, "recording");
   assert.equal(harness.calls.prepare, 1);
   assert.equal(harness.calls.start, 1);
+  await handle.stop();
 });
 
 test("status exposes only bounded sanitized capture fields", async () => {
@@ -380,6 +424,7 @@ test("status exposes only bounded sanitized capture fields", async () => {
   assert.equal(status.capture.framesReceived, 9);
   assert.equal(status.capture.outputSamples, 7);
   assert.doesNotMatch(JSON.stringify(status), /must-not-leak|\/private\//);
+  await handle.stop();
 });
 
 test("stop memoizes one finalization promise and completes once", async () => {
@@ -682,19 +727,25 @@ test("discards the session when the event stream truncates after readiness", asy
   assert.equal(session.stats.sink.outputSamples, 1);
 });
 
-test("completion settles with the same finalized output as explicit stop", async () => {
+test("stop returns the finalized output through the sole public lifecycle", async () => {
   const harness = createHarness();
   const handle = await createHandle(harness);
   await handle.ready;
 
   assert.deepEqual(Object.keys(handle).sort(), [
-    "completion",
     "ready",
     "status",
     "stop",
   ]);
   const stopped = handle.stop();
-  assert.deepEqual(await handle.completion, await stopped);
+  assert.deepEqual(await stopped, {
+    paths: harness.paths,
+    result: {
+      failureCode: null,
+      outputFile: "recording.webm",
+      status: "passed",
+    },
+  });
   assert.equal(harness.calls.finalize, 1);
   assert.equal(harness.calls.sessionStop, 1);
 });
@@ -713,10 +764,13 @@ test("readiness failure is retained as the primary cleanup error", async () => {
   });
   const handle = await createHandle(harness);
 
-  await assert.rejects(handle.ready, (error) => error === readinessError);
+  await assert.rejects(
+    handle.ready,
+    (error) =>
+      error !== readinessError && error.code === readinessError.code,
+  );
   assert.equal(handle.status().state, "failed");
-  const output = await handle.stop();
-  assert.deepEqual(await handle.completion, output);
+  await assert.rejects(handle.stop(), (error) => error.code === readinessError.code);
   assert.equal(harness.finalizedOptions.captureError, readinessError);
   assert.equal(harness.calls.sessionStop, 1);
   assert.equal(handle.status().state, "failed");
@@ -743,6 +797,7 @@ test("an automatic capture failure finalizes without an explicit stop", async ()
   });
   await completed.promise;
   const result = await harness.finalized.promise;
+  await handle.stop();
 
   assert.equal(handle.status().state, "failed");
   assert.equal(result.status, "failed");
@@ -774,16 +829,17 @@ test("automatic terminal completion stays pending until finalization finishes", 
   });
   await captured.promise;
   while (harness.calls.finalize === 0) await Promise.resolve();
+  const stopped = handle.stop();
   assert.equal(
     await Promise.race([
-      handle.completion.then(() => "completed"),
+      stopped.then(() => "completed"),
       Promise.resolve("pending"),
     ]),
     "pending",
   );
 
   finalizeGate.resolve();
-  const output = await handle.completion;
+  const output = await stopped;
   assert.equal(output.result.status, "failed");
   assert.equal(output.result.failureCode, "frame_stream_stalled");
   assert.equal(harness.calls.finalize, 1);
@@ -793,7 +849,7 @@ test("automatic terminal completion stays pending until finalization finishes", 
 test("sanitizes every pre-handle Browser and CDP startup failure after rollback", async () => {
   const variants = [
     {
-      code: "cdp_unavailable",
+      code: "integration_failed",
       name: "capability acquisition",
       tab(secret) {
         return {
@@ -886,14 +942,27 @@ test("sanitizes every pre-handle Browser and CDP startup failure after rollback"
     const secret = `secret-${variant.name}-must-not-leak`;
     const methods = [];
     try {
-      await assert.rejects(
-        createBrowserRecording({
-          approvedOrigin: "https://example.com",
-          ffmpegPath: "unused",
-          ffprobePath: "unused",
-          tab: variant.tab(secret, methods),
+      const tab = variant.tab(secret, methods);
+      tab.goto = async () => {};
+      tab.close = async () => {};
+      const handle = createRecording({
+          _dependencies: {
+            clock: { clearTimeout, setTimeout },
+            async doctor() {
+              return {
+                blockingReasons: [],
+                ffmpegPath: "unused",
+                ffprobePath: "unused",
+                supported: true,
+              };
+            },
+          },
+          browser: { tabs: { async new() { return tab; } } },
+          targetUrl: "https://example.com/",
           temporaryRoot,
-        }),
+        });
+      await assert.rejects(
+        handle.ready,
         (error) => {
           assert.equal(error.code, variant.code);
           assert.equal(
@@ -927,19 +996,23 @@ test("sanitizes every pre-handle Browser and CDP startup failure after rollback"
 
 test("finalization failure is memoized and leaves the handle failed", async () => {
   const harness = createHarness();
-  const finalizationError = new Error("Result persistence failed");
+  const finalizationError = Object.assign(
+    new Error("private result persistence diagnostic"),
+    { code: "artifact_persistence_failed" },
+  );
   harness.setFinalizeError(finalizationError);
   const handle = await createHandle(harness);
   await handle.ready;
 
   const firstStop = handle.stop();
   const secondStop = handle.stop();
-  await assert.rejects(firstStop, (error) => error === finalizationError);
   await assert.rejects(
-    handle.completion,
-    (error) => error === finalizationError,
+    firstStop,
+    (error) =>
+      error !== finalizationError &&
+      error.code === "artifact_persistence_failed" &&
+      !error.message.includes("private result persistence diagnostic"),
   );
-
   assert.equal(firstStop, secondStop);
   assert.equal(handle.status().state, "failed");
   assert.equal(harness.calls.finalize, 1);

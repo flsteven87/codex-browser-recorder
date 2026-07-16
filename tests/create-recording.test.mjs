@@ -5,6 +5,7 @@ import {
   createRecording,
   describeRecordingFailure,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/create-recording.mjs";
+import { getRecordingCleanupDetails } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-outcome.mjs";
 
 const ACTIVE_RECORDING_KEY = Symbol.for("codex-browser-recorder.active");
 
@@ -16,6 +17,10 @@ function deferred() {
     resolve = resolvePromise;
   });
   return { promise, reject, resolve };
+}
+
+function settleWorkflow() {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 function createFakeClock() {
@@ -64,8 +69,14 @@ function createHarness({
   const completionDeferred = deferred();
   const stopDeferred = deferred();
   const clock = createFakeClock();
-  const calls = { createBrowserRecording: 0, stop: 0 };
+  const calls = { startRecording: 0, stop: 0, tabClose: 0, tabNew: 0 };
+  const paths = {
+    directory: "/private/recording",
+    outputPath: "/private/recording/recording.webm",
+    resultPath: "/private/recording/result.json",
+  };
   let rawRecordingOptions;
+  let rawFinalizationOptions;
   let stopPromise;
 
   if (autoReady) readyDeferred.resolve(true);
@@ -74,6 +85,11 @@ function createHarness({
   const inner = {
     completion: completionDeferred.promise,
     ready: readyDeferred.promise,
+    stats: {
+      framePump: capture,
+      resources: {},
+      sink: {},
+    },
     status() {
       return { capture, state: "recording" };
     },
@@ -85,23 +101,65 @@ function createHarness({
       return stopPromise;
     },
   };
+  const freshTab = {
+    capabilities: {
+      async get() {
+        return { readEvents() {}, send() {} };
+      },
+    },
+    async close() {
+      calls.tabClose += 1;
+    },
+    async goto() {},
+  };
+  const browser = {
+    tabs: {
+      async new() {
+        calls.tabNew += 1;
+        return freshTab;
+      },
+    },
+  };
 
   return {
+    browser,
     calls,
     clock,
     completionDeferred,
     dependencies: {
       clock,
-      async createBrowserRecording(options) {
-        calls.createBrowserRecording += 1;
+      async cleanupRecordingArtifacts() {},
+      async doctor() {
+        return {
+          blockingReasons: [],
+          ffmpegPath: "/opt/ffmpeg",
+          ffprobePath: "/opt/ffprobe",
+          supported: true,
+        };
+      },
+      async finalizeRecordingArtifacts(options) {
+        rawFinalizationOptions = options;
+        const { session } = options;
+        const output = await session.stop();
+        return output?.result ?? output;
+      },
+      async prepareRecordingArtifacts() {
+        return paths;
+      },
+      async startBrowserRecordingForTab(options) {
+        calls.startRecording += 1;
         rawRecordingOptions = options;
         return inner;
       },
     },
     inner,
+    freshTab,
     readyDeferred,
     get rawRecordingOptions() {
       return rawRecordingOptions;
+    },
+    get rawFinalizationOptions() {
+      return rawFinalizationOptions;
     },
     get recordingOptions() {
       if (rawRecordingOptions === undefined) return undefined;
@@ -120,8 +178,8 @@ function validOptions(overrides = {}) {
     harness,
     options: {
       _dependencies: harness.dependencies,
+      browser: harness.browser,
       targetUrl: "https://example.com/demo",
-      tab: {},
       ...overrides,
     },
   };
@@ -155,7 +213,7 @@ test("returns a preparing handle and validates before allocating Browser resourc
     maxOutputBytes: 1,
     maxWidth: 9_999,
     targetUrl: "https://example.com/demo",
-    tab: {},
+    browser: harness.browser,
   });
 
   assert.deepEqual(Object.keys(handle).sort(), ["ready", "status", "stop"]);
@@ -163,7 +221,7 @@ test("returns a preparing handle and validates before allocating Browser resourc
     capture: null,
     state: "preparing",
   });
-  assert.equal(harness.calls.createBrowserRecording, 0);
+  assert.equal(harness.calls.startRecording, 0);
 
   await handle.ready;
   assert.deepEqual(harness.recordingOptions, {
@@ -173,8 +231,99 @@ test("returns a preparing handle and validates before allocating Browser resourc
   assert.equal("maxDecodedBytes" in harness.rawRecordingOptions, false);
   assert.equal("maxOutputBytes" in harness.rawRecordingOptions, false);
   assert.equal("maxWidth" in harness.rawRecordingOptions, false);
-  assertPublicStatus(handle, "recording");
   await handle.stop();
+  assert.equal(harness.rawFinalizationOptions.maxWidth, 1280);
+  assertPublicStatus(handle, "completed");
+});
+
+test("owns fresh-tab preflight and returns only the approved tab at readiness", async () => {
+  const harness = createHarness();
+  const calls = [];
+  const preflightCdp = { readEvents() {}, send() {} };
+  const freshTab = {
+    capabilities: {
+      async get(name) {
+        calls.push(`capability:${name}`);
+        return preflightCdp;
+      },
+    },
+    async goto(url) {
+      calls.push(`goto:${url}`);
+    },
+    async close() {
+      calls.push("tab:close");
+    },
+  };
+  const browser = {
+    tabs: {
+      async new() {
+        calls.push("tab:new");
+        return freshTab;
+      },
+    },
+  };
+  const handle = createRecording({
+    _dependencies: {
+      clock: harness.clock,
+      async finalizeRecordingArtifacts(options) {
+        calls.push("artifacts:finalize");
+        assert.equal(options.outputPath, "/private/recording/recording.webm");
+        assert.equal(options.ffprobePath, "/opt/ffprobe");
+        await options.session.stop();
+        return { failureCode: null, status: "passed" };
+      },
+      async prepareRecordingArtifacts() {
+        calls.push("artifacts:prepare");
+        return {
+          directory: "/private/recording",
+          outputPath: "/private/recording/recording.webm",
+          resultPath: "/private/recording/result.json",
+        };
+      },
+      async startBrowserRecordingForTab(options) {
+        calls.push("capture:start");
+        assert.equal(options.tab, freshTab);
+        assert.equal(options.ffmpegPath, "/opt/ffmpeg");
+        return harness.inner;
+      },
+      async doctor(options) {
+        calls.push("doctor");
+        assert.deepEqual(options, {
+          cdpAvailable: true,
+          outputDirectory: "/private/tmp",
+        });
+        return {
+          blockingReasons: [],
+          ffmpegPath: "/opt/ffmpeg",
+          ffprobePath: "/opt/ffprobe",
+          supported: true,
+        };
+      },
+    },
+    browser,
+    durationMs: 5_000,
+    targetUrl: "https://example.com/demo",
+    temporaryRoot: "/private/tmp",
+  });
+
+  assert.equal(await handle.ready, freshTab);
+  assert.deepEqual(calls, [
+    "tab:new",
+    "goto:https://example.com/demo",
+    "capability:cdp",
+    "doctor",
+    "artifacts:prepare",
+    "capture:start",
+  ]);
+  assert.deepEqual(await handle.stop(), {
+    paths: {
+      directory: "/private/recording",
+      outputPath: "/private/recording/recording.webm",
+      resultPath: "/private/recording/result.json",
+    },
+    result: { failureCode: null, status: "passed" },
+  });
+  assert.deepEqual(calls.slice(-2), ["artifacts:finalize", "tab:close"]);
 });
 
 test("rejects a malformed caller signal without retaining the singleton", async () => {
@@ -192,7 +341,7 @@ test("rejects a malformed caller signal without retaining the singleton", async 
     assert.doesNotMatch(error.message, /TypeError|addEventListener/);
     return true;
   });
-  assert.equal(malformed.harness.calls.createBrowserRecording, 0);
+  assert.equal(malformed.harness.calls.startRecording, 0);
 
   await assertSingletonReleased();
 });
@@ -240,7 +389,7 @@ test("sanitizes a throwing signal accessor without retaining the singleton", asy
     assert.doesNotMatch(JSON.stringify(error), /private signal accessor/);
     return true;
   });
-  assert.equal(configured.harness.calls.createBrowserRecording, 0);
+  assert.equal(configured.harness.calls.startRecording, 0);
 
   await assertSingletonReleased();
 });
@@ -250,7 +399,7 @@ test("immediate stop cancels preparation and releases the singleton", async () =
   const handle = createRecording({
     _dependencies: harness.dependencies,
     targetUrl: "https://example.com/",
-    tab: {},
+    browser: harness.browser,
   });
 
   const stopped = handle.stop();
@@ -262,8 +411,72 @@ test("immediate stop cancels preparation and releases the singleton", async () =
     handle.ready,
     (error) => error.code === "recording_cancelled",
   );
-  assert.equal(harness.calls.createBrowserRecording, 0);
+  assert.equal(harness.calls.startRecording, 0);
   assertPublicStatus(handle, "cancelled");
+  await assertSingletonReleased();
+});
+
+test("cancels an in-flight environment check and closes its fresh tab", async () => {
+  const harness = createHarness();
+  const doctorDeferred = deferred();
+  let doctorStarted = false;
+  harness.dependencies.doctor = () => {
+    doctorStarted = true;
+    return doctorDeferred.promise;
+  };
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    targetUrl: "https://example.com/",
+    browser: harness.browser,
+  });
+
+  await settleWorkflow();
+  assert.equal(doctorStarted, true);
+  await assert.rejects(handle.stop(), (error) => error.code === "recording_cancelled");
+  assert.equal(harness.calls.tabClose, 1);
+  assert.equal(harness.calls.startRecording, 0);
+  doctorDeferred.resolve({ supported: true });
+  await assertSingletonReleased();
+});
+
+test("rolls back late artifact preparation after cancellation", async () => {
+  const harness = createHarness();
+  const preparationDeferred = deferred();
+  let preparationStarted = false;
+  let cleanupStarted = false;
+  harness.dependencies.prepareRecordingArtifacts = () => {
+    preparationStarted = true;
+    return preparationDeferred.promise;
+  };
+  harness.dependencies.cleanupRecordingArtifacts = async () => {
+    cleanupStarted = true;
+    throw new Error("private cleanup diagnostic");
+  };
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    targetUrl: "https://example.com/",
+    browser: harness.browser,
+  });
+
+  await settleWorkflow();
+  assert.equal(preparationStarted, true);
+  const stopped = handle.stop();
+  preparationDeferred.resolve({
+    directory: "/private/late-recording",
+    outputPath: "/private/late-recording/recording.webm",
+    resultPath: "/private/late-recording/result.json",
+  });
+  await assert.rejects(stopped, (error) => {
+    assert.equal(error.code, "recording_cancelled");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      cleanupIncomplete: true,
+      directory: "/private/late-recording",
+    });
+    assert.doesNotMatch(JSON.stringify(error), /private cleanup diagnostic/);
+    return true;
+  });
+  assert.equal(cleanupStarted, true);
+  assert.equal(harness.calls.tabClose, 1);
   await assertSingletonReleased();
 });
 
@@ -272,7 +485,7 @@ test("rejects invalid targets before lower-level allocation", async () => {
   const handle = createRecording({
     _dependencies: harness.dependencies,
     targetUrl: "file:///private/secret",
-    tab: {},
+    browser: harness.browser,
   });
 
   let readyError;
@@ -286,12 +499,364 @@ test("rejects invalid targets before lower-level allocation", async () => {
     assert.doesNotMatch(JSON.stringify(error), /private|secret/);
     return true;
   });
-  assert.equal(harness.calls.createBrowserRecording, 0);
+  assert.equal(harness.calls.startRecording, 0);
   assertPublicStatus(handle, "failed");
   const firstStop = handle.stop();
   assert.equal(firstStop, handle.stop());
   await assert.rejects(firstStop, (error) => error === readyError);
   await assertSingletonReleased();
+});
+
+test("rejects caller-provided tabs instead of recording an existing tab", async () => {
+  const harness = createHarness();
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    tab: {},
+    targetUrl: "https://example.com/",
+  });
+
+  await assert.rejects(
+    handle.ready,
+    (error) => error.code === "invalid_configuration",
+  );
+  assert.equal(harness.calls.startRecording, 0);
+  assert.equal(harness.calls.tabNew, 0);
+  assertPublicStatus(handle, "failed");
+  await assertSingletonReleased();
+});
+
+test("reports bounded Browser cleanup state when fresh-tab close fails", async () => {
+  const harness = createHarness();
+  harness.browser.tabs.new = async () => ({
+    capabilities: {
+      async get() {
+        return { readEvents() {}, send() {} };
+      },
+    },
+    async close() {
+      throw new Error("private tab identifier");
+    },
+    async goto() {},
+  });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+
+  await handle.ready;
+  await assert.rejects(handle.stop(), (error) => {
+    assert.equal(error.code, "integration_failed");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      browserTabCleanupIncomplete: true,
+    });
+    assert.doesNotMatch(JSON.stringify(error), /private tab identifier/);
+    return true;
+  });
+  assertPublicStatus(handle, "failed");
+  await assertSingletonReleased();
+});
+
+test("reports bounded cleanup when cancellation races with fresh-tab creation", async () => {
+  const harness = createHarness();
+  const tabDeferred = deferred();
+  harness.browser.tabs.new = () => {
+    harness.calls.tabNew += 1;
+    return tabDeferred.promise;
+  };
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+
+  await settleWorkflow();
+  assert.equal(harness.calls.tabNew, 1);
+  const stopped = handle.stop();
+  tabDeferred.resolve({
+    async close() {
+      throw new Error("private late tab identifier");
+    },
+  });
+
+  await assert.rejects(stopped, (error) => {
+    assert.equal(error.code, "recording_cancelled");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      browserTabCleanupIncomplete: true,
+    });
+    assert.doesNotMatch(JSON.stringify(error), /private late tab identifier/);
+    return true;
+  });
+  await assert.rejects(handle.ready, (error) => error.code === "recording_cancelled");
+  assertPublicStatus(handle, "cancelled");
+  await assertSingletonReleased();
+});
+
+test("bounds cancellation when fresh-tab creation never settles", async () => {
+  const harness = createHarness();
+  harness.browser.tabs.new = () => {
+    harness.calls.tabNew += 1;
+    return new Promise(() => {});
+  };
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+
+  await settleWorkflow();
+  const stopped = handle.stop();
+  await settleWorkflow();
+  harness.clock.advance(5_000);
+  await assert.rejects(stopped, (error) => {
+    assert.equal(error.code, "recording_cancelled");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      browserTabCleanupIncomplete: true,
+    });
+    return true;
+  });
+  assertPublicStatus(handle, "cancelled");
+  await assertSingletonReleased();
+});
+
+test("bounds cancellation and cleanup when artifact preparation never settles", async () => {
+  const harness = createHarness();
+  harness.dependencies.prepareRecordingArtifacts = ({ onDirectoryCreated }) => {
+    onDirectoryCreated("/private/hung-recording");
+    return new Promise(() => {});
+  };
+  harness.dependencies.cleanupRecordingArtifacts = () =>
+    new Promise(() => {});
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+
+  await settleWorkflow();
+  const stopped = handle.stop();
+  await settleWorkflow();
+  harness.clock.advance(5_000);
+  await settleWorkflow();
+  harness.clock.advance(5_000);
+  await assert.rejects(stopped, (error) => {
+    assert.equal(error.code, "recording_cancelled");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      cleanupIncomplete: true,
+      directory: "/private/hung-recording",
+    });
+    return true;
+  });
+  assert.equal(harness.calls.tabClose, 1);
+  assertPublicStatus(handle, "cancelled");
+  await assertSingletonReleased();
+});
+
+test("reports unknown late artifact creation and still attempts cleanup", async () => {
+  const harness = createHarness();
+  let notifyDirectoryCreated;
+  let cleanupDirectory;
+  harness.dependencies.prepareRecordingArtifacts = ({ onDirectoryCreated }) => {
+    notifyDirectoryCreated = onDirectoryCreated;
+    return new Promise(() => {});
+  };
+  harness.dependencies.cleanupRecordingArtifacts = async (paths) => {
+    cleanupDirectory = paths.directory;
+  };
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+
+  await settleWorkflow();
+  const stopped = handle.stop();
+  await settleWorkflow();
+  harness.clock.advance(5_000);
+  await assert.rejects(stopped, (error) => {
+    assert.equal(error.code, "recording_cancelled");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      artifactCleanupIncomplete: true,
+    });
+    return true;
+  });
+  notifyDirectoryCreated("/private/very-late-recording");
+  await settleWorkflow();
+  assert.equal(cleanupDirectory, "/private/very-late-recording");
+  await assertSingletonReleased();
+});
+
+test("bounds a hanging fresh-tab close during normal teardown", async () => {
+  const harness = createHarness();
+  harness.freshTab.close = () => new Promise(() => {});
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+
+  await handle.ready;
+  const stopped = handle.stop();
+  await settleWorkflow();
+  harness.clock.advance(5_000);
+  await assert.rejects(stopped, (error) => {
+    assert.equal(error.code, "integration_failed");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      browserTabCleanupIncomplete: true,
+    });
+    return true;
+  });
+  await assertSingletonReleased();
+});
+
+test("bounds a hanging artifact rollback after startup failure", async () => {
+  const harness = createHarness();
+  harness.dependencies.startBrowserRecordingForTab = async () => {
+    throw Object.assign(new Error("private startup diagnostic"), {
+      code: "frame_stream_unavailable",
+    });
+  };
+  harness.dependencies.cleanupRecordingArtifacts = () =>
+    new Promise(() => {});
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+
+  await settleWorkflow();
+  harness.clock.advance(5_000);
+  await assert.rejects(handle.ready, (error) => {
+    assert.equal(error.code, "frame_stream_unavailable");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      cleanupIncomplete: true,
+      directory: "/private/recording",
+    });
+    return true;
+  });
+  assert.equal(harness.calls.tabClose, 1);
+  await assertSingletonReleased();
+});
+
+test("bounds a hanging finalization and releases the singleton", async () => {
+  const harness = createHarness({ autoStop: false });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+
+  await handle.ready;
+  const stopped = handle.stop();
+  await settleWorkflow();
+  harness.clock.advance(10_000);
+  await assert.rejects(stopped, (error) => {
+    assert.equal(error.code, "integration_failed");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      cleanupIncomplete: true,
+      directory: "/private/recording",
+    });
+    return true;
+  });
+  assert.equal(harness.calls.tabClose, 1);
+  await assertSingletonReleased();
+});
+
+test("bounds readiness cleanup when lower-level stop never settles", async () => {
+  const harness = createHarness({ autoReady: false, autoStop: false });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+  await settleWorkflow();
+  harness.readyDeferred.reject(
+    Object.assign(new Error("private readiness diagnostic"), {
+      code: "frame_stream_unavailable",
+    }),
+  );
+  await settleWorkflow();
+  harness.clock.advance(10_000);
+
+  await assert.rejects(handle.ready, (error) => {
+    assert.equal(error.code, "frame_stream_unavailable");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      cleanupIncomplete: true,
+      directory: "/private/recording",
+    });
+    return true;
+  });
+  assert.equal(harness.calls.tabClose, 1);
+  await assertSingletonReleased();
+});
+
+test("preserves the primary failure when Browser cleanup also fails", async () => {
+  const harness = createHarness({ autoStop: false });
+  harness.browser.tabs.new = async () => ({
+    capabilities: {
+      async get() {
+        return { readEvents() {}, send() {} };
+      },
+    },
+    async close() {
+      throw new Error("private close failure");
+    },
+    async goto() {},
+  });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+
+  await handle.ready;
+  const stopped = handle.stop();
+  harness.stopDeferred.reject(
+    Object.assign(new Error("private artifact failure"), {
+      code: "artifact_persistence_failed",
+    }),
+  );
+  await assert.rejects(stopped, (error) => {
+    assert.equal(error.code, "artifact_persistence_failed");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      browserTabCleanupIncomplete: true,
+    });
+    return true;
+  });
+});
+
+test("retains Browser cleanup state on readiness failure", async () => {
+  const harness = createHarness({ autoReady: false });
+  harness.browser.tabs.new = async () => ({
+    capabilities: {
+      async get() {
+        return { readEvents() {}, send() {} };
+      },
+    },
+    async close() {
+      throw new Error("private close failure");
+    },
+    async goto() {},
+  });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+  await settleWorkflow();
+  harness.readyDeferred.reject(
+    Object.assign(new Error("private readiness failure"), {
+      code: "frame_stream_unavailable",
+    }),
+  );
+
+  await assert.rejects(handle.ready, (error) => {
+    assert.equal(error.code, "frame_stream_unavailable");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      browserTabCleanupIncomplete: true,
+    });
+    return true;
+  });
 });
 
 test("stops cleanly at the requested duration and memoizes finalization", async () => {
@@ -300,7 +865,7 @@ test("stops cleanly at the requested duration and memoizes finalization", async 
     _dependencies: harness.dependencies,
     durationMs: 5_000,
     targetUrl: "https://example.com/",
-    tab: {},
+    browser: harness.browser,
   });
 
   assert.equal(harness.clock.pending, 0);
@@ -324,16 +889,15 @@ test("reports awaiting-frame and stopping transitions with exact status shape", 
   const handle = createRecording({
     _dependencies: harness.dependencies,
     targetUrl: "https://example.com/",
-    tab: {},
+    browser: harness.browser,
   });
 
-  await Promise.resolve();
-  await Promise.resolve();
+  await settleWorkflow();
   assertPublicStatus(handle, "awaiting_frame");
   harness.readyDeferred.resolve(true);
   await handle.ready;
   const stopped = handle.stop();
-  await Promise.resolve();
+  await settleWorkflow();
   assertPublicStatus(handle, "stopping");
   harness.stopDeferred.resolve({
     paths: {},
@@ -374,9 +938,9 @@ const terminalCases = [
       const handle = createRecording({
         _dependencies: harness.dependencies,
         targetUrl: "https://example.com/",
-        tab: {},
+        browser: harness.browser,
       });
-      await Promise.resolve();
+      await settleWorkflow();
       const secret = "private readiness diagnostic";
       harness.readyDeferred.reject(
         Object.assign(new Error(secret), { code: "frame_stream_unavailable" }),
@@ -387,7 +951,7 @@ const terminalCases = [
           error.code === "frame_stream_unavailable" &&
           !error.message.includes(secret),
       );
-      await Promise.resolve();
+      await settleWorkflow();
       const blocked = createRecording(validOptions().options);
       await assert.rejects(
         blocked.ready,
@@ -408,19 +972,26 @@ const terminalCases = [
     expectedState: "failed",
     name: "lower-level terminal failure finalizes before release",
     async run() {
-      const harness = createHarness();
+      const harness = createHarness({
+        stopOutput: {
+          paths: {},
+          result: { failureCode: "frame_stream_stalled", status: "failed" },
+        },
+      });
       const handle = createRecording({
         _dependencies: harness.dependencies,
         targetUrl: "https://example.com/",
-        tab: {},
+        browser: harness.browser,
       });
       await handle.ready;
       harness.completionDeferred.resolve({
-        paths: {},
-        result: { failureCode: "frame_stream_stalled", status: "failed" },
+        error: Object.assign(new Error("private capture failure"), {
+          code: "frame_stream_stalled",
+        }),
+        result: null,
       });
       await harness.completionDeferred.promise;
-      await Promise.resolve();
+      await settleWorkflow();
       return { handle, harness };
     },
   },
@@ -432,18 +1003,20 @@ const terminalCases = [
       const handle = createRecording({
         _dependencies: harness.dependencies,
         targetUrl: "https://example.com/",
-        tab: {},
+        browser: harness.browser,
       });
-      await Promise.resolve();
+      await settleWorkflow();
       harness.completionDeferred.resolve({
         paths: {},
         result: { failureCode: null, status: "passed" },
       });
       await harness.completionDeferred.promise;
-      await Promise.resolve();
-      assertPublicStatus(handle, "completed");
+      await settleWorkflow();
+      assertPublicStatus(handle, "awaiting_frame");
       harness.readyDeferred.resolve(true);
-      await handle.ready;
+      assert.equal(await handle.ready, harness.freshTab);
+      await handle.stop();
+      assertPublicStatus(handle, "completed");
       assert.equal(harness.clock.pending, 0);
       return { handle, harness };
     },
@@ -459,9 +1032,9 @@ const terminalCases = [
         _dependencies: harness.dependencies,
         signal: controller.signal,
         targetUrl: "https://example.com/",
-        tab: {},
+        browser: harness.browser,
       });
-      await Promise.resolve();
+      await settleWorkflow();
       assert.notEqual(harness.rawRecordingOptions.signal, controller.signal);
       controller.abort();
       assert.equal(harness.rawRecordingOptions.signal.aborted, true);
@@ -474,7 +1047,7 @@ const terminalCases = [
         handle.ready,
         (error) => error.code === "recording_cancelled",
       );
-      await Promise.resolve();
+      await settleWorkflow();
       harness.stopDeferred.resolve({
         paths: {},
         result: { failureCode: "recording_cancelled", status: "failed" },
@@ -492,12 +1065,12 @@ const terminalCases = [
       const handle = createRecording({
         _dependencies: harness.dependencies,
         targetUrl: "https://example.com/",
-        tab: {},
+        browser: harness.browser,
       });
       await handle.ready;
       const firstStop = handle.stop();
       assert.equal(firstStop, handle.stop());
-      await Promise.resolve();
+      await settleWorkflow();
       assertPublicStatus(handle, "stopping");
       harness.stopDeferred.reject(
         Object.assign(new Error("private filesystem path"), {
@@ -516,11 +1089,16 @@ const terminalCases = [
     expectedState: "cancelled",
     name: "lower-level cancellation rejection maps to cancelled",
     async run() {
-      const harness = createHarness();
+      const harness = createHarness({
+        stopOutput: {
+          paths: {},
+          result: { failureCode: "recording_cancelled", status: "failed" },
+        },
+      });
       const handle = createRecording({
         _dependencies: harness.dependencies,
         targetUrl: "https://example.com/",
-        tab: {},
+        browser: harness.browser,
       });
       await handle.ready;
       harness.completionDeferred.reject(
@@ -528,7 +1106,7 @@ const terminalCases = [
           code: "recording_cancelled",
         }),
       );
-      await Promise.resolve();
+      await settleWorkflow();
       return { handle, harness };
     },
   },
@@ -539,7 +1117,7 @@ test("keeps terminal states monotonic and releases every terminal reservation", 
     await t.test(scenario.name, async () => {
       const { handle, harness } = await scenario.run();
       const status = assertPublicStatus(handle, scenario.expectedState);
-      assert.deepEqual(status.capture, { framesReceived: 12 });
+      assert.equal(status.capture.framesReceived, 12);
       if (scenario.expectedCode !== undefined) {
         const stopped = handle.stop();
         await assert.rejects(
@@ -549,7 +1127,7 @@ test("keeps terminal states monotonic and releases every terminal reservation", 
         assert.equal(stopped, handle.stop());
       }
       harness.readyDeferred.resolve(true);
-      await Promise.resolve();
+      await settleWorkflow();
       assertPublicStatus(handle, scenario.expectedState);
       await assertSingletonReleased();
     });

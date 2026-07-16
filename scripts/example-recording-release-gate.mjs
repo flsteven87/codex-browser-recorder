@@ -2,22 +2,45 @@ import { createRecording } from "../plugins/codex-browser-recorder/skills/record
 
 export const EXAMPLE_PAGE_URL = "https://example.com/";
 
-export function runExampleRecordingReleaseGate({
+export async function runExampleRecordingReleaseGate({
   _dependencies = { createRecording },
+  browser,
   durationMs = 12_000,
-  ffmpegPath,
-  ffprobePath,
   signal,
-  tab,
   temporaryRoot,
 }) {
-  return _dependencies.createRecording({
-    durationMs,
-    ffmpegPath,
-    ffprobePath,
-    signal,
-    tab,
-    targetUrl: EXAMPLE_PAGE_URL,
-    temporaryRoot,
-  });
+  const attempts = [];
+  const tabs = [];
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const handle = _dependencies.createRecording({
+      browser,
+      durationMs,
+      signal,
+      targetUrl: EXAMPLE_PAGE_URL,
+      temporaryRoot,
+    });
+    const tab = await handle.ready;
+    const output = await handle.stop();
+    if (
+      output?.result?.status !== "passed" ||
+      typeof output?.paths?.directory !== "string" ||
+      output.paths.directory.length === 0
+    ) {
+      throw Object.assign(new Error("Example recording release gate failed"), {
+        code: output?.result?.failureCode ?? "release_gate_failed",
+      });
+    }
+    attempts.push({ directory: output.paths.directory });
+    tabs.push(tab);
+  }
+
+  if (
+    tabs[0] === tabs[1] ||
+    attempts[0].directory === attempts[1].directory
+  ) {
+    throw Object.assign(new Error("Example recording isolation check failed"), {
+      code: "release_gate_isolation_failed",
+    });
+  }
+  return { attempts, status: "passed" };
 }

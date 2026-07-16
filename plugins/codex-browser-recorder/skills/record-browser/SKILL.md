@@ -8,7 +8,7 @@ license: MIT
 
 ## Collect The Request
 
-Require a target URL and planned Browser actions. Use 15 seconds when the user does not provide a recording duration. Do not create or navigate a Browser tab yet.
+Require a target URL and planned Browser actions. Use 15 seconds when the user does not provide a recording duration. Set `requestedBrowser` to `"iab"` only when the user explicitly requests the Codex in-app Browser, to `"chrome"` only when the user explicitly requests Chrome, and to `null` otherwise. Do not create or navigate a Browser tab yet.
 
 ## Validate The Request Locally
 
@@ -42,15 +42,15 @@ try {
   const policyUrl = pathToFileURL(
     resolve(installedSkillRoot, "scripts/recording-policy.mjs"),
   ).href;
-  const artifactsUrl = pathToFileURL(
-    resolve(installedSkillRoot, "scripts/recording-artifacts.mjs"),
+  const outcomeUrl = pathToFileURL(
+    resolve(installedSkillRoot, "scripts/recording-outcome.mjs"),
   ).href;
   ({ validateRecordingRequest } = await import(policyUrl));
   ({
     describeRecordingFailure,
     getRecordingCleanupDetails,
     sanitizeRecordingFailure,
-  } = await import(artifactsUrl));
+  } = await import(outcomeUrl));
 } catch {
   throw stableFailure("plugin_module_unavailable");
 }
@@ -68,22 +68,17 @@ Present one consolidated consent before any Browser action. Include the validate
 
 ## Resolve Installed Modules
 
-Using the already resolved installed skill directory, convert `scripts/doctor.mjs` and `scripts/create-recording.mjs` with `pathToFileURL`. Never guess a cache path or fall back to a source checkout. Import both modules inside the persistent Browser Node runtime.
+Using the already resolved installed skill directory, convert `scripts/create-recording.mjs` with `pathToFileURL`. Never guess a cache path or fall back to a source checkout. Import it inside the persistent Browser Node runtime.
 
-Follow the installed Browser control skill for its exact Node runtime tool and resolve its plugin root from that loaded catalog entry. Initialize `browser-client.mjs` once, select the Browser for the validated target with `getForUrl`, and emit the selected Browser's complete documentation exactly once before using it. Do not substitute another browser-control surface.
+Follow the installed Browser control skill for its exact Node runtime tool and resolve its plugin root from that loaded catalog entry. Initialize `browser-client.mjs` once. Preserve an explicit Browser choice with `get("iab")` or `get("extension")`; only use `getForUrl` when the user did not choose a Browser. Emit the selected Browser's complete documentation exactly once before using it. Do not substitute another browser-control surface.
 
 ```js
 const browserPluginRoot = "<absolute installed Browser plugin root from the loaded catalog entry>";
-let doctor;
 let createRecording;
 try {
-  const doctorUrl = pathToFileURL(
-    resolve(installedSkillRoot, "scripts/doctor.mjs"),
-  ).href;
   const recordingUrl = pathToFileURL(
     resolve(installedSkillRoot, "scripts/create-recording.mjs"),
   ).href;
-  ({ doctor } = await import(doctorUrl));
   ({ createRecording } = await import(recordingUrl));
 } catch {
   throw stableFailure("plugin_module_unavailable");
@@ -100,9 +95,24 @@ try {
   throw stableFailure("browser_plugin_unavailable");
 }
 try {
-  if (globalThis.browser == null) {
-    globalThis.browser = await agent.browsers.getForUrl(request.targetUrl);
-    nodeRepl.write(await browser.documentation());
+  if (requestedBrowser === "iab") {
+    if (globalThis.iab == null) {
+      globalThis.iab = await agent.browsers.get("iab");
+      nodeRepl.write(await iab.documentation());
+    }
+    globalThis.selectedBrowser = globalThis.iab;
+  } else if (requestedBrowser === "chrome") {
+    if (globalThis.chrome == null) {
+      globalThis.chrome = await agent.browsers.get("extension");
+      nodeRepl.write(await chrome.documentation());
+    }
+    globalThis.selectedBrowser = globalThis.chrome;
+  } else {
+    if (globalThis.browser == null) {
+      globalThis.browser = await agent.browsers.getForUrl(request.targetUrl);
+      nodeRepl.write(await browser.documentation());
+    }
+    globalThis.selectedBrowser = globalThis.browser;
   }
 } catch {
   throw stableFailure("integration_failed");
@@ -111,7 +121,7 @@ try {
 
 ## Run The Recording
 
-Create one fresh blank Browser tab in the browser selected by the installed Browser plugin with `browser.tabs.new()`. Bind navigation and closure only to that returned tab. Navigate it with `freshTab.goto()`, then acquire `freshTab.capabilities.get("cdp")` once as a preflight for full-CDP approval. A denied site or CDP approval returns `cancelled`; never retry or bypass it. Check that the capability exposes both `send` and `readEvents`, discard the preflight reference, and call `doctor({ cdpAvailable, outputDirectory: temporaryRoot })`. If `supported` is false, stop on the first allowlisted blocker. `createRecording()` deliberately reacquires a fresh CDP capability for the actual session.
+Call `createRecording()` once with `selectedBrowser` after consent. The coordinator owns creation, navigation, full-CDP preflight, environment doctor, capture startup, finalization, fresh-tab closure, and rollback for exactly one fresh blank Browser tab. Its `ready` promise returns only that fresh tab for the approved Browser actions. A denied site or CDP approval returns `cancelled`; never retry or bypass it.
 
 Keep top-level navigation within `request.approvedOrigin`; stop if the page leaves that approved origin. Check `handle.status()` before and after each approved action. Stop performing Browser actions immediately when the state is no longer `recording`. Poll at most every 250 milliseconds and never beyond the requested duration plus 10 seconds. `handle.stop()` then returns the same memoized finalization result.
 
@@ -125,7 +135,6 @@ let handle;
 let recordingResult;
 let primaryFailure;
 let incompleteCleanup;
-let freshTabCleanupIncomplete = false;
 const isBrowserApprovalDenial = (error) => {
   const message = error instanceof Error ? error.message : "";
   return /Browser Use rejected this action due to browser security policy[.] Reason: The user has requested that .+(?:should not be used|not be used on)/su.test(
@@ -144,60 +153,14 @@ const sanitizeActionFailure = (error) => {
       : undefined,
   );
 };
-const mapBrowserRuntimeFailure = (error) => {
-  const code = isBrowserApprovalDenial(error) ? "cancelled" : "integration_failed";
-  return stableFailure(code);
-};
-const navigateFreshTab = async () => {
-  try {
-    freshTab = await browser.tabs.new();
-    await freshTab.goto(request.targetUrl);
-  } catch (error) {
-    throw mapBrowserRuntimeFailure(error);
-  }
-};
-const closeFreshTab = async () => {
-  try {
-    await freshTab?.close();
-    freshTab = null;
-  } catch {
-    freshTabCleanupIncomplete = true;
-    throw stableFailure("integration_failed");
-  }
-};
 try {
-  await navigateFreshTab(request.targetUrl);
-
-  let preflightCdp;
-  try {
-    preflightCdp = await freshTab.capabilities.get("cdp");
-  } catch (error) {
-    throw mapBrowserRuntimeFailure(error);
-  }
-  const cdpAvailable =
-    typeof preflightCdp?.send === "function" &&
-    typeof preflightCdp?.readEvents === "function";
-  preflightCdp = null;
-
-  const environment = await doctor({
-    cdpAvailable,
-    outputDirectory: temporaryRoot,
-  });
-  if (!environment.supported) {
-    const code = environment.blockingReasons[0] ?? "integration_failed";
-    const blocker = describeRecordingFailure(code);
-    throw Object.assign(new Error(blocker.summary), { code, ...blocker });
-  }
-
   handle = createRecording({
+    browser: selectedBrowser,
     durationMs: request.durationMs,
-    ffmpegPath: environment.ffmpegPath,
-    ffprobePath: environment.ffprobePath,
-    tab: freshTab,
     targetUrl: request.targetUrl,
     temporaryRoot,
   });
-  await handle.ready;
+  freshTab = await handle.ready;
 
   // Perform each concrete Browser call from the approved action list here.
   // Before and after every call, require handle.status().state === "recording".
@@ -233,11 +196,6 @@ try {
     cleanupFailure ??= error;
     incompleteCleanup ??= getRecordingCleanupDetails(error);
   }
-  try {
-    await closeFreshTab();
-  } catch (error) {
-    cleanupFailure ??= error;
-  }
   if (primaryFailure == null && cleanupFailure != null) {
     primaryFailure = cleanupFailure;
     throw cleanupFailure;
@@ -247,10 +205,10 @@ try {
 
 ## Clean Up
 
-Always call `await handle?.stop()` before attempting to close the fresh tab. Preserve the primary failure if cleanup also fails. Map a close failure to the stable integration failure, retain the bounded manual-cleanup state, and do not resume Browser actions. Never silently leave a screencast, frame pump, FFmpeg process, partial output, singleton, or fresh tab active.
+Always call `await handle?.stop()`. It finalizes the recording before closing its fresh tab. Preserve the primary failure if cleanup also fails, retain only bounded manual-cleanup state, and do not resume Browser actions. Never silently leave a screencast, frame pump, FFmpeg process, partial output, singleton, or fresh tab active.
 
 ## Report The Result
 
 On success, require `recordingResult.result.status === "passed"`, then lead with `Recording completed`, duration, VP8 WebM, dimensions, no audio, and `Saved locally: <recordingResult.paths.outputPath>`. Offer bounded capture counters only as diagnostics.
 
-On failure, report the stable failure code plus its allowlisted summary and remediation. Read `getRecordingCleanupDetails(primaryFailure) ?? incompleteCleanup` after the outer cleanup finishes. Only when it returns `{ cleanupIncomplete: true, directory }`, add `Cleanup incomplete; delete locally: <directory>`. When `freshTabCleanupIncomplete` is true, add `Browser cleanup incomplete; close the fresh recording tab manually.` This message must not include its URL. The private temporary recording directory is the sole failure-path exception to path suppression. Never report full URLs, page text, raw frames, CDP payloads, FFmpeg stderr, credentials, or internal plugin paths.
+On failure, report the stable failure code plus its allowlisted summary and remediation. Read `getRecordingCleanupDetails(primaryFailure) ?? incompleteCleanup` after the outer cleanup finishes. When `cleanupIncomplete` and `directory` are present, add `Cleanup incomplete; delete locally: <directory>`. When `artifactCleanupIncomplete` is true without a known directory, add `Local artifact cleanup may be incomplete; inspect the operating-system temporary directory for a codex-browser-recorder entry.` When `browserTabCleanupIncomplete` is true, add `Browser cleanup incomplete; close the fresh recording tab manually.` This message must not include its URL. The private temporary recording directory is the sole failure-path exception to path suppression. Never report full URLs, page text, raw frames, CDP payloads, FFmpeg stderr, credentials, or internal plugin paths.
