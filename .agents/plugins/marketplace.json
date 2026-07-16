@@ -1,0 +1,20 @@
+{
+  "name": "codex-browser-recorder",
+  "interface": {
+    "displayName": "Codex Browser Recorder"
+  },
+  "plugins": [
+    {
+      "name": "codex-browser-recorder",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-browser-recorder"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

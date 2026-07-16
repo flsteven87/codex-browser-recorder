@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="256" viewBox="0 0 1024 256" role="img" aria-labelledby="title desc">
+  <title id="title">Browser Recorder logo</title>
+  <desc id="desc">Browser Recorder wordmark with an abstract viewport and record mark.</desc>
+  <rect x="24" y="24" width="208" height="208" rx="46" fill="#E5484D"/>
+  <rect x="52" y="62" width="152" height="132" rx="18" fill="none" stroke="#F9FAFB" stroke-width="10"/>
+  <path d="M57 92h142" fill="none" stroke="#F9FAFB" stroke-width="10"/>
+  <circle cx="73" cy="77" r="4" fill="#F9FAFB"/>
+  <circle cx="88" cy="77" r="4" fill="#F9FAFB"/>
+  <circle cx="128" cy="144" r="28" fill="none" stroke="#F9FAFB" stroke-width="9"/>
+  <circle cx="128" cy="144" r="14" fill="#F9FAFB"/>
+  <text x="278" y="151" fill="#111827" font-family="Arial, Helvetica, sans-serif" font-size="72" font-weight="700" letter-spacing="-1.5">Browser Recorder</text>
+</svg>

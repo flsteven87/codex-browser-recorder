@@ -1,0 +1,45 @@
+{
+  "name": "codex-browser-recorder",
+  "version": "0.1.0",
+  "description": "Record one explicitly approved Codex Browser test flow to a private local WebM file.",
+  "author": {
+    "name": "Steven Wu",
+    "url": "https://github.com/flsteven87"
+  },
+  "homepage": "https://github.com/flsteven87/codex-browser-recorder",
+  "repository": "https://github.com/flsteven87/codex-browser-recorder",
+  "license": "MIT",
+  "keywords": [
+    "browser",
+    "recording",
+    "webm",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex Browser Recorder",
+    "shortDescription": "Record an approved Browser test flow to local WebM.",
+    "longDescription": "Records one explicitly approved Codex Browser test flow to a private, validated, audio-free VP8 WebM file on the local machine.",
+    "developerName": "Steven Wu",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Local Browser test-flow recording"
+    ],
+    "websiteURL": "https://github.com/flsteven87/codex-browser-recorder",
+    "privacyPolicyURL": "https://github.com/flsteven87/codex-browser-recorder/blob/main/PRIVACY.md",
+    "termsOfServiceURL": "https://github.com/flsteven87/codex-browser-recorder/blob/main/TERMS.md",
+    "defaultPrompt": [
+      "Use $record-browser to record one approved non-sensitive flow on a public HTTPS test page.",
+      "Use $record-browser to record one approved same-origin navigation flow to a private local WebM.",
+      "Use $record-browser to record one approved loopback development flow to a private local WebM."
+    ],
+    "brandColor": "#E5484D",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/logo.png",
+    "logoDark": "./assets/logo-dark.png",
+    "screenshots": [
+      "./assets/screenshot-workflow.png",
+      "./assets/screenshot-result.png"
+    ]
+  }
+}
