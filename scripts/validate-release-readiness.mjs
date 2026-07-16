@@ -30,15 +30,7 @@ const publicTextPaths = [
 ];
 const assetPaths = [
   "plugins/codex-browser-recorder/assets/icon.png",
-  "plugins/codex-browser-recorder/assets/logo.png",
-  "plugins/codex-browser-recorder/assets/logo-dark.png",
-  "plugins/codex-browser-recorder/assets/screenshot-workflow.png",
-  "plugins/codex-browser-recorder/assets/screenshot-result.png",
   "plugins/codex-browser-recorder/assets/source/icon.svg",
-  "plugins/codex-browser-recorder/assets/source/logo.svg",
-  "plugins/codex-browser-recorder/assets/source/logo-dark.svg",
-  "plugins/codex-browser-recorder/assets/source/screenshot-workflow.svg",
-  "plugins/codex-browser-recorder/assets/source/screenshot-result.svg",
 ];
 const requiredPaths = [
   manifestPath,

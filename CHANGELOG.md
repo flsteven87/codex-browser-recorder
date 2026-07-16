@@ -6,6 +6,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-16
+
+### Fixed
+
+- Aligned skills-only ZIP metadata with the submission portal by using the
+  square plugin icon as the listing logo and removing unsupported screenshot
+  configuration.
+
 ## [0.2.1] - 2026-07-16
 
 ### Changed

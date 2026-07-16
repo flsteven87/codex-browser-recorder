@@ -1,6 +1,6 @@
 {
   "name": "codex-browser-recorder",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Save one approved Codex Browser test flow as a local H.264 MP4 with a visible cursor.",
   "author": {
     "name": "Steven Wu",
@@ -36,11 +36,6 @@
     ],
     "brandColor": "#E5484D",
     "composerIcon": "./assets/icon.png",
-    "logo": "./assets/logo.png",
-    "logoDark": "./assets/logo-dark.png",
-    "screenshots": [
-      "./assets/screenshot-workflow.png",
-      "./assets/screenshot-result.png"
-    ]
+    "logo": "./assets/icon.png"
   }
 }
