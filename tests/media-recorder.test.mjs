@@ -1789,18 +1789,25 @@ test("seeds a static recording from a post-screencast page screenshot", async ()
   assert.deepEqual(acceptedFrames.at(-1), screenshot);
 });
 
-test("seeds the screenshot before consuming later screencast frames", async () => {
+test("captures a full viewport screenshot for each screencast change", async () => {
   const screenshot = Buffer.from([0xff, 0xd8, 0x01, 0x02, 0xff, 0xd9]);
   const laterFrame = Buffer.from([0xff, 0xd8, 0x03, 0x04, 0xff, 0xd9]);
+  const laterScreenshot = Buffer.from([0xff, 0xd8, 0x05, 0x06, 0xff, 0xd9]);
   const screenshotResult = deferred();
   const captureStarted = deferred();
   const laterFrameAcknowledged = deferred();
+  const laterScreenshotAccepted = deferred();
   const acknowledgements = [];
   const acceptedFrames = [];
+  let screenshotsCaptured = 0;
   const cdp = createQueuedCdp();
   const send = cdp.send.bind(cdp);
   cdp.send = async (method, params) => {
     if (method === "Page.captureScreenshot") {
+      screenshotsCaptured += 1;
+      if (screenshotsCaptured > 1) {
+        return { data: laterScreenshot.toString("base64") };
+      }
       captureStarted.resolve();
       return screenshotResult.promise;
     }
@@ -1814,6 +1821,7 @@ test("seeds the screenshot before consuming later screencast frames", async () =
   sink.accept = (frame) => {
     acceptedFrames.push(frame);
     sink.stats.outputSamples += 1;
+    if (acceptedFrames.length === 2) laterScreenshotAccepted.resolve();
     return true;
   };
   const session = await startBrowserRecording({
@@ -1837,10 +1845,12 @@ test("seeds the screenshot before consuming later screencast frames", async () =
   screenshotResult.resolve({ data: screenshot.toString("base64") });
   await session.ready;
   await laterFrameAcknowledged.promise;
+  await laterScreenshotAccepted.promise;
   await session.stop();
 
   assert.deepEqual(acknowledgementsBeforeScreenshot, [7]);
-  assert.deepEqual(acceptedFrames, [screenshot, laterFrame]);
+  assert.equal(screenshotsCaptured, 2);
+  assert.deepEqual(acceptedFrames, [screenshot, laterScreenshot]);
 });
 
 test("fails closed when the initial page screenshot is unavailable", async () => {

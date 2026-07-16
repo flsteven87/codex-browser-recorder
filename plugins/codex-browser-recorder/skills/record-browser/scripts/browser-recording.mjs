@@ -73,7 +73,7 @@ function awaitAbortable(operation, signal, onLateSuccess) {
   });
 }
 
-function createFirstFrameDeadline(timeoutMs) {
+function createFrameDeadline(timeoutMs) {
   let timer;
   const promise = new Promise((_, reject) => {
     timer = setTimeout(
@@ -81,7 +81,7 @@ function createFirstFrameDeadline(timeoutMs) {
         reject(
           new BrowserRecordingError(
             "frame_stream_unavailable",
-            "No screencast frame arrived before the timeout",
+            "The page frame was not available before the timeout",
           ),
         ),
       timeoutMs,
@@ -96,7 +96,7 @@ function createFirstFrameDeadline(timeoutMs) {
   };
 }
 
-async function captureInitialPageFrame({ cdp, maxDecodedBytes, signal }) {
+async function capturePageFrame({ cdp, maxDecodedBytes, signal }) {
   try {
     const screenshot = await awaitAbortable(
       cdp.send("Page.captureScreenshot", {
@@ -122,9 +122,37 @@ async function captureInitialPageFrame({ cdp, maxDecodedBytes, signal }) {
     if (error?.code === "recording_cancelled") throw error;
     throw new BrowserRecordingError(
       "frame_stream_unavailable",
-      "The initial page frame could not be captured",
+      "The page frame could not be captured",
     );
   }
+}
+
+async function captureApprovedPageFrame({
+  approvedOrigin,
+  cdp,
+  deadline,
+  maxDecodedBytes,
+  signal,
+}) {
+  const screenshot = await Promise.race([
+    capturePageFrame({ cdp, maxDecodedBytes, signal }),
+    deadline.promise,
+  ]);
+  try {
+    await Promise.race([
+      inspectTopLevelFrame({ approvedOrigin, cdp }),
+      deadline.promise,
+    ]);
+  } catch (error) {
+    if (error?.code === "origin_not_allowed") {
+      throw new BrowserRecordingError(
+        "origin_changed_during_recording",
+        "The recording page left the approved origin",
+      );
+    }
+    throw error;
+  }
+  return screenshot;
 }
 
 async function readOutputSize(outputPath) {
@@ -322,42 +350,35 @@ export async function startBrowserRecording({
     if (accepted !== false) startedAt ??= frameAt;
     return accepted;
   };
-  const firstFrameDeadline = createFirstFrameDeadline(firstFrameTimeoutMs);
+  const firstFrameDeadline = createFrameDeadline(firstFrameTimeoutMs);
   const pump = startFramePump({
     cdp,
     initialCursor: baseline.cursor,
     mainFrameId,
     maxDecodedBytes,
-    onFrame: async (frame) => {
-      if (!initialFrameSeeded) {
-        const screenshot = await Promise.race([
-          captureInitialPageFrame({ cdp, maxDecodedBytes, signal }),
-          firstFrameDeadline.promise,
-        ]);
-        try {
-          await Promise.race([
-            inspectTopLevelFrame({ approvedOrigin, cdp }),
-            firstFrameDeadline.promise,
-          ]);
-        } catch (error) {
-          if (error?.code === "origin_not_allowed") {
-            throw new BrowserRecordingError(
-              "origin_changed_during_recording",
-              "The recording page left the approved origin",
-            );
-          }
-          throw error;
-        }
+    onFrame: async () => {
+      const deadline = initialFrameSeeded
+        ? createFrameDeadline(firstFrameTimeoutMs)
+        : firstFrameDeadline;
+      try {
+        const screenshot = await captureApprovedPageFrame({
+          approvedOrigin,
+          cdp,
+          deadline,
+          maxDecodedBytes,
+          signal,
+        });
         if (acceptFrame(screenshot) === false) {
           throw new BrowserRecordingError(
             "frame_stream_unavailable",
-            "The initial page frame could not be recorded",
+            "The page frame could not be recorded",
           );
         }
         initialFrameSeeded = true;
         return true;
+      } finally {
+        if (deadline !== firstFrameDeadline) deadline.clear();
       }
-      return acceptFrame(frame.jpeg);
     },
     onTopFrameNavigation(url) {
       if (originOf(url) !== approvedOrigin) {

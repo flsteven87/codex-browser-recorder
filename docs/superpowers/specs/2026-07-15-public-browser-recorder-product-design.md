@@ -158,16 +158,19 @@ Startup order is fixed:
 5. receive and acknowledge the first screencast frame
 6. `Page.captureScreenshot` to seed the Working Recording from the painted page,
    then re-verify the current top-frame origin before accepting the screenshot
-7. consume later media and visibility events after the baseline
+7. use later screencast frames only as acknowledged change notifications,
+   capturing a fresh full-viewport screenshot before each encoder update
 
 The top-frame ID from `Page.getFrameTree` identifies relevant navigation
 events. Navigation policy events are enforced immediately, including before
 the seed screenshot, and the current origin is re-verified after a pending
-screenshot request returns; later media frames remain serialized behind
-screenshot acceptance. Any top-frame origin mismatch records the stable policy
-failure and causes finalization to discard the working output. This closes the
-gap between one-time startup verification and continuous recording policy
-without ever seeding media from an unapproved origin.
+screenshot request returns. Later screencast frames remain serialized, are
+acknowledged immediately, and trigger the same full-viewport screenshot plus
+origin re-verification transaction instead of being written to the encoder
+directly. Any top-frame origin mismatch records the stable policy failure and
+causes finalization to discard the working output. This closes the gap between
+one-time startup verification and continuous recording policy without ever
+seeding media from an unapproved origin or a partial compositor frame.
 
 ### `media-recorder.mjs`
 
@@ -177,7 +180,7 @@ creation of the private H.264 `yuv420p` MP4 Working Recording. It normalizes odd
 Browser dimensions to even values required by H.264, bounds screenshot inputs
 within 1280×720 without upscaling, and never returns subprocess output or frame
 content. A static page remains valid because the encoder samples its latest
-accepted frame at the fixed output rate.
+accepted full-viewport screenshot at the fixed output rate.
 
 ### `validate-video.mjs`
 

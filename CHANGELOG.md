@@ -29,7 +29,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stalled stream, and recording readiness seeds the encoder from a fresh page
   screenshot instead of a transient compositor frame. Navigation policy is
   enforced before that screenshot and re-verified before the frame is accepted;
-  the readiness timeout also bounds a stalled screenshot request.
+  later screencast frames trigger the same full-viewport capture instead of
+  entering the encoder directly, and the frame timeout bounds a stalled
+  screenshot request.
 - Failed validation, publication partials, and concurrent rollback now follow
   deterministic cleanup and bounded recovery reporting.
 
