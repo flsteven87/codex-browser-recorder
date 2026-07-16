@@ -1,6 +1,6 @@
 ---
 name: record-browser
-description: Use only when the user explicitly invokes $record-browser to record one fresh approved tab in the browser selected by the installed Browser plugin to a private local WebM file.
+description: Use only when the user explicitly invokes $record-browser to save one test flow in a fresh approved tab in the browser selected by the installed Browser plugin as a cursor-complete local H.264 MP4 recording.
 license: MIT
 ---
 
@@ -8,7 +8,7 @@ license: MIT
 
 ## Collect The Request
 
-Require a target URL and planned Browser actions. Use 15 seconds when the user does not provide a recording duration. Set `requestedBrowser` to `"iab"` only when the user explicitly requests the Codex in-app Browser, to `"chrome"` only when the user explicitly requests Chrome, and to `null` otherwise. Do not create or navigate a Browser tab yet.
+Require a target URL and planned Browser actions. Use 15 seconds when the user does not provide a recording duration. Accept an optional absolute destination directory and optional recording name; otherwise use `~/Downloads/Codex Browser Recordings/` and a privacy-safe timestamp name. Set `requestedBrowser` to `"iab"` only when the user explicitly requests the Codex in-app Browser, to `"chrome"` only when the user explicitly requests Chrome, and to `null` otherwise. Classify the approved action list semantically and set `requirePointerEvents` to `true` when any action uses a pointer-driven click, hover, drag, or scroll; keep it `false` for keyboard-only, programmatic, or passive flows. Do not create or navigate a Browser tab yet.
 
 ## Validate The Request Locally
 
@@ -27,6 +27,8 @@ const moduleFailure = Object.freeze({
 });
 let describeRecordingFailure;
 let getRecordingCleanupDetails;
+let hasPointerActionEvidence;
+let planSavedRecording;
 let sanitizeRecordingFailure;
 let validateRecordingRequest;
 const stableFailure = (code) => {
@@ -45,7 +47,14 @@ try {
   const outcomeUrl = pathToFileURL(
     resolve(installedSkillRoot, "scripts/recording-outcome.mjs"),
   ).href;
-  ({ validateRecordingRequest } = await import(policyUrl));
+  const artifactsUrl = pathToFileURL(
+    resolve(installedSkillRoot, "scripts/recording-artifacts.mjs"),
+  ).href;
+  ({
+    hasPointerActionEvidence,
+    validateRecordingRequest,
+  } = await import(policyUrl));
+  ({ planSavedRecording } = await import(artifactsUrl));
   ({
     describeRecordingFailure,
     getRecordingCleanupDetails,
@@ -55,8 +64,19 @@ try {
   throw stableFailure("plugin_module_unavailable");
 }
 let request;
+let savedRecording;
+const recordingTimestamp = new Date();
 try {
-  request = validateRecordingRequest({ durationMs, targetUrl });
+  request = validateRecordingRequest({
+    durationMs,
+    requirePointerEvents,
+    targetUrl,
+  });
+  savedRecording = planSavedRecording({
+    destinationDirectory,
+    now: recordingTimestamp,
+    recordingName,
+  });
 } catch (error) {
   throw stableFailure(error?.code);
 }
@@ -64,7 +84,7 @@ try {
 
 ## Confirm Once Before Browser Activity
 
-Present one consolidated consent before any Browser action. Include the validated normalized approved origin, planned actions, duration, private temporary output, no audio, no browser chrome, no other tabs, and the sensitive-data exclusion. Continue only after explicit confirmation; denial returns `cancelled` and performs no Browser action. A `$record-browser` mention selects the workflow but does not approve an unknown target or scope. Refuse credentials, payment data, passkeys, recovery secrets, health data, or confidential communications as out of scope for the first release.
+Present one consolidated consent before any Browser action. Include the validated normalized approved origin, planned actions, duration, `savedRecording.destinationDirectory`, `savedRecording.outputFilename`, H.264 MP4 with no audio, the project-owned visible cursor and 200 ms click feedback, no browser chrome, no other tabs, and the sensitive-data exclusion. Explain that macOS may request file access and that an unavailable destination stops before Browser activity. Continue only after explicit confirmation; denial returns `cancelled` and performs no Browser action. Explain that a planned pointer action must produce an observable pointer event in the page or a supported embedded frame; otherwise the run fails closed without publishing cursor-incomplete media. A `$record-browser` mention selects the workflow but does not approve an unknown target or scope. Refuse credentials, payment data, passkeys, recovery secrets, health data, or confidential communications as out of scope for the first release.
 
 ## Resolve Installed Modules
 
@@ -123,7 +143,7 @@ try {
 
 Call `createRecording()` once with `selectedBrowser` after consent. The coordinator owns creation, navigation, full-CDP preflight, environment doctor, capture startup, finalization, fresh-tab closure, and rollback for exactly one fresh blank Browser tab. Its `ready` promise returns only that fresh tab for the approved Browser actions. A denied site or CDP approval returns `cancelled`; never retry or bypass it.
 
-Keep top-level navigation within `request.approvedOrigin`; stop if the page leaves that approved origin. Check `handle.status()` before and after each approved action. Stop performing Browser actions immediately when the state is no longer `recording`. Poll at most every 250 milliseconds and never beyond the requested duration plus 10 seconds. `handle.stop()` then returns the same memoized finalization result.
+Keep top-level navigation within `request.approvedOrigin`; stop if the page leaves that approved origin. Route every concrete approved Browser call through `runApprovedAction()` below and mark each click, hover, drag, or pointer-positioned scroll with `requiresPointerEvidence: true`. The helper proves that every pointer action produced a new observed pointer event whose trusted page timestamp is at or after the current action boundary; a delayed event from an earlier action never satisfies a later pointer action. Check `handle.status()` before and after each approved action. Stop performing Browser actions immediately when the state is no longer `recording`. Poll at most every 250 milliseconds and never beyond the requested duration plus 10 seconds. `handle.stop()` then returns the same memoized finalization result.
 
 Do not inject clocks, animations, test text, or diagnostic interactions such as an unapproved scroll. Do not enable Developer mode, change policy, install packages, retry denied approval, broaden the origin, switch browsers, use an existing tab, or expose Browser/CDP objects.
 
@@ -135,6 +155,7 @@ let handle;
 let recordingResult;
 let primaryFailure;
 let incompleteCleanup;
+const actionAbortController = new AbortController();
 const isBrowserApprovalDenial = (error) => {
   const message = error instanceof Error ? error.message : "";
   return /Browser Use rejected this action due to browser security policy[.] Reason: The user has requested that .+(?:should not be used|not be used on)/su.test(
@@ -148,24 +169,68 @@ const sanitizeActionFailure = (error) => {
   const cleanup = getRecordingCleanupDetails(error);
   return sanitizeRecordingFailure(
     { code: "cancelled" },
-    cleanup?.cleanupIncomplete === true
-      ? { cleanupDirectory: cleanup.directory }
-      : undefined,
+    {
+      artifactCleanupIncomplete:
+        cleanup?.artifactCleanupIncomplete === true,
+      browserTabCleanupIncomplete:
+        cleanup?.browserTabCleanupIncomplete === true,
+      cleanupDirectory: cleanup?.directory,
+      cleanupFile: cleanup?.cleanupFile,
+    },
   );
 };
 try {
   handle = createRecording({
     browser: selectedBrowser,
+    destinationDirectory: savedRecording.destinationDirectory,
     durationMs: request.durationMs,
+    now: recordingTimestamp,
+    recordingName,
+    requirePointerEvents: request.requirePointerEvents,
+    signal: actionAbortController.signal,
     targetUrl: request.targetUrl,
     temporaryRoot,
   });
   freshTab = await handle.ready;
 
-  // Perform each concrete Browser call from the approved action list here.
-  // Before and after every call, require handle.status().state === "recording".
   const pollDeadline = Date.now() + request.durationMs + 10_000;
   const terminalStates = new Set(["cancelled", "completed", "failed"]);
+  const runApprovedAction = async ({ perform, requiresPointerEvidence }) => {
+    const before = handle.status();
+    if (before.state !== "recording") {
+      throw stableFailure("integration_failed");
+    }
+    const beforeEvents = before.capture?.cursorEventsCaptured;
+    const actionStartedAtEpochMs = Date.now();
+    await perform();
+    if (requiresPointerEvidence !== true) {
+      if (handle.status().state !== "recording") {
+        throw stableFailure("integration_failed");
+      }
+      return;
+    }
+    const evidenceDeadline = Math.min(Date.now() + 1_000, pollDeadline);
+    while (Date.now() <= evidenceDeadline) {
+      const current = handle.status();
+      if (current.state !== "recording") {
+        throw stableFailure("integration_failed");
+      }
+      if (hasPointerActionEvidence({
+        actionStartedAtEpochMs,
+        beforeEvents,
+        capture: current.capture,
+      })) {
+        return;
+      }
+      await new Promise((resolveEvidence) =>
+        setTimeout(resolveEvidence, 50),
+      );
+    }
+    throw stableFailure("cursor_recording_failed");
+  };
+
+  // Perform each concrete approved Browser call here with runApprovedAction().
+  // Use requiresPointerEvidence: true for every planned pointer action.
   while (Date.now() < pollDeadline) {
     const current = handle.status();
     if (terminalStates.has(current.state)) break;
@@ -176,6 +241,20 @@ try {
     // Continue to the bounded success report below.
   } else if (recordingResult.result.status === "failed") {
     const code = recordingResult.result.failureCode ?? "recording_failed";
+    if (typeof recordingResult.paths?.cleanupDirectory === "string") {
+      incompleteCleanup = {
+        cleanupIncomplete: true,
+        directory: recordingResult.paths.cleanupDirectory,
+        ...(typeof recordingResult.paths?.cleanupFile === "string"
+          ? { cleanupFile: recordingResult.paths.cleanupFile }
+          : {}),
+      };
+    } else if (typeof recordingResult.paths?.cleanupFile === "string") {
+      incompleteCleanup = {
+        cleanupFile: recordingResult.paths.cleanupFile,
+        cleanupIncomplete: true,
+      };
+    }
     const failure = describeRecordingFailure(code);
     throw Object.assign(new Error(failure.summary), { code, ...failure });
   } else {
@@ -186,6 +265,7 @@ try {
     });
   }
 } catch (error) {
+  actionAbortController.abort();
   primaryFailure = sanitizeActionFailure(error);
   throw primaryFailure;
 } finally {
@@ -209,6 +289,6 @@ Always call `await handle?.stop()`. It finalizes the recording before closing it
 
 ## Report The Result
 
-On success, require `recordingResult.result.status === "passed"`, then lead with `Recording completed`, duration, VP8 WebM, dimensions, no audio, and `Saved locally: <recordingResult.paths.outputPath>`. Offer bounded capture counters only as diagnostics.
+On success, require `recordingResult.result.status === "passed"`, then lead with `Recording completed`. Report that the output is cursor-complete, plus duration, dimensions, H.264 MP4, no audio, and a clickable `[Saved Recording](<absolute path>)` link using `recordingResult.paths.outputPath`. Also report the absolute path as plain text for copyability. If `recordingResult.paths.cleanupDirectory` or `cleanupFile` is present, report that bounded local path for manual deletion without downgrading the Saved Recording. Offer `Open in Finder`, but do not open Finder or auto-play the recording unless the user asks. Offer bounded capture counters only as diagnostics.
 
-On failure, report the stable failure code plus its allowlisted summary and remediation. Read `getRecordingCleanupDetails(primaryFailure) ?? incompleteCleanup` after the outer cleanup finishes. When `cleanupIncomplete` and `directory` are present, add `Cleanup incomplete; delete locally: <directory>`. When `artifactCleanupIncomplete` is true without a known directory, add `Local artifact cleanup may be incomplete; inspect the operating-system temporary directory for a codex-browser-recorder entry.` When `browserTabCleanupIncomplete` is true, add `Browser cleanup incomplete; close the fresh recording tab manually.` This message must not include its URL. The private temporary recording directory is the sole failure-path exception to path suppression. Never report full URLs, page text, raw frames, CDP payloads, FFmpeg stderr, credentials, or internal plugin paths.
+On failure, report the stable failure code plus its allowlisted summary and remediation. Read `getRecordingCleanupDetails(primaryFailure) ?? incompleteCleanup` after the outer cleanup finishes. For `saved_recording_persistence_failed`, when `cleanupIncomplete` and `directory` are present, report `Working Recording retained temporarily for recovery: <directory>` and tell the user to copy it to a durable folder before cleanup. For other failures with the same metadata, add `Cleanup incomplete; delete locally: <directory>`. When `cleanupFile` is present, also add `Cleanup incomplete; delete local file: <cleanupFile>`. When `artifactCleanupIncomplete` is true without a known directory, add `Local artifact cleanup may be incomplete; inspect the operating-system temporary directory for a codex-browser-recorder entry.` When `browserTabCleanupIncomplete` is true, add `Browser cleanup incomplete; close the fresh recording tab manually.` This message must not include its URL. A private Working Recording directory or destination partial explicitly returned as cleanup metadata is the sole failure-path exception to path suppression. Never report full URLs, page text, raw frames, CDP payloads, FFmpeg stderr, credentials, or internal plugin paths.

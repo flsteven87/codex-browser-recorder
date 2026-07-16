@@ -9,13 +9,14 @@ import { validateVideo } from "../plugins/codex-browser-recorder/skills/record-b
 import { resolveExecutable } from "./test-tools.mjs";
 
 const directory = mkdtempSync(join(tmpdir(), "browser-recorder-validator-"));
-const validPath = join(directory, "valid.webm");
-const multipleVideoPath = join(directory, "multiple-video.webm");
-const matroskaPath = join(directory, "not-webm.mkv");
-const vp9Path = join(directory, "vp9.webm");
-const audioPath = join(directory, "with-audio.webm");
-const emptyPath = join(directory, "empty.webm");
-const corruptPath = join(directory, "corrupt.webm");
+const validPath = join(directory, "valid.mp4");
+const multipleVideoPath = join(directory, "multiple-video.mp4");
+const matroskaPath = join(directory, "not-mp4.mkv");
+const wrongCodecPath = join(directory, "mpeg4.mp4");
+const wrongPixelFormatPath = join(directory, "yuv444p.mp4");
+const audioPath = join(directory, "with-audio.mp4");
+const emptyPath = join(directory, "empty.mp4");
+const corruptPath = join(directory, "corrupt.mp4");
 const ffmpegPath = resolveExecutable("ffmpeg");
 const ffprobePath = resolveExecutable("ffprobe");
 
@@ -29,7 +30,7 @@ execFileSync(ffmpegPath, [
   "color=c=blue:s=320x180:d=0.5",
   "-an",
   "-c:v",
-  "libvpx",
+  "libx264",
   "-pix_fmt",
   "yuv420p",
   "-y",
@@ -53,7 +54,7 @@ execFileSync(ffmpegPath, [
   "1:v:0",
   "-an",
   "-c:v",
-  "libvpx",
+  "libx264",
   "-pix_fmt",
   "yuv420p",
   "-shortest",
@@ -70,7 +71,7 @@ execFileSync(ffmpegPath, [
   "color=c=blue:s=320x180:d=0.5",
   "-an",
   "-c:v",
-  "libvpx",
+  "libx264",
   "-pix_fmt",
   "yuv420p",
   "-f",
@@ -88,11 +89,27 @@ execFileSync(ffmpegPath, [
   "color=c=blue:s=320x180:d=0.5",
   "-an",
   "-c:v",
-  "libvpx-vp9",
+  "mpeg4",
   "-pix_fmt",
   "yuv420p",
   "-y",
-  vp9Path,
+  wrongCodecPath,
+]);
+execFileSync(ffmpegPath, [
+  "-hide_banner",
+  "-loglevel",
+  "error",
+  "-f",
+  "lavfi",
+  "-i",
+  "color=c=blue:s=320x180:d=0.5",
+  "-an",
+  "-c:v",
+  "libx264",
+  "-pix_fmt",
+  "yuv444p",
+  "-y",
+  wrongPixelFormatPath,
 ]);
 execFileSync(ffmpegPath, [
   "-hide_banner",
@@ -109,9 +126,9 @@ execFileSync(ffmpegPath, [
   "-t",
   "0.5",
   "-c:v",
-  "libvpx",
+  "libx264",
   "-c:a",
-  "libopus",
+  "aac",
   "-pix_fmt",
   "yuv420p",
   "-y",
@@ -136,7 +153,7 @@ const defaults = {
 test("accepts a parseable video with plausible dimensions and duration", async () => {
   const result = await validateVideo({ ...defaults, outputPath: validPath });
 
-  assert.equal(result.codecName, "vp8");
+  assert.equal(result.codecName, "h264");
   assert.equal(result.width, 320);
   assert.equal(result.height, 180);
   assert.ok(result.durationSeconds > 0);
@@ -182,21 +199,28 @@ test("rejects an output containing multiple video streams", async () => {
   );
 });
 
-test("rejects a Matroska container even when its video uses VP8", async () => {
+test("rejects a Matroska container even when its video uses H.264", async () => {
   await assert.rejects(
     validateVideo({ ...defaults, outputPath: matroskaPath }),
     (error) => error.code === "container_invalid",
   );
 });
 
-test("rejects a WebM video that does not use VP8", async () => {
+test("rejects an MP4 video that does not use H.264", async () => {
   await assert.rejects(
-    validateVideo({ ...defaults, outputPath: vp9Path }),
+    validateVideo({ ...defaults, outputPath: wrongCodecPath }),
     (error) => error.code === "codec_invalid",
   );
 });
 
-test("rejects a VP8 WebM that contains an audio stream", async () => {
+test("rejects an H.264 MP4 that is not yuv420p", async () => {
+  await assert.rejects(
+    validateVideo({ ...defaults, outputPath: wrongPixelFormatPath }),
+    (error) => error.code === "pixel_format_invalid",
+  );
+});
+
+test("rejects an H.264 MP4 that contains an audio stream", async () => {
   await assert.rejects(
     validateVideo({ ...defaults, outputPath: audioPath }),
     (error) => error.code === "audio_stream_present",
@@ -219,7 +243,7 @@ test("rejects invalid configured bounds before probing the output", async () => 
     validateVideo({
       ...defaults,
       maxWidth: 0,
-      outputPath: join(directory, "does-not-exist.webm"),
+      outputPath: join(directory, "does-not-exist.mp4"),
     }),
     (error) => error.code === "invalid_configuration",
   );

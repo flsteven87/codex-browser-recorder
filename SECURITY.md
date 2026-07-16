@@ -2,9 +2,10 @@
 
 ## Supported versions
 
-Version `0.1.0` is supported. Security fixes are prepared on `main`, validated
-through the repository release gates, and published in the latest supported
-release.
+Version `0.2.0` is supported after its release is published. Until then,
+`0.1.0` remains the latest immutable supported release. Security fixes are
+prepared on `main`, validated through the repository release gates, and
+published in the latest supported release.
 
 ## Reporting a vulnerability
 

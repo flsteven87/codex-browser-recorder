@@ -19,8 +19,8 @@ writeFileSync(
   [
     "#!/bin/sh",
     "case \"$*\" in",
-    "  *\"encoder=libvpx\"*) printf 'Encoder libvpx [libvpx VP8]:\\n' ;;",
-    "  *\"muxer=webm\"*) printf 'Muxer webm [WebM]:\\n' ;;",
+    "  *\"encoder=libx264\"*) printf 'Encoder libx264 [libx264 H264]:\\n' ;;",
+    "  *\"muxer=mp4\"*) printf 'Muxer mp4 [MP4]:\\n' ;;",
     "  *) printf 'ffmpeg version test\\n' ;;",
     "esac",
   ].join("\n"),
@@ -55,8 +55,8 @@ test("reports a supported environment with resolved executable paths", async () 
   assert.equal(result.cdpAvailable, true);
   assert.equal(result.ffmpegPath, join(binDirectory, "ffmpeg"));
   assert.equal(result.ffprobePath, join(binDirectory, "ffprobe"));
-  assert.equal(result.ffmpegVp8Available, true);
-  assert.equal(result.ffmpegWebmAvailable, true);
+  assert.equal(result.ffmpegH264Available, true);
+  assert.equal(result.ffmpegMp4Available, true);
   assert.equal(result.ffprobeUsable, true);
   assert.equal(result.outputDirectoryWritable, true);
   assert.deepEqual(result.blockingReasons, []);
@@ -73,8 +73,8 @@ test("returns every deterministic blocking reason without changing the system", 
   assert.equal(result.supported, false);
   assert.equal(result.ffmpegPath, null);
   assert.equal(result.ffprobePath, null);
-  assert.equal(result.ffmpegVp8Available, false);
-  assert.equal(result.ffmpegWebmAvailable, false);
+  assert.equal(result.ffmpegH264Available, false);
+  assert.equal(result.ffmpegMp4Available, false);
   assert.equal(result.ffprobeUsable, false);
   assert.equal(result.outputDirectoryWritable, false);
   assert.deepEqual(result.blockingReasons, [
@@ -110,8 +110,8 @@ test("supports the Browser runtime when global process metadata is unavailable",
     outputDirectory,
     pathValue: undefined,
     probeMediaCapabilities: async () => ({
-      ffmpegVp8Available: true,
-      ffmpegWebmAvailable: true,
+      ffmpegH264Available: true,
+      ffmpegMp4Available: true,
       ffprobeUsable: true,
     }),
     resolveExecutableByName: async (name) => name,
@@ -131,8 +131,8 @@ test("reports missing tools when inherited command resolution fails", async () =
     pathValue: undefined,
     platform: "darwin",
     probeMediaCapabilities: async () => ({
-      ffmpegVp8Available: true,
-      ffmpegWebmAvailable: true,
+      ffmpegH264Available: true,
+      ffmpegMp4Available: true,
       ffprobeUsable: true,
     }),
     resolveExecutableByName: async () => null,
@@ -140,74 +140,74 @@ test("reports missing tools when inherited command resolution fails", async () =
 
   assert.equal(result.ffmpegPath, null);
   assert.equal(result.ffprobePath, null);
-  assert.equal(result.ffmpegVp8Available, false);
-  assert.equal(result.ffmpegWebmAvailable, false);
+  assert.equal(result.ffmpegH264Available, false);
+  assert.equal(result.ffmpegMp4Available, false);
   assert.equal(result.ffprobeUsable, false);
   assert.deepEqual(result.blockingReasons, ["ffmpeg_missing", "ffprobe_missing"]);
 });
 
 for (const variant of [
   {
-    name: "missing-vp8",
-    ffmpegVp8Output: "VP8 HELP OMITTED",
-    ffmpegWebmOutput: "Muxer webm [WebM]:",
+    name: "missing-h264",
+    ffmpegH264Output: "H264 HELP OMITTED",
+    ffmpegMp4Output: "Muxer mp4 [MP4]:",
     ffprobeOutput: '{"program_version":{"version":"test"}}',
-    ffmpegVp8Available: false,
-    ffmpegWebmAvailable: true,
+    ffmpegH264Available: false,
+    ffmpegMp4Available: true,
     ffprobeUsable: true,
-    blockingReasons: ["ffmpeg_vp8_unavailable"],
+    blockingReasons: ["ffmpeg_h264_unavailable"],
   },
   {
-    name: "missing-webm",
-    ffmpegVp8Output: "Encoder libvpx [libvpx VP8]:",
-    ffmpegWebmOutput: "WEBM HELP OMITTED",
+    name: "missing-mp4",
+    ffmpegH264Output: "Encoder libx264 [libx264 H264]:",
+    ffmpegMp4Output: "MP4 HELP OMITTED",
     ffprobeOutput: '{"program_version":{"version":"test"}}',
-    ffmpegVp8Available: true,
-    ffmpegWebmAvailable: false,
+    ffmpegH264Available: true,
+    ffmpegMp4Available: false,
     ffprobeUsable: true,
-    blockingReasons: ["ffmpeg_webm_unavailable"],
+    blockingReasons: ["ffmpeg_mp4_unavailable"],
   },
   {
     name: "version-only-ffprobe",
-    ffmpegVp8Output: "Encoder libvpx [libvpx VP8]:",
-    ffmpegWebmOutput: "Muxer webm [WebM]:",
+    ffmpegH264Output: "Encoder libx264 [libx264 H264]:",
+    ffmpegMp4Output: "Muxer mp4 [MP4]:",
     ffprobeOutput: "ffprobe version secret-test-token",
-    ffmpegVp8Available: true,
-    ffmpegWebmAvailable: true,
+    ffmpegH264Available: true,
+    ffmpegMp4Available: true,
     ffprobeUsable: false,
     blockingReasons: ["ffprobe_unusable"],
   },
   {
     name: "malformed-json-ffprobe",
-    ffmpegVp8Output: "Encoder libvpx [libvpx VP8]:",
-    ffmpegWebmOutput: "Muxer webm [WebM]:",
+    ffmpegH264Output: "Encoder libx264 [libx264 H264]:",
+    ffmpegMp4Output: "Muxer mp4 [MP4]:",
     ffprobeOutput: '{"program_version":',
-    ffmpegVp8Available: true,
-    ffmpegWebmAvailable: true,
+    ffmpegH264Available: true,
+    ffmpegMp4Available: true,
     ffprobeUsable: false,
     blockingReasons: ["ffprobe_unusable"],
   },
   {
     name: "wrong-shape-ffprobe",
-    ffmpegVp8Output: "Encoder libvpx [libvpx VP8]:",
-    ffmpegWebmOutput: "Muxer webm [WebM]:",
+    ffmpegH264Output: "Encoder libx264 [libx264 H264]:",
+    ffmpegMp4Output: "Muxer mp4 [MP4]:",
     ffprobeOutput: '{"program_version":{"version":7},"secret":"test-token"}',
-    ffmpegVp8Available: true,
-    ffmpegWebmAvailable: true,
+    ffmpegH264Available: true,
+    ffmpegMp4Available: true,
     ffprobeUsable: false,
     blockingReasons: ["ffprobe_unusable"],
   },
   {
     name: "all-unavailable",
-    ffmpegVp8Output: "VP8 HELP OMITTED",
-    ffmpegWebmOutput: "WEBM HELP OMITTED",
+    ffmpegH264Output: "H264 HELP OMITTED",
+    ffmpegMp4Output: "MP4 HELP OMITTED",
     ffprobeOutput: "FFPROBE JSON OMITTED",
-    ffmpegVp8Available: false,
-    ffmpegWebmAvailable: false,
+    ffmpegH264Available: false,
+    ffmpegMp4Available: false,
     ffprobeUsable: false,
     blockingReasons: [
-      "ffmpeg_vp8_unavailable",
-      "ffmpeg_webm_unavailable",
+      "ffmpeg_h264_unavailable",
+      "ffmpeg_mp4_unavailable",
       "ffprobe_unusable",
     ],
   },
@@ -220,8 +220,8 @@ for (const variant of [
       [
         "#!/bin/sh",
         "case \"$*\" in",
-        `  *\"encoder=libvpx\"*) printf '${variant.ffmpegVp8Output}\\n' ;;`,
-        `  *\"muxer=webm\"*) printf '${variant.ffmpegWebmOutput}\\n' ;;`,
+        `  *\"encoder=libx264\"*) printf '${variant.ffmpegH264Output}\\n' ;;`,
+        `  *\"muxer=mp4\"*) printf '${variant.ffmpegMp4Output}\\n' ;;`,
         "esac",
         "exit 0",
       ].join("\n"),
@@ -241,13 +241,13 @@ for (const variant of [
     });
 
     assert.equal(result.supported, false);
-    assert.equal(result.ffmpegVp8Available, variant.ffmpegVp8Available);
-    assert.equal(result.ffmpegWebmAvailable, variant.ffmpegWebmAvailable);
+    assert.equal(result.ffmpegH264Available, variant.ffmpegH264Available);
+    assert.equal(result.ffmpegMp4Available, variant.ffmpegMp4Available);
     assert.equal(result.ffprobeUsable, variant.ffprobeUsable);
     assert.deepEqual(result.blockingReasons, variant.blockingReasons);
     assert.doesNotMatch(
       JSON.stringify(result),
-      /Encoder libvpx|Muxer webm|ffprobe version|program_version|test-token|HELP OMITTED|JSON OMITTED/,
+      /Encoder libx264|Muxer mp4|ffprobe version|program_version|test-token|HELP OMITTED|JSON OMITTED/,
     );
   });
 }

@@ -26,12 +26,14 @@ const VIDEO_VALIDATION_FAILURE_CODES = new Set([
   "invalid_configuration",
   "output_missing",
   "output_too_small",
+  "pixel_format_invalid",
   "video_stream_count_invalid",
   "video_stream_missing",
 ]);
 
 const CAPTURE_FAILURE_CODES = new Set([
   "cdp_unavailable",
+  "cursor_recording_failed",
   "encoder_failed",
   "encoder_finalize_failed",
   "encoder_shutdown_timeout",
@@ -51,6 +53,12 @@ const CAPTURE_FAILURE_CODES = new Set([
 ]);
 
 const MESSAGE_GROUPS = [
+  {
+    codes: ["cursor_recording_failed"],
+    summary: "The pointer interactions could not be recorded completely",
+    remediation:
+      "Keep every participating frame available, confirm full CDP approval, and record the flow again",
+  },
   {
     codes: [
       "invalid_target",
@@ -76,8 +84,8 @@ const MESSAGE_GROUPS = [
     codes: [
       "unsupported_platform",
       "ffmpeg_missing",
-      "ffmpeg_vp8_unavailable",
-      "ffmpeg_webm_unavailable",
+      "ffmpeg_h264_unavailable",
+      "ffmpeg_mp4_unavailable",
       "ffprobe_missing",
       "ffprobe_unusable",
       "output_directory_not_writable",
@@ -133,7 +141,7 @@ const MESSAGE_GROUPS = [
     ],
     summary: "The local video encoder could not complete the recording",
     remediation:
-      "Run preflight and verify local FFmpeg VP8 WebM support before retrying",
+      "Run preflight and verify local FFmpeg H.264 MP4 support before retrying",
   },
   {
     codes: [
@@ -146,12 +154,25 @@ const MESSAGE_GROUPS = [
       "ffprobe_failed",
       "output_missing",
       "output_too_small",
+      "pixel_format_invalid",
       "video_stream_count_invalid",
       "video_stream_missing",
     ],
-    summary: "The recorded media did not satisfy the WebM contract",
+    summary: "The recorded media did not satisfy the H.264 MP4 contract",
     remediation:
       "Run preflight, keep the page visible, and record the flow again",
+  },
+  {
+    codes: ["saved_recording_unavailable"],
+    summary: "The Saved Recording destination is unavailable",
+    remediation:
+      "Choose a writable local folder, approve macOS file access if requested, and retry",
+  },
+  {
+    codes: ["saved_recording_persistence_failed"],
+    summary: "The recording was captured but could not be saved",
+    remediation:
+      "Use the retained Working Recording recovery path or choose a writable folder, then retry",
   },
   {
     codes: ["artifact_persistence_failed", "cleanup_failed"],
@@ -195,6 +216,7 @@ export function sanitizeRecordingFailure(
     artifactCleanupIncomplete = false,
     browserTabCleanupIncomplete = false,
     cleanupDirectory,
+    cleanupFile,
   } = {},
 ) {
   const code = USER_MESSAGES.has(error?.code)
@@ -221,6 +243,12 @@ export function sanitizeRecordingFailure(
           directory: cleanupDirectory,
         }
       : {}),
+    ...(typeof cleanupFile === "string" && cleanupFile.length > 0
+      ? {
+          cleanupFile,
+          cleanupIncomplete: true,
+        }
+      : {}),
   };
   if (Object.keys(details).length > 0) {
     RECORDING_CLEANUP_DETAILS.set(publicError, Object.freeze(details));
@@ -232,6 +260,15 @@ export function sanitizeCaptureResult(capture) {
   return Object.fromEntries(
     CAPTURE_RESULT_FIELDS.map((field) => [field, capture[field] ?? null]),
   );
+}
+
+export function sanitizeCaptureStatus(capture) {
+  return {
+    ...sanitizeCaptureResult(capture),
+    cursorEventsCaptured: capture.cursorEventsCaptured ?? null,
+    cursorFramesObserved: capture.cursorFramesObserved ?? null,
+    cursorLastEventEpochMs: capture.cursorLastEventEpochMs ?? null,
+  };
 }
 
 export function captureFailureCode(error) {

@@ -27,8 +27,24 @@ export function originOf(value) {
   }
 }
 
+export function hasPointerActionEvidence({
+  actionStartedAtEpochMs,
+  beforeEvents,
+  capture,
+}) {
+  return (
+    Number.isFinite(actionStartedAtEpochMs) &&
+    Number.isInteger(beforeEvents) &&
+    Number.isInteger(capture?.cursorEventsCaptured) &&
+    capture.cursorEventsCaptured > beforeEvents &&
+    Number.isFinite(capture?.cursorLastEventEpochMs) &&
+    capture.cursorLastEventEpochMs >= actionStartedAtEpochMs
+  );
+}
+
 export function validateRecordingRequest({
   durationMs = DEFAULT_RECORDING_DURATION_MS,
+  requirePointerEvents = false,
   targetUrl,
 }) {
   let target;
@@ -66,5 +82,17 @@ export function validateRecordingRequest({
     );
   }
 
-  return { approvedOrigin: target.origin, durationMs, targetUrl };
+  if (typeof requirePointerEvents !== "boolean") {
+    throw new RecordingPolicyError(
+      "invalid_configuration",
+      "Pointer-event requirements must be explicit",
+    );
+  }
+
+  return {
+    approvedOrigin: target.origin,
+    durationMs,
+    requirePointerEvents,
+    targetUrl,
+  };
 }

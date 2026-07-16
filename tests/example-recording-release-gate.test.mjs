@@ -17,6 +17,7 @@ test("completes two isolated recordings strictly in sequence", async () => {
         const current = attempt;
         calls.push(`create:${current}`);
         assert.equal(options.browser, browser);
+        assert.equal(options.destinationDirectory, "/private/tmp");
         assert.equal(options.targetUrl, EXAMPLE_PAGE_URL);
         return {
           ready: Promise.resolve({ id: `tab-${current}` }),
@@ -26,7 +27,7 @@ test("completes two isolated recordings strictly in sequence", async () => {
           async stop() {
             calls.push(`stop:${current}`);
             return {
-              paths: { directory: `/private/recording-${current}` },
+              paths: { outputPath: `/private/recording-${current}.mp4` },
               result: { failureCode: null, status: "passed" },
             };
           },
@@ -42,10 +43,10 @@ test("completes two isolated recordings strictly in sequence", async () => {
   assert.deepEqual(result, {
     attempts: [
       {
-        directory: "/private/recording-1",
+        outputPath: "/private/recording-1.mp4",
       },
       {
-        directory: "/private/recording-2",
+        outputPath: "/private/recording-2.mp4",
       },
     ],
     status: "passed",

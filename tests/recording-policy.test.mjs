@@ -12,9 +12,50 @@ import {
   RECORDING_MAX_HEIGHT,
   RECORDING_MAX_OUTPUT_BYTES,
   RECORDING_MAX_WIDTH,
+  hasPointerActionEvidence,
   originOf,
   validateRecordingRequest,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-policy.mjs";
+
+test("requires pointer evidence captured after the current action boundary", () => {
+  const firstActionStartedAt = 1_000;
+  assert.equal(
+    hasPointerActionEvidence({
+      actionStartedAtEpochMs: firstActionStartedAt,
+      beforeEvents: 0,
+      capture: {
+        cursorEventsCaptured: 4,
+        cursorLastEventEpochMs: 1_010,
+      },
+    }),
+    true,
+  );
+
+  const secondActionStartedAt = 1_020;
+  assert.equal(
+    hasPointerActionEvidence({
+      actionStartedAtEpochMs: secondActionStartedAt,
+      beforeEvents: 4,
+      capture: {
+        cursorEventsCaptured: 6,
+        cursorLastEventEpochMs: 1_015,
+      },
+    }),
+    false,
+    "a delayed tail from the first action must not satisfy the second action",
+  );
+  assert.equal(
+    hasPointerActionEvidence({
+      actionStartedAtEpochMs: secondActionStartedAt,
+      beforeEvents: 4,
+      capture: {
+        cursorEventsCaptured: 7,
+        cursorLastEventEpochMs: 1_025,
+      },
+    }),
+    true,
+  );
+});
 
 test("normalizes approved HTTPS and loopback targets", () => {
   const cases = [
@@ -29,9 +70,28 @@ test("normalizes approved HTTPS and loopback targets", () => {
     assert.deepEqual(validateRecordingRequest({ targetUrl }), {
       approvedOrigin,
       durationMs: DEFAULT_RECORDING_DURATION_MS,
+      requirePointerEvents: false,
       targetUrl,
     });
   }
+});
+
+test("validates whether the approved flow requires pointer evidence", () => {
+  assert.equal(
+    validateRecordingRequest({
+      requirePointerEvents: true,
+      targetUrl: "https://example.com/",
+    }).requirePointerEvents,
+    true,
+  );
+  assert.throws(
+    () =>
+      validateRecordingRequest({
+        requirePointerEvents: "yes",
+        targetUrl: "https://example.com/",
+      }),
+    (error) => error.code === "invalid_configuration",
+  );
 });
 
 test("rejects invalid, credentialed, and unsupported targets without echoing them", () => {

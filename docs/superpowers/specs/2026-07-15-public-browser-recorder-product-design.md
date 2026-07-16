@@ -1,19 +1,66 @@
 # Public Browser Recorder Product Design
 
-**Status:** Approved for implementation on 2026-07-15.
+**Status:** Approved on 2026-07-15; Saved Recording and Cursor-complete
+amendments approved on 2026-07-16.
+
+## v0.2 Cursor-complete Recording Amendment
+
+Version `0.2.0` produces a Cursor-complete Recording as defined in
+`CONTEXT.md`. The focused design is
+[`2026-07-16-cursor-complete-recording-design.md`](./2026-07-16-cursor-complete-recording-design.md).
+It inserts cursor-observer readiness before approved Browser actions and a
+bounded cursor-composition pass before validation and durable publication.
+Browser chrome remains excluded; the output contains an original,
+project-owned Codex-style cursor synchronized to publicly observable pointer
+events. Cursor observation or composition failure discards the Working
+Recording instead of publishing cursor-incomplete media.
+
+## v0.2 Saved Recording Amendment
+
+Version `0.2.0` changes the user outcome from a temporary artifact to a Saved
+Recording. The default destination is
+`~/Downloads/Codex Browser Recordings/`, with an explicit absolute local
+override. Consent shows the destination and privacy-safe filename before any
+Browser activity. The default filename is
+`browser-recording-YYYY-MM-DD-HHmmss.mp4`; it never uses page-derived text, and
+a collision adds a short recording ID instead of overwriting a file.
+
+New recordings use one H.264 `yuv420p` video stream in an MP4 container with no
+audio. This is a user-delivery compatibility decision, not a format framework:
+v0.2 has no format selector, retained WebM output branch, pluggable storage
+backend, generic media sink, or cross-platform destination abstraction.
+Existing WebM files remain untouched.
+
+`recording-artifacts.mjs` exposes one deep artifact transaction. It owns the
+Working Recording directory, fixed validation policy, private result
+persistence, atomic durable publication, collision handling, rollback, and
+idempotent cleanup. It does not own Browser capture shutdown, CDP teardown,
+FFmpeg shutdown, or capture-failure precedence; those stay in the recording
+coordinator. Ordinary callers receive one transaction-issued capture path and
+do not configure validation internals.
+
+Only durable publication permits `Recording completed`. Destination access is
+checked after consent and before creating a Browser tab, with no silent
+temporary fallback. If publication fails after validation, the Working
+Recording is retained temporarily and reported for recovery. Success returns a
+clickable Saved Recording plus duration, dimensions, H.264 MP4, no audio, and
+the absolute local path. Finder is offered but never opened automatically.
+
+This amendment deliberately uses the existing skill, coordinator, media
+recorder, validator, and artifact module. It adds no ADR subsystem, service,
+database, upload path, MCP server, or additional public mode.
 
 ## Objective
 
-Turn the fixed `https://example.com/` integration proof into one focused,
-user-facing Codex plugin workflow that records a fresh, explicitly approved
-Browser tab to a private local WebM file. Keep environment diagnosis and the
-fixed example recording as internal preflight and release-verification
-mechanisms rather than user-facing product modes.
+Provide one focused, user-facing Codex plugin workflow that records a fresh,
+explicitly approved Browser tab to a durable local H.264 MP4 Saved Recording.
+Keep environment diagnosis and the fixed example recording as internal
+preflight and release-verification mechanisms rather than user-facing product
+modes.
 
-The first public release is `0.1.0` with Git tag `v0.1.0`. During local
-development, Codex cachebuster build metadata may remain on the manifest
-version, but release artifacts must use the canonical version without build
-metadata.
+The current candidate is `0.2.0` with the future immutable Git tag `v0.2.0`.
+Until that tag is published, `v0.1.0` remains the latest immutable release.
+Release artifacts use the canonical manifest version without build metadata.
 
 ## Product Decision
 
@@ -32,11 +79,11 @@ exercises the same production entry point.
 
 ## User Outcome
 
-A successful run produces one validated, audio-free VP8 WebM in a unique
-private operating-system temporary directory. The final response leads with
-duration, format, dimensions, lack of audio, and the local path. Capture
-counters and encoder details are diagnostics and are not part of the primary
-user experience.
+A successful run produces one validated, audio-free H.264 MP4 Saved Recording
+in the consented local destination. The final response leads with a clickable
+file, duration, format, dimensions, lack of audio, and the absolute local path.
+Capture counters and encoder details are diagnostics and are not part of the
+primary user experience.
 
 A failed run returns one allowlisted failure code, a concise summary, and an
 actionable remediation. It never exposes raw frames, page text, full URLs, CDP
@@ -48,20 +95,23 @@ paths.
 1. The user explicitly invokes `$record-browser` and provides the target URL,
    intended Browser actions, and optional recording duration.
 2. The skill presents one consolidated consent prompt containing the approved
-   origin, planned actions, duration, private local output behavior, and the
-   exclusions for audio, browser chrome, other tabs, and sensitive data.
-3. Only after consent, the skill creates one fresh Browser tab and navigates it
-   to the validated target URL.
-4. Normal Browser site and full-CDP approval remain platform-controlled. A
+   origin, planned actions, duration, Saved Recording destination and filename,
+   and the exclusions for audio, browser chrome, other tabs, and sensitive data.
+3. Only after consent, the runtime proves that the destination supports the
+   exact atomic no-overwrite publication primitive. Failure stops before any
+   Browser activity and never falls back to a temporary user outcome.
+4. The skill creates one fresh Browser tab and navigates it to the validated
+   target URL.
+5. Normal Browser site and full-CDP approval remain platform-controlled. A
    denial maps to `cancelled` and is never retried or bypassed.
-5. The skill runs automatic preflight. It reports allowlisted blockers without
+6. The skill runs automatic preflight. It reports allowlisted blockers without
    changing system configuration or installing dependencies.
-6. The skill starts the deterministic recording entry point and performs only
+7. The skill starts the deterministic recording entry point and performs only
    the Browser actions approved by the user. It does not inject clocks,
    animations, test text, or other diagnostic page mutations.
-7. The skill reports bounded progress while the runtime records.
-8. The skill stops the runtime, validates the media, closes the fresh tab, and
-   reports the user-facing result.
+8. The skill reports bounded progress while the runtime records.
+9. The skill stops the runtime, validates and durably publishes the media,
+   closes the fresh tab, and reports the user-facing result.
 
 Every operation after fresh-tab creation is protected by one outer
 `try`/`finally`. Finalization is attempted before tab closure. A primary
@@ -70,7 +120,7 @@ recording failure remains primary if cleanup also fails.
 ## Scope And Consent Policy
 
 - Invocation remains explicit; `policy.allow_implicit_invocation` is `false`.
-- The first release accepts `https:` targets and explicitly approved loopback
+- The workflow accepts `https:` targets and explicitly approved loopback
   development targets using `http:` with host `localhost`, `127.0.0.1`, or
   `[::1]`.
 - URLs containing a username or password are rejected before Browser activity.
@@ -79,10 +129,11 @@ recording failure remains primary if cleanup also fails.
 - A top-level navigation to a different origin terminates the session,
   discards the entire recording, and returns
   `origin_changed_during_recording`.
-- The first release records one fresh tab only. It does not record an existing
+- The workflow records one fresh tab only. It does not record an existing
   tab, multiple tabs, browser chrome, Codex UI, audio, or an entire profile.
-- The first release does not upload, share, copy, or move the resulting file.
-  Those are separate user-authorized actions outside the recording skill.
+- The workflow publishes the Saved Recording only to the consented local
+  destination. It does not upload, share, or move it afterward; those are
+  separate user-authorized actions outside the recording skill.
 - The default duration is 15 seconds. Accepted user durations are 5,000 through
   60,000 milliseconds. The non-overridable runtime hard limit is 65,000
   milliseconds.
@@ -107,7 +158,8 @@ payload limit, output limit, or media format.
 Owns the CDP recording transaction. It acquires the current tab capability,
 enables the Page domain, captures the event baseline, verifies the current top
 frame, starts screencasting, monitors top-frame navigation, enforces runtime
-resources, and finalizes stop or abort.
+resources, captures a fresh initial page frame after screencast readiness, and
+finalizes stop or abort.
 
 Startup order is fixed:
 
@@ -115,51 +167,65 @@ Startup order is fixed:
 2. capture the event baseline cursor
 3. `Page.getFrameTree` and verify the approved origin
 4. `Page.startScreencast`
-5. consume events after the baseline, including `Page.frameNavigated`
+5. receive and acknowledge the first screencast frame
+6. `Page.captureScreenshot` to seed the Working Recording from the painted page,
+   then re-verify the current top-frame origin before accepting the screenshot
+7. use later screencast frames only as acknowledged change notifications,
+   capturing a fresh full-viewport screenshot before each encoder update
 
 The top-frame ID from `Page.getFrameTree` identifies relevant navigation
-events. Any top-frame origin mismatch records the stable policy failure and
+events. Navigation policy events are enforced immediately, including before
+the seed screenshot, and the current origin is re-verified after a pending
+screenshot request returns. Later screencast frames remain serialized, are
+acknowledged immediately, and trigger the same full-viewport screenshot plus
+origin re-verification transaction instead of being written to the encoder
+directly. Any top-frame origin mismatch records the stable policy failure and
 causes finalization to discard the working output. This closes the gap between
-one-time startup verification and continuous recording policy.
+one-time startup verification and continuous recording policy without ever
+seeding media from an unapproved origin or a partial compositor frame.
 
 ### `media-recorder.mjs`
 
 Owns bounded frame parsing, immediate frame acknowledgement, latest-frame
 sampling, FFmpeg backpressure, output-size enforcement, encoder shutdown, and
-atomic publication of the WebM working file. It never returns subprocess output
-or frame content.
+creation of the private H.264 `yuv420p` MP4 Working Recording. It normalizes odd
+Browser dimensions to even values required by H.264, bounds screenshot inputs
+within 1280×720 without upscaling, and never returns subprocess output or frame
+content. A static page remains valid because the encoder samples its latest
+accepted full-viewport screenshot at the fixed output rate.
 
 ### `validate-video.mjs`
 
-Owns bounded EBML inspection and FFprobe validation. A valid output contains
-exactly one VP8 video stream, no audio stream, WebM `DocType`, bounded
-dimensions, a plausible duration, and a bounded file size.
+Owns bounded MP4 signature inspection and FFprobe validation. A valid output
+contains exactly one H.264 `yuv420p` video stream, no audio stream, an MP4
+container, bounded dimensions, a plausible duration, and a bounded file size.
 
 ### `recording-artifacts.mjs`
 
-Owns private directory creation, path construction, schema-v3 result writing,
-transactional artifact cleanup, and file modes. If result persistence fails
-after media validation, it removes the finalized video so the operation cannot
-appear successful with an incomplete artifact set.
+Owns destination capability preflight, private Working Recording allocation,
+fixed media validation, schema-v3 result writing, atomic no-overwrite durable
+publication, collision naming, rollback, cleanup, and file modes. Capture and
+validation failures are discarded. A validated Working Recording is retained
+only when pre-commit result persistence or durable publication fails; a
+committed Saved Recording is never downgraded by later cleanup failure.
 
 ### `doctor.mjs`
 
-Remains a read-only feature probe for macOS, CDP availability, temporary output
-access, the FFmpeg `libvpx` encoder, the WebM muxer, and usable FFprobe JSON.
-It returns only resolved capabilities and allowlisted blockers.
+Remains a read-only feature probe for macOS, CDP availability, Saved Recording
+destination access, the FFmpeg `libx264` encoder, the MP4 muxer, and usable
+FFprobe JSON. It returns only resolved capabilities and allowlisted blockers.
 
 ### `create-recording.mjs`
 
 Exposes the only production orchestration entry point:
 
 ```js
-const handle = await createRecording({
+const handle = createRecording({
+  browser,
+  destinationDirectory,
   durationMs,
-  ffmpegPath,
-  ffprobePath,
-  tab,
+  recordingName,
   targetUrl,
-  temporaryRoot,
 });
 ```
 
@@ -210,8 +276,9 @@ Schema version 3 contains:
 - output filename
 
 The JSON result never contains the absolute output path. On success, the outer
-skill receives the private paths separately and may show the final video path
-directly to the user after cleanup has completed.
+skill receives the Saved Recording path separately and shows it directly to the
+user after finalization. Failure paths expose only bounded cleanup metadata when
+manual recovery or deletion is required.
 
 Stable user-facing failures include invalid target, unsupported target scheme,
 URL credentials present, invalid duration, unavailable Browser or CDP,
@@ -222,10 +289,11 @@ cleanup failure. Every code maps to one fixed summary and remediation.
 
 ## Internal Release Gate
 
-The fixed `https://example.com/` scenario moves out of the public skill and
+The fixed `https://example.com/` scenario stays outside the public skill and
 plugin starter prompts. Repository-only release tooling uses the production
 `createRecording()` entry point with a fresh Browser tab, a 10-to-15-second
-duration, and disposable clock, animation, scroll, and DOM-state actions.
+duration, a disposable Saved Recording destination, and bounded clock,
+animation, scroll, and DOM-state actions.
 
 Every candidate release must run the scenario twice sequentially to verify
 singleton release and final cleanup. Recorded evidence remains sanitized and
@@ -270,8 +338,8 @@ gates, Phase 0, or diagnostics. It includes:
 - brand color, composer icon, light and dark logos, and sanitized screenshots;
 - two or three adaptable starter prompts for recording approved test flows.
 
-The README distinguishes WebM page recording from Codex Record & Replay, which
-turns a demonstrated workflow into a reusable skill.
+The README distinguishes H.264 MP4 page recording from Codex Record & Replay,
+which turns a demonstrated workflow into a reusable skill.
 
 ## Open-Source And Release Baseline
 
@@ -280,7 +348,7 @@ changelog, issue forms, pull-request template, CODEOWNERS, and Dependabot
 configuration. CI adds static analysis and supply-chain checks with minimal
 permissions and full-SHA action pinning.
 
-Before `v0.1.0`, local release gates must pass and the maintainer must separately
+Before `v0.2.0`, local release gates must pass and the maintainer must separately
 authorize these external GitHub changes:
 
 - enable private vulnerability reporting and its notifications;
@@ -288,21 +356,19 @@ authorize these external GitHub changes:
 - protect `main` with required CI, no force push or deletion, and linear PR
   integration;
 - use one documented merge strategy and delete merged branches;
-- create the `v0.1.0` tag and GitHub release;
+- create the `v0.2.0` tag and GitHub release;
 - submit the plugin for public review only after listing materials and evals are
   final.
 
-Installation documentation pins the marketplace to `v0.1.0` rather than an
-unbounded mutable `main`. Manifest version, Git tag, changelog, and release
-notes must agree.
+After publication, installation documentation pins the marketplace to `v0.2.0`
+rather than an unbounded mutable `main`. Manifest version, Git tag, changelog,
+and release notes must agree.
 
 ## Migration From The Current Proof
 
-The current capture, validation, doctor, and artifact logic is retained where
-its behavior matches this design. The 863-line orchestration module is split by
-responsibility. Historical Phase 0 helpers and example-specific orchestration
-move outside the shipped plugin. No parallel `v2`, `new`, or fallback runtime
-is kept.
+The v0.1 capture, validation, doctor, and artifact logic is retained only where
+its behavior matches this design. No parallel `v2`, `new`, WebM fallback, or
+alternate runtime is kept, and existing user-created WebM files are untouched.
 
 The existing fixed-origin skill is replaced in place by the public workflow.
 Source and installed-cache paths remain single and canonical. Existing schema-2
@@ -326,5 +392,5 @@ The design is complete when all of the following are true:
 - Fresh tests, coverage, validators, isolated installation, the eight
   submission evals, and two sequential desktop recordings pass.
 - Public metadata, legal/support links, community files, protected release
-  settings, and the pinned `v0.1.0` installation path are in place before public
+  settings, and the pinned `v0.2.0` installation path are in place before public
   submission.

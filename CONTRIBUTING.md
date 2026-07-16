@@ -6,7 +6,7 @@ boundaries are welcome.
 ## Development requirements
 
 - Node.js 24 or newer
-- FFmpeg and FFprobe on `PATH`, including the `libvpx` VP8 encoder and WebM
+- FFmpeg and FFprobe on `PATH`, including the `libx264` H.264 encoder and MP4
   muxer
 - The Codex CLI for the isolated plugin-installation integration test
 

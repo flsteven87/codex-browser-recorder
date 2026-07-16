@@ -3,20 +3,18 @@ import { tmpdir } from "node:os";
 import { startBrowserRecordingForTab } from "./browser-recording.mjs";
 import { doctor as inspectRecordingEnvironment } from "./doctor.mjs";
 import {
-  cleanupRecordingArtifacts,
-  finalizeRecordingArtifacts,
-  prepareRecordingArtifacts,
+  createRecordingArtifactTransaction,
+  planSavedRecording,
 } from "./recording-artifacts.mjs";
 import {
+  captureFailureCode,
   describeRecordingFailure,
   getRecordingCleanupDetails,
-  sanitizeCaptureResult,
+  sanitizeCaptureStatus,
   sanitizeRecordingFailure,
 } from "./recording-outcome.mjs";
 import {
   RECORDING_HARD_LIMIT_MS,
-  RECORDING_MAX_HEIGHT,
-  RECORDING_MAX_WIDTH,
   validateRecordingRequest,
 } from "./recording-policy.mjs";
 
@@ -145,25 +143,25 @@ async function createFreshTab(browser, signal, clock) {
   }
 }
 
-async function prepareArtifactsForRecording({ dependencies, options, signal }) {
-  let cancellationExpired = false;
-  let knownDirectory;
+async function prepareArtifactTransaction({
+  dependencies,
+  options,
+  savedRecording,
+  signal,
+}) {
   let lateCleanupStarted = false;
-  const cleanupLateArtifacts = (paths) => {
+  const cleanupLateTransaction = (transaction) => {
     if (lateCleanupStarted) return;
     lateCleanupStarted = true;
     void Promise.resolve()
-      .then(() => dependencies.cleanupRecordingArtifacts(paths))
+      .then(() => transaction.rollback())
       .catch(() => {});
   };
   const preparation = Promise.resolve().then(() =>
-    dependencies.prepareRecordingArtifacts({
-      onDirectoryCreated(directory) {
-        knownDirectory = directory;
-        if (cancellationExpired) {
-          cleanupLateArtifacts({ directory });
-        }
-      },
+    dependencies.createRecordingArtifactTransaction({
+      destinationDirectory: savedRecording.destinationDirectory,
+      outputFilename: savedRecording.outputFilename,
+      signal,
       temporaryRoot: options.temporaryRoot ?? tmpdir(),
     }),
   );
@@ -180,31 +178,26 @@ async function prepareArtifactsForRecording({ dependencies, options, signal }) {
       throw error;
     }
     if (prepared.status === "timed_out") {
-      cancellationExpired = true;
       void preparation.then(
-        cleanupLateArtifacts,
+        cleanupLateTransaction,
         () => {},
       );
-    }
-    const paths = prepared.value ?? (
-      typeof knownDirectory === "string"
-        ? { directory: knownDirectory }
-        : null
-    );
-    if (paths === null) {
       throw sanitizeRecordingFailure(error, {
         artifactCleanupIncomplete: true,
       });
     }
+    const transaction = prepared.value;
+    if (transaction == null) throw error;
     const cleanup = await settleBeforeDeadline(
-      Promise.resolve().then(() =>
-        dependencies.cleanupRecordingArtifacts(paths),
-      ),
+      Promise.resolve().then(() => transaction.rollback()),
       dependencies.clock,
     );
     if (cleanup.status !== "fulfilled") {
+      const details = getRecordingCleanupDetails(cleanup.reason);
       throw sanitizeRecordingFailure(error, {
-        cleanupDirectory: paths?.directory,
+        artifactCleanupIncomplete: details == null,
+        cleanupDirectory: details?.directory,
+        cleanupFile: details?.cleanupFile,
       });
     }
     throw error;
@@ -245,17 +238,13 @@ function failedHandle(code) {
 }
 
 async function startRecordingTransaction({
+  artifacts,
   dependencies,
   options,
   request,
   signal,
   tab,
 }) {
-  const paths = await prepareArtifactsForRecording({
-    dependencies,
-    options,
-    signal,
-  });
   let session;
   try {
     session = await dependencies.startBrowserRecordingForTab({
@@ -263,9 +252,9 @@ async function startRecordingTransaction({
       ffmpegPath: options.ffmpegPath,
       firstFrameTimeoutMs: 5000,
       maxDurationMs: RECORDING_HARD_LIMIT_MS,
-      maxFrameStallMs: 5000,
-      outputPath: paths.outputPath,
+      outputPath: artifacts.capturePath,
       readTimeoutMs: 1000,
+      requirePointerEvents: request.requirePointerEvents,
       resourceCheckIntervalMs: 1000,
       signal,
       tab,
@@ -273,12 +262,11 @@ async function startRecordingTransaction({
   } catch (error) {
     const cleanup = await settleBeforeDeadline(
       Promise.resolve().then(() =>
-        dependencies.cleanupRecordingArtifacts(paths),
+        artifacts.rollback(),
       ),
       dependencies.clock,
     );
-    const cleanupDirectory =
-      cleanup.status === "fulfilled" ? undefined : paths.directory;
+    const cleanupDetails = getRecordingCleanupDetails(cleanup.reason);
     throw sanitizeRecordingFailure(
       {
         code:
@@ -286,7 +274,12 @@ async function startRecordingTransaction({
             ? error.code
             : "integration_failed",
       },
-      { cleanupDirectory },
+      {
+        artifactCleanupIncomplete:
+          cleanup.status !== "fulfilled" && cleanupDetails == null,
+        cleanupDirectory: cleanupDetails?.directory,
+        cleanupFile: cleanupDetails?.cleanupFile,
+      },
     );
   }
 
@@ -308,12 +301,12 @@ async function startRecordingTransaction({
   }
 
   return {
-    cleanupDirectory: paths.directory,
     completion: session.completion,
     ready,
     status() {
       return {
-        capture: sanitizeCaptureResult({
+        capture: sanitizeCaptureStatus({
+          ...session.stats?.cursor,
           ...session.stats?.framePump,
           ...session.stats?.resources,
           ...session.stats?.sink,
@@ -321,19 +314,31 @@ async function startRecordingTransaction({
       };
     },
     stop() {
-      finalizationPromise ??= dependencies
-        .finalizeRecordingArtifacts({
-          captureError,
-          durationToleranceSeconds: 5,
+      finalizationPromise ??= (async () => {
+        let capture;
+        try {
+          capture = await session.stop();
+        } catch (error) {
+          capture = {
+            ...session.stats?.cursor,
+            ...session.stats?.framePump,
+            ...session.stats?.resources,
+            ...session.stats?.sink,
+            elapsedMs: session.stats?.resources?.elapsedMs ?? null,
+          };
+          captureError ??= error;
+        }
+        if (signal.aborted) {
+          captureError ??= Object.assign(new Error("Recording was cancelled"), {
+            code: "recording_cancelled",
+          });
+        }
+        return artifacts.finalize({
+          capture,
+          failureCode: captureFailureCode(captureError),
           ffprobePath: options.ffprobePath,
-          maxHeight: RECORDING_MAX_HEIGHT,
-          maxWidth: RECORDING_MAX_WIDTH,
-          minBytes: 100,
-          outputPath: paths.outputPath,
-          resultPath: paths.resultPath,
-          session,
-        })
-        .then((result) => ({ paths, result }));
+        });
+      })();
       return finalizationPromise;
     },
   };
@@ -349,11 +354,9 @@ export function createRecording(options) {
     }
     if (callerSignal != null) isAborted(callerSignal);
     dependencies = options?._dependencies ?? {
-      cleanupRecordingArtifacts,
       clock: { clearTimeout, setTimeout },
+      createRecordingArtifactTransaction,
       doctor: inspectRecordingEnvironment,
-      finalizeRecordingArtifacts,
-      prepareRecordingArtifacts,
       startBrowserRecordingForTab,
     };
   } catch {
@@ -363,6 +366,7 @@ export function createRecording(options) {
   let inner;
   let durationTimer;
   let freshTab;
+  let artifactTransaction;
   let stopPromise;
   let terminal = false;
   let ownsFreshTab = false;
@@ -462,7 +466,7 @@ export function createRecording(options) {
             cancellation.abort();
             throw sanitizeRecordingFailure(
               { code: "integration_failed" },
-              { cleanupDirectory: inner.cleanupDirectory },
+              { artifactCleanupIncomplete: true },
             );
           }
           if (finalization.status === "rejected") {
@@ -517,6 +521,7 @@ export function createRecording(options) {
         throw sanitizeRecordingFailure({ code: "recording_cancelled" });
       }
       const request = validateRecordingRequest(options);
+      const savedRecording = planSavedRecording(options);
       if (cancellation.signal.aborted) {
         throw sanitizeRecordingFailure({ code: "recording_cancelled" });
       }
@@ -528,6 +533,17 @@ export function createRecording(options) {
       ) {
         throw sanitizeRecordingFailure({ code: "invalid_configuration" });
       }
+      artifactTransaction = await prepareArtifactTransaction({
+        dependencies: {
+          clock: dependencies.clock,
+          createRecordingArtifactTransaction:
+            dependencies.createRecordingArtifactTransaction ??
+            createRecordingArtifactTransaction,
+        },
+        options,
+        savedRecording,
+        signal: cancellation.signal,
+      });
       try {
         freshTab = await createFreshTab(
           options.browser,
@@ -550,7 +566,7 @@ export function createRecording(options) {
         const environment = await awaitAbortable(
           (dependencies.doctor ?? inspectRecordingEnvironment)({
             cdpAvailable,
-            outputDirectory: options.temporaryRoot ?? tmpdir(),
+            outputDirectory: savedRecording.destinationDirectory,
           }),
           cancellation.signal,
         );
@@ -567,18 +583,12 @@ export function createRecording(options) {
         }
         throw error;
       }
+      const startingArtifacts = artifactTransaction;
+      artifactTransaction = null;
       inner = await startRecordingTransaction({
+        artifacts: startingArtifacts,
         dependencies: {
           clock: dependencies.clock,
-          cleanupRecordingArtifacts:
-            dependencies.cleanupRecordingArtifacts ??
-            cleanupRecordingArtifacts,
-          finalizeRecordingArtifacts:
-            dependencies.finalizeRecordingArtifacts ??
-            finalizeRecordingArtifacts,
-          prepareRecordingArtifacts:
-            dependencies.prepareRecordingArtifacts ??
-            prepareRecordingArtifacts,
           startBrowserRecordingForTab:
             dependencies.startBrowserRecordingForTab ??
             startBrowserRecordingForTab,
@@ -610,6 +620,7 @@ export function createRecording(options) {
       dependencies.clock.clearTimeout(durationTimer);
       let artifactCleanupIncomplete = false;
       let cleanupDirectory;
+      let cleanupFile;
       if (inner != null) {
         const cleanup = await settleBeforeDeadline(
           inner.stop(),
@@ -618,14 +629,26 @@ export function createRecording(options) {
         );
         if (cleanup.status === "timed_out") {
           cancellation.abort();
-          cleanupDirectory = inner.cleanupDirectory;
+          artifactCleanupIncomplete = true;
         } else if (cleanup.status === "rejected") {
           const details = getRecordingCleanupDetails(cleanup.reason);
           artifactCleanupIncomplete =
             details?.artifactCleanupIncomplete === true;
           if (details?.cleanupIncomplete === true) {
             cleanupDirectory = details.directory;
+            cleanupFile = details.cleanupFile;
           }
+        }
+      } else if (artifactTransaction != null) {
+        const cleanup = await settleBeforeDeadline(
+          artifactTransaction.rollback(),
+          dependencies.clock,
+        );
+        if (cleanup.status !== "fulfilled") {
+          const details = getRecordingCleanupDetails(cleanup.reason);
+          artifactCleanupIncomplete = details == null;
+          cleanupDirectory = details?.directory;
+          cleanupFile = details?.cleanupFile;
         }
       }
       let browserTabCleanupIncomplete = false;
@@ -640,6 +663,7 @@ export function createRecording(options) {
         artifactCleanupIncomplete,
         browserTabCleanupIncomplete,
         cleanupDirectory,
+        cleanupFile,
       });
       setTerminalFailure(publicError);
       release();

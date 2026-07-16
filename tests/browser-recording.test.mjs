@@ -7,15 +7,19 @@ import test from "node:test";
 import {
   describeRecordingFailure,
   getRecordingCleanupDetails,
+  sanitizeRecordingFailure,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-outcome.mjs";
 import {
   inspectTopLevelFrame,
-  startBrowserRecordingForTab,
+  startBrowserRecordingForTab as startBrowserRecordingForTabProduction,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/browser-recording.mjs";
 import { createRecording } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/create-recording.mjs";
 
 const captureFields = [
   "backpressureDrops",
+  "cursorEventsCaptured",
+  "cursorFramesObserved",
+  "cursorLastEventEpochMs",
   "elapsedMs",
   "encoderExitCode",
   "framesAcknowledged",
@@ -30,6 +34,32 @@ const captureFields = [
   "visibilityChanges",
   "visibilityState",
 ];
+
+async function createTestCursorCapture({ now }) {
+  const startedAt = now();
+  return {
+    completion: new Promise(() => {}),
+    stats: { cursorEventsCaptured: 0, cursorFramesObserved: 1 },
+    async stop() {
+      return {
+        durationMs: Math.max(1, now() - startedAt),
+        events: [],
+        viewport: { height: 720, width: 1280 },
+      };
+    },
+  };
+}
+
+function startBrowserRecordingForTab(options) {
+  return startBrowserRecordingForTabProduction({
+    ...options,
+    cursorCaptureFactory:
+      options.cursorCaptureFactory ?? createTestCursorCapture,
+    cursorRenderer:
+      options.cursorRenderer ??
+      (async ({ outputPath }) => ({ outputBytes: 0, outputPath })),
+  });
+}
 
 function deferred() {
   let reject;
@@ -58,14 +88,18 @@ function createHarness({
   };
   const finalized = deferred();
   const paths = {
-    directory: "/private/temporary/recording",
-    outputPath: "/private/temporary/recording/recording.webm",
-    resultPath: "/private/temporary/recording/result.json",
+    outputPath: "/Users/example/Downloads/recording.mp4",
   };
+  const workingDirectory = "/private/temporary/recording";
+  const capturePath = `${workingDirectory}/recording.mp4`;
   const session = {
     completion,
     ready,
     stats: {
+      cursor: {
+        cursorEventsCaptured: 0,
+        cursorFramesObserved: 1,
+      },
       framePump: {
         framesAcknowledged: 8,
         framesDropped: 1,
@@ -80,7 +114,7 @@ function createHarness({
       resources: {
         elapsedMs: 900,
         maxObservedOutputBytes: 4096,
-        outputPath: paths.outputPath,
+        outputPath: capturePath,
         terminationReason: null,
       },
       sink: {
@@ -92,7 +126,7 @@ function createHarness({
     },
     async stop() {
       calls.sessionStop += 1;
-      return {};
+      return { elapsedMs: 900 };
     },
   };
   let cleanupPaths;
@@ -102,32 +136,38 @@ function createHarness({
   return {
     calls,
     dependencies: {
-      async cleanupRecordingArtifacts(preparedPaths) {
-        calls.cleanup += 1;
-        cleanupPaths = preparedPaths;
-        if (cleanupError) throw cleanupError;
-      },
-      async finalizeRecordingArtifacts(options) {
-        calls.finalize += 1;
-        finalizedOptions = options;
-        await options.session.stop();
-        await finalizeGate?.promise;
-        if (finalizeError) {
-          finalized.resolve({ error: finalizeError });
-          throw finalizeError;
-        }
-        const result =
-          finalResult ?? {
-            failureCode: null,
-            status: "passed",
-            outputFile: "recording.webm",
-          };
-        finalized.resolve(result);
-        return result;
-      },
-      async prepareRecordingArtifacts() {
+      async createRecordingArtifactTransaction(options) {
         calls.prepare += 1;
-        return paths;
+        return {
+          capturePath,
+          async finalize(finalizationOptions) {
+            calls.finalize += 1;
+            finalizedOptions = finalizationOptions;
+            await finalizeGate?.promise;
+            if (finalizeError) {
+              finalized.resolve({ error: finalizeError });
+              throw finalizeError;
+            }
+            const result =
+              finalResult ?? {
+                failureCode: null,
+                status: "passed",
+                outputFile: "recording.mp4",
+              };
+            finalized.resolve(result);
+            return { paths, result };
+          },
+          async rollback() {
+            calls.cleanup += 1;
+            cleanupPaths = { directory: workingDirectory };
+            if (cleanupError) {
+              throw sanitizeRecordingFailure(
+                { code: "cleanup_failed" },
+                { cleanupDirectory: workingDirectory },
+              );
+            }
+          },
+        };
       },
       async startBrowserRecordingForTab() {
         calls.start += 1;
@@ -213,7 +253,9 @@ test("cleans the prepared directory when session startup fails", async () => {
   assert.equal(harness.calls.start, 1);
   assert.equal(harness.calls.cleanup, 1);
   assert.equal(harness.calls.finalize, 0);
-  assert.equal(harness.cleanupPaths, harness.paths);
+  assert.deepEqual(harness.cleanupPaths, {
+    directory: "/private/temporary/recording",
+  });
 });
 
 test("external abort cancels capability acquisition and cleans late startup", async () => {
@@ -383,10 +425,12 @@ test("preserves the startup error when directory cleanup also fails", async () =
     return true;
   });
   assert.equal(harness.calls.cleanup, 1);
-  assert.equal(harness.cleanupPaths, harness.paths);
+  assert.deepEqual(harness.cleanupPaths, {
+    directory: "/private/temporary/recording",
+  });
   assert.deepEqual(getRecordingCleanupDetails(publicError), {
     cleanupIncomplete: true,
-    directory: harness.paths.directory,
+    directory: "/private/temporary/recording",
   });
   assert.equal(Object.keys(publicError).includes("cleanupIncomplete"), false);
   assert.equal(Object.keys(publicError).includes("directory"), false);
@@ -423,6 +467,8 @@ test("status exposes only bounded sanitized capture fields", async () => {
   assert.deepEqual(Object.keys(status.capture).sort(), captureFields.sort());
   assert.equal(status.capture.framesReceived, 9);
   assert.equal(status.capture.outputSamples, 7);
+  assert.equal(status.capture.cursorEventsCaptured, 0);
+  assert.equal(status.capture.cursorFramesObserved, 1);
   assert.doesNotMatch(JSON.stringify(status), /must-not-leak|\/private\//);
   await handle.stop();
 });
@@ -442,7 +488,7 @@ test("stop memoizes one finalization promise and completes once", async () => {
     result: {
       failureCode: null,
       status: "passed",
-      outputFile: "recording.webm",
+      outputFile: "recording.mp4",
     },
   });
   assert.equal(handle.status().state, "completed");
@@ -550,6 +596,13 @@ test("acquires a fresh CDP capability for every recording session", async () => 
                 },
               };
             }
+            if (method === "Page.captureScreenshot") {
+              return {
+                data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString(
+                  "base64",
+                ),
+              };
+            }
           },
           async readEvents() {
             reads += 1;
@@ -602,7 +655,7 @@ test("acquires a fresh CDP capability for every recording session", async () => 
       ffmpegPath: "/unused/ffmpeg",
       fps: 10,
       maxDecodedBytes: 1024,
-      outputPath: `/tmp/unused-${index}.webm`,
+      outputPath: `/tmp/unused-${index}.mp4`,
       readTimeoutMs: 1,
       sinkFactory: () => ({
         stats: {
@@ -646,6 +699,11 @@ test("discards the session when the event stream truncates after readiness", asy
           frameTree: {
             frame: { id: "main-frame", url: "https://example.com/start" },
           },
+        };
+      }
+      if (method === "Page.captureScreenshot") {
+        return {
+          data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64"),
         };
       }
     },
@@ -699,7 +757,7 @@ test("discards the session when the event stream truncates after readiness", asy
     approvedOrigin: "https://example.com",
     ffmpegPath: "/unused/ffmpeg",
     maxDecodedBytes: 1024,
-    outputPath: "/tmp/must-not-publish.webm",
+    outputPath: "/tmp/must-not-publish.mp4",
     readTimeoutMs: 1,
     resourceCheckIntervalMs: 60_000,
     sinkFactory: () => ({
@@ -749,6 +807,11 @@ test("reports a stable failure when a screencast frame cannot be acknowledged", 
           },
         };
       }
+      if (method === "Page.captureScreenshot") {
+        return {
+          data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64"),
+        };
+      }
       if (method === "Page.screencastFrameAck") {
         acknowledgementAttempts += 1;
         if (acknowledgementAttempts === 2) {
@@ -779,7 +842,7 @@ test("reports a stable failure when a screencast frame cannot be acknowledged", 
     approvedOrigin: "https://example.com",
     ffmpegPath: "/unused/ffmpeg",
     maxDecodedBytes: 1024,
-    outputPath: "/tmp/must-not-publish.webm",
+    outputPath: "/tmp/must-not-publish.mp4",
     readTimeoutMs: 1,
     resourceCheckIntervalMs: 60_000,
     sinkFactory: () => ({
@@ -824,7 +887,7 @@ test("stop returns the finalized output through the sole public lifecycle", asyn
     paths: harness.paths,
     result: {
       failureCode: null,
-      outputFile: "recording.webm",
+      outputFile: "recording.mp4",
       status: "passed",
     },
   });
@@ -840,7 +903,7 @@ test("readiness failure is retained as the primary cleanup error", async () => {
     finalResult: {
       failureCode: readinessError.code,
       status: "failed",
-      outputFile: "recording.webm",
+      outputFile: "recording.mp4",
     },
     ready: Promise.reject(readinessError),
   });
@@ -853,7 +916,10 @@ test("readiness failure is retained as the primary cleanup error", async () => {
   );
   assert.equal(handle.status().state, "failed");
   await assert.rejects(handle.stop(), (error) => error.code === readinessError.code);
-  assert.equal(harness.finalizedOptions.captureError, readinessError);
+  assert.equal(
+    harness.finalizedOptions.failureCode,
+    readinessError.code,
+  );
   assert.equal(harness.calls.sessionStop, 1);
   assert.equal(handle.status().state, "failed");
 });
@@ -865,7 +931,7 @@ test("an automatic capture failure finalizes without an explicit stop", async ()
     finalResult: {
       failureCode: "frame_stream_stalled",
       status: "failed",
-      outputFile: "recording.webm",
+      outputFile: "recording.mp4",
     },
   });
   const handle = await createHandle(harness);
@@ -897,7 +963,7 @@ test("automatic terminal completion stays pending until finalization finishes", 
     finalResult: {
       failureCode: "frame_stream_stalled",
       status: "failed",
-      outputFile: "recording.webm",
+      outputFile: "recording.mp4",
     },
   });
   const handle = await createHandle(harness);
@@ -1038,6 +1104,7 @@ test("sanitizes every pre-handle Browser and CDP startup failure after rollback"
                 supported: true,
               };
             },
+            startBrowserRecordingForTab,
           },
           browser: { tabs: { async new() { return tab; } } },
           targetUrl: "https://example.com/",

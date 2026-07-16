@@ -200,9 +200,21 @@ function assertActionFailureBoundary(source) {
   );
   assert.match(
     sanitizer.body,
-    /sanitizeRecordingFailure\(\s*{ code: "cancelled" },\s*cleanup[?][.]cleanupIncomplete === true\s*[?]\s*{ cleanupDirectory: cleanup[.]directory }\s*:\s*undefined,?\s*\)/,
+    /sanitizeRecordingFailure\(\s*{ code: "cancelled" },\s*{/,
     "action-time Browser approval denial must map to cancelled without losing trusted cleanup metadata",
   );
+  for (const trustedField of [
+    "artifactCleanupIncomplete",
+    "browserTabCleanupIncomplete",
+    "cleanupDirectory: cleanup?.directory",
+    "cleanupFile: cleanup?.cleanupFile",
+  ]) {
+    assert.equal(
+      sanitizer.body.includes(trustedField),
+      true,
+      `action-time cancellation must retain trusted ${trustedField} metadata`,
+    );
+  }
 
   const recordingTryIndex = lifecycle.indexOf(
     "try {\n  await navigateFreshTab(request.targetUrl);",
@@ -212,7 +224,7 @@ function assertActionFailureBoundary(source) {
   const outerCatch = lifecycle.slice(outerTry.end, cleanup.markerIndex);
   assert.match(
     outerCatch,
-    /catch \(error\)\s*{\s*primaryFailure = sanitizeActionFailure\(error\);\s*throw primaryFailure;\s*}/,
+    /catch \(error\)\s*{\s*actionAbortController[.]abort\(\);\s*primaryFailure = sanitizeActionFailure\(error\);\s*throw primaryFailure;\s*}/,
     "the outer approved-action boundary must never retain or throw a raw error",
   );
   assert.doesNotMatch(
@@ -279,28 +291,28 @@ test("public docs disclose failure-specific local media retention", () => {
   ]) {
     assert.match(
       source,
-      /Capture,\s+cancellation,\s+and\s+cross-origin\s+failures\s+discard\s+working\s+media[.]/i,
-      `${label} must disclose working-media discard cases`,
+      /Capture,\s+cancellation,\s+cross-origin,\s+and\s+validation\s+failures\s+do\s+not\s+publish\s+a\s+Saved\s+Recording/i,
+      `${label} must disclose non-publication cases`,
     );
     assert.match(
       source,
-      /A\s+result-persistence\s+failure\s+attempts\s+to\s+roll\s+back\s+the\s+entire\s+private\s+recording\s+directory[.]/i,
-      `${label} must disclose attempted directory rollback`,
+      /transaction\s+discards\s+their\s+Working\s+Recording[.]/i,
+      `${label} must disclose failed-media discard`,
     );
     assert.match(
       source,
-      /If\s+that\s+cleanup\s+is\s+incomplete,\s+the\s+skill\s+reports\s+the\s+local\s+directory\s+that\s+the\s+user\s+must\s+delete[.]/i,
-      `${label} must disclose actionable incomplete cleanup`,
+      /automatic\s+cleanup\s+fails[^.]*reports\s+the\s+local\s+path\s+for\s+deletion[.]/i,
+      `${label} must disclose cleanup failure handling`,
     );
     assert.match(
       source,
-      /A\s+validation-rejected\s+finalized\s+WebM\s+may\s+remain\s+in\s+the\s+private\s+operating-system\s+temporary\s+directory[.]/i,
-      `${label} must disclose validation-rejected media retention`,
+      /durable\s+publication\s+fails[^.]*reports[^.]*Working\s+Recording\s+recovery\s+directory[^.]*copy\s+it\s+to\s+a\s+durable\s+folder/i,
+      `${label} must disclose publication recovery`,
     );
     assert.match(
       source,
-      /The\s+user\s+must\s+delete\s+that\s+recording\s+directory[.]/i,
-      `${label} must disclose deletion responsibility`,
+      /does\s+not\s+automatically[^.]{0,80}(?:open|play)[^.]{0,80}(?:upload|share)/i,
+      `${label} must disclose automatic-action boundaries`,
     );
     assert.doesNotMatch(
       source,
@@ -367,9 +379,20 @@ test("skill validates before Browser activity and delegates recording to product
   assert.match(skill, /scripts\/create-recording[.]mjs/);
   assert.doesNotMatch(skill, /resolve\(installedSkillRoot, "scripts\/doctor[.]mjs"\)/);
   assert.match(skill, /validateRecordingRequest/);
+  assert.match(skill, /requirePointerEvents/);
   assert.match(skill, /createRecording/);
   assert.match(skill, /freshTab = await handle[.]ready/);
   assert.match(skill, /handle[.]status[(][)]/);
+  assert.match(skill, /cursorEventsCaptured/);
+  assert.match(skill, /hasPointerActionEvidence/);
+  assert.match(skill, /requiresPointerEvidence/);
+  assert.match(skill, /new AbortController[(][)]/);
+  assert.match(skill, /signal: actionAbortController[.]signal/);
+  assert.match(
+    skill,
+    /catch \(error\) \{\s*actionAbortController[.]abort[(][)];\s*primaryFailure = sanitizeActionFailure\(error\);/,
+  );
+  assert.match(skill, /pointer action.{0,100}observed pointer event/is);
   assert.match(skill, /handle[.]stop[(][)]/);
   assert.match(skill, /stop performing Browser actions/i);
   assert.doesNotMatch(skill, /example[.]com|integration gate|createExampleRecording/i);
@@ -477,7 +500,7 @@ test("skill keeps one outer-scoped handle through deterministic cleanup", () => 
   );
   assert.match(
     lifecycle.slice(outerTry.end, cleanup.markerIndex),
-    /catch [(]error[)]\s*{\s*primaryFailure\s*=\s*sanitizeActionFailure[(]error[)];\s*throw primaryFailure;\s*}/,
+    /catch [(]error[)]\s*{\s*actionAbortController[.]abort[(][)];\s*primaryFailure\s*=\s*sanitizeActionFailure[(]error[)];\s*throw primaryFailure;\s*}/,
   );
   assert.match(cleanup.body, /^\s*let cleanupFailure;/);
   assert.match(
@@ -508,9 +531,10 @@ test("skill enforces cancellation, sensitive-flow, and same-origin boundaries", 
 test("skill reports product results before bounded diagnostics", () => {
   assert.match(skill, /Recording completed/);
   assert.match(skill, /duration/i);
-  assert.match(skill, /VP8 WebM/i);
+  assert.match(skill, /H[.]264 MP4/i);
   assert.match(skill, /no audio/i);
-  assert.match(skill, /saved locally/i);
+  assert.match(skill, /Saved Recording/);
+  assert.match(skill, /Open in Finder/);
   assert.match(skill, /diagnostics/i);
   assert.match(skill, /summary/i);
   assert.match(skill, /remediation/i);
