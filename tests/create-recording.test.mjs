@@ -5,7 +5,10 @@ import {
   createRecording,
   describeRecordingFailure,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/create-recording.mjs";
-import { getRecordingCleanupDetails } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-outcome.mjs";
+import {
+  getRecordingCleanupDetails,
+  sanitizeRecordingFailure,
+} from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-outcome.mjs";
 
 const ACTIVE_RECORDING_KEY = Symbol.for("codex-browser-recorder.active");
 
@@ -61,7 +64,7 @@ function createHarness({
   autoStop = true,
   capture = { framesReceived: 12 },
   stopOutput = {
-    paths: { directory: "/private/recording" },
+    paths: { outputPath: "/Users/example/Downloads/recording.mp4" },
     result: { failureCode: null, status: "passed" },
   },
 } = {}) {
@@ -72,7 +75,7 @@ function createHarness({
   const calls = { startRecording: 0, stop: 0, tabClose: 0, tabNew: 0 };
   const paths = {
     directory: "/private/recording",
-    outputPath: "/private/recording/recording.webm",
+    outputPath: "/private/recording/recording.mp4",
     resultPath: "/private/recording/result.json",
   };
   let rawRecordingOptions;
@@ -96,7 +99,7 @@ function createHarness({
     stop() {
       stopPromise ??= (() => {
         calls.stop += 1;
-        return stopDeferred.promise;
+        return Promise.resolve({ elapsedMs: 500, ...capture });
       })();
       return stopPromise;
     },
@@ -128,7 +131,16 @@ function createHarness({
     completionDeferred,
     dependencies: {
       clock,
-      async cleanupRecordingArtifacts() {},
+      async createRecordingArtifactTransaction() {
+        return {
+          capturePath: paths.outputPath,
+          async finalize(finalizationOptions) {
+            rawFinalizationOptions = finalizationOptions;
+            return stopDeferred.promise;
+          },
+          async rollback() {},
+        };
+      },
       async doctor() {
         return {
           blockingReasons: [],
@@ -136,15 +148,6 @@ function createHarness({
           ffprobePath: "/opt/ffprobe",
           supported: true,
         };
-      },
-      async finalizeRecordingArtifacts(options) {
-        rawFinalizationOptions = options;
-        const { session } = options;
-        const output = await session.stop();
-        return output?.result ?? output;
-      },
-      async prepareRecordingArtifacts() {
-        return paths;
       },
       async startBrowserRecordingForTab(options) {
         calls.startRecording += 1;
@@ -232,7 +235,8 @@ test("returns a preparing handle and validates before allocating Browser resourc
   assert.equal("maxOutputBytes" in harness.rawRecordingOptions, false);
   assert.equal("maxWidth" in harness.rawRecordingOptions, false);
   await handle.stop();
-  assert.equal(harness.rawFinalizationOptions.maxWidth, 1280);
+  assert.equal("maxWidth" in harness.rawFinalizationOptions, false);
+  assert.equal(harness.rawFinalizationOptions.capture.framesReceived, 12);
   assertPublicStatus(handle, "completed");
 });
 
@@ -265,19 +269,26 @@ test("owns fresh-tab preflight and returns only the approved tab at readiness", 
   const handle = createRecording({
     _dependencies: {
       clock: harness.clock,
-      async finalizeRecordingArtifacts(options) {
-        calls.push("artifacts:finalize");
-        assert.equal(options.outputPath, "/private/recording/recording.webm");
-        assert.equal(options.ffprobePath, "/opt/ffprobe");
-        await options.session.stop();
-        return { failureCode: null, status: "passed" };
-      },
-      async prepareRecordingArtifacts() {
+      async createRecordingArtifactTransaction(options) {
         calls.push("artifacts:prepare");
+        assert.equal(
+          options.destinationDirectory,
+          "/Users/example/Downloads/Codex Browser Recordings",
+        );
         return {
-          directory: "/private/recording",
-          outputPath: "/private/recording/recording.webm",
-          resultPath: "/private/recording/result.json",
+          capturePath: "/private/recording/recording.mp4",
+          async finalize(finalization) {
+            calls.push("artifacts:finalize");
+            assert.equal(finalization.ffprobePath, "/opt/ffprobe");
+            return {
+              paths: {
+                outputPath:
+                  "/Users/example/Downloads/Codex Browser Recordings/browser-recording.mp4",
+              },
+              result: { failureCode: null, status: "passed" },
+            };
+          },
+          async rollback() {},
         };
       },
       async startBrowserRecordingForTab(options) {
@@ -290,7 +301,8 @@ test("owns fresh-tab preflight and returns only the approved tab at readiness", 
         calls.push("doctor");
         assert.deepEqual(options, {
           cdpAvailable: true,
-          outputDirectory: "/private/tmp",
+          outputDirectory:
+            "/Users/example/Downloads/Codex Browser Recordings",
         });
         return {
           blockingReasons: [],
@@ -302,24 +314,24 @@ test("owns fresh-tab preflight and returns only the approved tab at readiness", 
     },
     browser,
     durationMs: 5_000,
+    homeDirectory: "/Users/example",
     targetUrl: "https://example.com/demo",
     temporaryRoot: "/private/tmp",
   });
 
   assert.equal(await handle.ready, freshTab);
   assert.deepEqual(calls, [
+    "artifacts:prepare",
     "tab:new",
     "goto:https://example.com/demo",
     "capability:cdp",
     "doctor",
-    "artifacts:prepare",
     "capture:start",
   ]);
   assert.deepEqual(await handle.stop(), {
     paths: {
-      directory: "/private/recording",
-      outputPath: "/private/recording/recording.webm",
-      resultPath: "/private/recording/result.json",
+      outputPath:
+        "/Users/example/Downloads/Codex Browser Recordings/browser-recording.mp4",
     },
     result: { failureCode: null, status: "passed" },
   });
@@ -444,13 +456,9 @@ test("rolls back late artifact preparation after cancellation", async () => {
   const preparationDeferred = deferred();
   let preparationStarted = false;
   let cleanupStarted = false;
-  harness.dependencies.prepareRecordingArtifacts = () => {
+  harness.dependencies.createRecordingArtifactTransaction = () => {
     preparationStarted = true;
     return preparationDeferred.promise;
-  };
-  harness.dependencies.cleanupRecordingArtifacts = async () => {
-    cleanupStarted = true;
-    throw new Error("private cleanup diagnostic");
   };
   const handle = createRecording({
     _dependencies: harness.dependencies,
@@ -462,9 +470,13 @@ test("rolls back late artifact preparation after cancellation", async () => {
   assert.equal(preparationStarted, true);
   const stopped = handle.stop();
   preparationDeferred.resolve({
-    directory: "/private/late-recording",
-    outputPath: "/private/late-recording/recording.webm",
-    resultPath: "/private/late-recording/result.json",
+    async rollback() {
+      cleanupStarted = true;
+      throw sanitizeRecordingFailure(
+        { code: "cleanup_failed" },
+        { cleanupDirectory: "/private/late-recording" },
+      );
+    },
   });
   await assert.rejects(stopped, (error) => {
     assert.equal(error.code, "recording_cancelled");
@@ -476,7 +488,7 @@ test("rolls back late artifact preparation after cancellation", async () => {
     return true;
   });
   assert.equal(cleanupStarted, true);
-  assert.equal(harness.calls.tabClose, 1);
+  assert.equal(harness.calls.tabClose, 0);
   await assertSingletonReleased();
 });
 
@@ -621,11 +633,7 @@ test("bounds cancellation when fresh-tab creation never settles", async () => {
 
 test("bounds cancellation and cleanup when artifact preparation never settles", async () => {
   const harness = createHarness();
-  harness.dependencies.prepareRecordingArtifacts = ({ onDirectoryCreated }) => {
-    onDirectoryCreated("/private/hung-recording");
-    return new Promise(() => {});
-  };
-  harness.dependencies.cleanupRecordingArtifacts = () =>
+  harness.dependencies.createRecordingArtifactTransaction = () =>
     new Promise(() => {});
   const handle = createRecording({
     _dependencies: harness.dependencies,
@@ -642,47 +650,12 @@ test("bounds cancellation and cleanup when artifact preparation never settles", 
   await assert.rejects(stopped, (error) => {
     assert.equal(error.code, "recording_cancelled");
     assert.deepEqual(getRecordingCleanupDetails(error), {
-      cleanupIncomplete: true,
-      directory: "/private/hung-recording",
-    });
-    return true;
-  });
-  assert.equal(harness.calls.tabClose, 1);
-  assertPublicStatus(handle, "cancelled");
-  await assertSingletonReleased();
-});
-
-test("reports unknown late artifact creation and still attempts cleanup", async () => {
-  const harness = createHarness();
-  let notifyDirectoryCreated;
-  let cleanupDirectory;
-  harness.dependencies.prepareRecordingArtifacts = ({ onDirectoryCreated }) => {
-    notifyDirectoryCreated = onDirectoryCreated;
-    return new Promise(() => {});
-  };
-  harness.dependencies.cleanupRecordingArtifacts = async (paths) => {
-    cleanupDirectory = paths.directory;
-  };
-  const handle = createRecording({
-    _dependencies: harness.dependencies,
-    browser: harness.browser,
-    targetUrl: "https://example.com/",
-  });
-
-  await settleWorkflow();
-  const stopped = handle.stop();
-  await settleWorkflow();
-  harness.clock.advance(5_000);
-  await assert.rejects(stopped, (error) => {
-    assert.equal(error.code, "recording_cancelled");
-    assert.deepEqual(getRecordingCleanupDetails(error), {
       artifactCleanupIncomplete: true,
     });
     return true;
   });
-  notifyDirectoryCreated("/private/very-late-recording");
-  await settleWorkflow();
-  assert.equal(cleanupDirectory, "/private/very-late-recording");
+  assert.equal(harness.calls.tabClose, 0);
+  assertPublicStatus(handle, "cancelled");
   await assertSingletonReleased();
 });
 
@@ -711,13 +684,17 @@ test("bounds a hanging fresh-tab close during normal teardown", async () => {
 
 test("bounds a hanging artifact rollback after startup failure", async () => {
   const harness = createHarness();
+  const createTransaction =
+    harness.dependencies.createRecordingArtifactTransaction;
+  harness.dependencies.createRecordingArtifactTransaction = async (options) => ({
+    ...(await createTransaction(options)),
+    rollback: () => new Promise(() => {}),
+  });
   harness.dependencies.startBrowserRecordingForTab = async () => {
     throw Object.assign(new Error("private startup diagnostic"), {
       code: "frame_stream_unavailable",
     });
   };
-  harness.dependencies.cleanupRecordingArtifacts = () =>
-    new Promise(() => {});
   const handle = createRecording({
     _dependencies: harness.dependencies,
     browser: harness.browser,
@@ -729,8 +706,7 @@ test("bounds a hanging artifact rollback after startup failure", async () => {
   await assert.rejects(handle.ready, (error) => {
     assert.equal(error.code, "frame_stream_unavailable");
     assert.deepEqual(getRecordingCleanupDetails(error), {
-      cleanupIncomplete: true,
-      directory: "/private/recording",
+      artifactCleanupIncomplete: true,
     });
     return true;
   });
@@ -753,8 +729,7 @@ test("bounds a hanging finalization and releases the singleton", async () => {
   await assert.rejects(stopped, (error) => {
     assert.equal(error.code, "integration_failed");
     assert.deepEqual(getRecordingCleanupDetails(error), {
-      cleanupIncomplete: true,
-      directory: "/private/recording",
+      artifactCleanupIncomplete: true,
     });
     return true;
   });
@@ -781,8 +756,7 @@ test("bounds readiness cleanup when lower-level stop never settles", async () =>
   await assert.rejects(handle.ready, (error) => {
     assert.equal(error.code, "frame_stream_unavailable");
     assert.deepEqual(getRecordingCleanupDetails(error), {
-      cleanupIncomplete: true,
-      directory: "/private/recording",
+      artifactCleanupIncomplete: true,
     });
     return true;
   });

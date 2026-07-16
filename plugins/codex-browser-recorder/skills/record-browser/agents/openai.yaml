@@ -1,6 +1,6 @@
 interface:
   display_name: "Record Browser"
-  short_description: "Record one approved Browser test flow to local WebM"
+  short_description: "Save one approved Browser test flow as local MP4"
   default_prompt: "Use $record-browser to record an approved Browser test flow."
 policy:
   allow_implicit_invocation: false

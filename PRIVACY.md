@@ -15,23 +15,26 @@ explicitly approved non-sensitive Browser test flow.
 
 The local result contains only bounded counters, media validation metadata, an
 output filename, and an allowlisted status or failure code with its fixed
-summary and remediation. On success, the skill may report the local video path
-to the user after cleanup completes.
+summary and remediation. On success, the skill reports the Saved Recording
+path after durable publication and private Working Recording cleanup.
 
 ## Retention and deletion
 
-- Output remains in a private operating-system temporary directory until the
-  user deletes or moves it.
-- The user must delete temporary output when it is no longer needed.
+- The Saved Recording defaults to
+  `~/Downloads/Codex Browser Recordings/browser-recording-<timestamp>.mp4` or
+  an explicitly approved absolute local destination and cleaned custom name.
+- Default filenames do not contain the page title, host, URL, or page text.
+- The user controls how long the Saved Recording remains in that durable
+  destination and must delete it when it is no longer needed.
 
-The plugin does not automatically copy, move, delete, upload, or share a
-successful recording. Capture, cancellation, and cross-origin failures discard
-working media. A result-persistence failure attempts to roll back the entire
-private recording directory. If that cleanup is incomplete, the skill reports
-the local directory that the user must delete. A validation-rejected finalized
-WebM may remain in the private operating-system temporary directory. Other
-failure responses do not promise an absolute output path. The user must delete
-that recording directory.
+The plugin does not automatically open, play, delete, upload, or share a Saved
+Recording. Capture, cancellation, cross-origin, and validation failures do not
+publish a Saved Recording; the transaction discards their Working Recording.
+If that automatic cleanup fails, the plugin reports the local path for
+deletion. If durable publication fails after validation, the plugin reports
+the retained Working Recording recovery directory so the user can copy it to a
+durable folder before cleanup. Other failure responses do not promise an
+absolute output path.
 
 ## User responsibilities
 

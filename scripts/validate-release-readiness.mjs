@@ -48,7 +48,7 @@ const requiredPaths = [
   ...workflowPaths,
 ].toSorted();
 const placeholderPattern = /\b(?:TBD|TODO|example@example[.]com|YOUR_NAME)\b/iu;
-const candidateVersionPattern = /^0[.]1[.]0(?:[+]codex[.][0-9A-Za-z-]+)?$/u;
+const candidateVersionPattern = /^0[.]2[.]0(?:[+]codex[.][0-9A-Za-z-]+)?$/u;
 const fullShaPattern = /^[0-9a-f]{40}$/u;
 const recordingArtifactPattern =
   /(?:^|\/)(?:[^/]+[.](?:webm|mp4|mov|mkv|part)|result[.]json|recording-[^/]+\/)/iu;
@@ -161,7 +161,7 @@ function validateManifest(manifest, mode, failures) {
   const version = manifest?.version;
   const versionValid =
     mode === "release"
-      ? version === "0.1.0"
+      ? version === "0.2.0"
       : typeof version === "string" && candidateVersionPattern.test(version);
   if (!versionValid) addFailure(failures, "VERSION_INVALID", manifestPath);
 
@@ -214,7 +214,7 @@ async function validateReleaseChangelog(repositoryRoot, existing, failures) {
     "utf8",
   );
   const releaseHeadings = [
-    ...changelog.matchAll(/^## \[0[.]1[.]0\] - (.+)$/gmu),
+    ...changelog.matchAll(/^## \[0[.]2[.]0\] - (.+)$/gmu),
   ];
   const datedHeadings = releaseHeadings.filter(([, value]) =>
     /^\d{4}-\d{2}-\d{2}$/u.test(value),

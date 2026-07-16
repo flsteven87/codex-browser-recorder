@@ -1,8 +1,7 @@
 # Terms of Use
 
-Browser Recorder for Codex is experimental software for recording one
-explicitly approved, non-sensitive Browser test flow to a private local WebM
-file.
+Browser Recorder for Codex is experimental software for saving one explicitly
+approved, non-sensitive Browser test flow as a local H.264 MP4 recording.
 
 ## Responsible use
 
@@ -13,14 +12,14 @@ account-recovery secrets, health data, confidential communications, or other
 sensitive or authenticated flows.
 
 You are responsible for choosing an appropriate test target, complying with
-applicable law and site rules, protecting local artifacts, and deleting or
-moving temporary output when it is no longer needed. The plugin does not add an
-upload or sharing path.
+applicable law and site rules, protecting local recordings, and deleting them
+when they are no longer needed. The plugin does not add an upload or sharing
+path.
 
 ## Experimental software and warranty
 
-The plugin may fail, stop a recording, discard incomplete media, or leave a
-validation-rejected artifact that requires manual deletion. It is provided
+The plugin may fail, stop a recording, discard incomplete media, or retain a
+Working Recording that requires recovery or manual deletion. It is provided
 without warranties or guarantees of availability, fitness, or data retention.
 
 The repository source code is licensed under the [MIT License](LICENSE). That

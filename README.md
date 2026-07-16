@@ -2,9 +2,9 @@
 
 Browser Recorder is an experimental, community-developed Codex plugin that
 records one explicitly approved test flow in a fresh tab in the browser selected
-by the installed Browser plugin to a private local WebM file. The recording
-contains the page viewport only, uses VP8 video with no audio, and stays on the
-local machine.
+by the installed Browser plugin and saves it as a local MP4. The recording
+contains the page viewport only, uses H.264 video with no audio, and defaults to
+`~/Downloads/Codex Browser Recordings/` so the user can find and retain it.
 
 The plugin reuses the installed Browser plugin's permission-gated CDP session.
 It does not record Codex UI, browser chrome, other tabs, or an entire browser
@@ -12,15 +12,15 @@ profile, and it does not add an upload or sharing path.
 
 ## Status
 
-Version `v0.1.0` is the first supported source release. The complete repository
-test, coverage, eval, isolated-install, metadata, asset, final-release, and
-two-run installed-desktop gates pass. Use the immutable `v0.1.0` tag for a
-reproducible installation; the mutable `main` branch is not a supported
-release source.
+This checkout prepares version `v0.2.0`. Its automated repository test,
+coverage, eval, isolated-install, metadata, asset, and release gates pass. The
+required two-run installed-desktop gate and immutable `v0.2.0` tag remain
+release-operator steps; the mutable `main` branch is not a supported release
+source.
 
 Publication in the universal Plugin Directory is a separate OpenAI review and
-publisher-controlled release process. Until that listing is available, install
-the plugin from the pinned `v0.1.0` tag.
+publisher-controlled release process. Until the `v0.2.0` tag is published,
+`v0.1.0` remains the latest immutable installation source.
 
 Authenticated or sensitive flows remain out of scope. Use the plugin only for
 non-sensitive test pages and actions that every affected person has agreed may
@@ -28,7 +28,7 @@ be recorded.
 
 ## Supported Targets
 
-The first release accepts:
+The public workflow accepts:
 
 - `https:` URLs without embedded usernames or passwords;
 - explicitly approved loopback development URLs using `http:` with
@@ -48,7 +48,7 @@ supported.
 - The Codex Browser plugin installed and available
 - A Browser runtime capable of importing the plugin's bundled Node modules
 - Browser Developer mode with full CDP access already enabled by the user
-- `ffmpeg` and `ffprobe` on `PATH`, including the `libvpx` VP8 encoder, WebM
+- `ffmpeg` and `ffprobe` on `PATH`, including the `libx264` H.264 encoder, MP4
   muxer, and usable FFprobe JSON output
 
 The recorder runs a read-only environment check before capture. It does not
@@ -58,9 +58,9 @@ development and verification.
 
 ## Pinned Release and Local Installation
 
-A reproducible installation uses the canonical `v0.1.0` tag. Do not install
-from the mutable `main` branch, copy files into the Codex plugin cache, or edit
-cache contents by hand.
+A reproducible v0.2 installation uses the canonical `v0.2.0` tag after it is
+published. Do not treat the mutable `main` branch as a release source, copy
+files into the Codex plugin cache, or edit cache contents by hand.
 
 For local development, add the repository root as a local marketplace and
 install the plugin:
@@ -74,7 +74,7 @@ A pinned installation can use a checkout of that exact tag as the local
 marketplace source:
 
 ```sh
-git clone --branch v0.1.0 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
+git clone --branch v0.2.0 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
 codex plugin marketplace add /absolute/path/to/codex-browser-recorder
 codex plugin add codex-browser-recorder@codex-browser-recorder
 ```
@@ -88,8 +88,10 @@ restart Codex and create another task.
 Explicitly invoke `$record-browser` and provide:
 
 - the target URL;
-- the Browser actions to perform; and
-- an optional recording duration.
+- the Browser actions to perform;
+- an optional recording duration;
+- an optional absolute destination folder; and
+- an optional recording name.
 
 Mentioning `$record-browser` selects the workflow but does not approve an
 unknown target or scope. The skill validates the request locally before any
@@ -105,9 +107,11 @@ denied site or CDP approval.
 
 Before creating or navigating a Browser tab, the skill presents one
 consolidated consent request containing the normalized approved origin, planned
-actions, duration, private temporary output, no audio, no browser chrome, no
-other tabs, and the sensitive-data exclusion. Recording begins only after the
-user explicitly confirms that complete scope.
+actions, duration, Saved Recording destination and filename, H.264 MP4 with no
+audio, no browser chrome, no other tabs, and the sensitive-data exclusion.
+Recording begins only after the user explicitly confirms that complete scope.
+If macOS denies access to the destination, the run stops before creating a
+Browser tab and never falls back silently to temporary storage.
 
 Credentials, payment data, passkeys, account-recovery secrets, health data,
 confidential communications, and other sensitive authenticated flows must be
@@ -125,29 +129,30 @@ broaden the approved origin during a run.
 
 ## Output and Deletion
 
-Each run uses a unique private directory with mode `0700` under the operating
-system's temporary root. A successful run contains:
+Each run uses a unique Working Recording directory with mode `0700` under the
+operating system's temporary root. The default durable destination is
+`~/Downloads/Codex Browser Recordings/`; callers may choose another absolute
+local directory before consent. Default filenames use
+`browser-recording-YYYY-MM-DD-HHmmss.mp4` and never derive from the page title,
+host, URL, or page text. Explicit custom names are cleaned before use. A
+collision adds a short recording ID instead of overwriting an existing file.
 
-- `recording.webm`, atomically published after encoder finalization; a run is
-  reported as successful only after media validation; and
-- `result.json`, written with mode `0600` and containing schema-v3 bounded
-  counters, validation metadata, an output filename, and allowlisted status or
-  failure information.
+A run is successful only after the Working Recording validates as one H.264
+`yuv420p` video stream in an MP4 container, contains no audio, and is atomically
+published as the Saved Recording with mode `0600`. The private schema-v3 result
+contains bounded counters, validation metadata, an output filename, and
+allowlisted status or failure information; it excludes raw frames, CDP
+payloads, FFmpeg output, full URLs, page text, credentials, and internal plugin
+paths.
 
-The video is a validated VP8 WebM with no audio. Capture, cancellation, and
-cross-origin failures discard working media. A result-persistence failure
-attempts to roll back the entire private recording directory. If that cleanup
-is incomplete, the skill reports the local directory that the user must delete.
-A validation-rejected finalized WebM may remain in the
-private operating-system temporary directory. The failure response does not
-promise an absolute output path. The user must delete that recording directory.
-Result data excludes raw frames, CDP payloads, FFmpeg output, full URLs, page
-text, credentials, and internal plugin paths.
-
-Successful output remains in its private temporary directory until the user
-deletes or moves it. The plugin does not upload, share, copy, or move the file.
-The user is responsible for deleting temporary output when it is no longer
-needed.
+Capture, cancellation, cross-origin, and validation failures do not publish a
+Saved Recording; the transaction discards their Working Recording. If that
+automatic cleanup fails, the plugin reports the local path for deletion. If
+durable publication fails after validation, the plugin reports
+`saved_recording_persistence_failed` and the retained Working
+Recording recovery directory so the user can copy it to a durable folder. It
+never reports `Recording completed` for temporary output. The plugin does not
+automatically open, play, upload, or share recordings.
 
 ## Architecture
 
@@ -155,12 +160,13 @@ needed.
 flowchart LR
     U["Explicit $record-browser invocation"] --> P["Local request policy"]
     P --> C["One consolidated consent"]
-    C --> B["One fresh approved Browser tab"]
+    C --> D["Saved destination capability preflight"]
+    D --> B["One fresh approved Browser tab"]
     B --> R["Public createRecording coordinator"]
     R --> O["Continuous approved-origin enforcement"]
     O --> F["Bounded frame pump and local FFmpeg"]
-    F --> V["WebM and VP8 validation"]
-    V --> A["Transactional private artifacts"]
+    F --> V["H.264 MP4 validation"]
+    V --> A["Saved Recording transaction"]
 ```
 
 The skills-only plugin runs inside the same persistent Browser Node runtime
@@ -244,7 +250,7 @@ For use conditions, support boundaries, and project participation, see
 ## Record & Replay
 
 Browser Recorder and Codex Record & Replay solve different problems. This
-plugin captures the visible page flow as a local WebM for review; it does not
+plugin captures the visible page flow as a local MP4 for review; it does not
 turn the demonstrated actions into an automation or reusable skill. Record &
 Replay turns a demonstrated workflow into a reusable Codex skill rather than a
 video artifact.

@@ -34,8 +34,8 @@ test("builds the schema-v3 result without performing persistence", () => {
     createRecordingOutcome({
       capture: { framesReceived: 3 },
       failureCode: null,
-      outputFile: "recording.webm",
-      validation: { codec: "vp8" },
+      outputFile: "recording.mp4",
+      validation: { codec: "h264" },
     }),
     {
       capture: {
@@ -55,8 +55,8 @@ test("builds the schema-v3 result without performing persistence", () => {
         visibilityState: null,
       },
       failureCode: null,
-      media: { codec: "vp8" },
-      outputFile: "recording.webm",
+      media: { codec: "h264" },
+      outputFile: "recording.mp4",
       recorderContractVersion: 1,
       remediation: "No action is required",
       schemaVersion: 3,

@@ -189,7 +189,7 @@ function createNavigationSessionHarness({
         fps: 10,
         maxDecodedBytes: 1024,
         maxDurationMs: 50,
-        outputPath: "/tmp/unused.webm",
+        outputPath: "/tmp/unused.mp4",
         readTimeoutMs: 0,
         sinkFactory: () => sink,
       });
@@ -488,9 +488,9 @@ test("acknowledges an oversized frame before dropping it", async () => {
   assert.equal(pump.stats.framesAcknowledged, 1);
 });
 
-test("samples the latest JPEG into a parseable fixed-rate WebM", async () => {
+test("normalizes an odd Browser frame into a parseable H.264 MP4", async () => {
   const directory = mkdtempSync(join(tmpdir(), "browser-recorder-test-"));
-  const outputPath = join(directory, "sample.webm");
+  const outputPath = join(directory, "sample.mp4");
 
   try {
     const validJpeg = execFileSync(ffmpegPath, [
@@ -500,7 +500,7 @@ test("samples the latest JPEG into a parseable fixed-rate WebM", async () => {
       "-f",
       "lavfi",
       "-i",
-      "color=c=red:s=320x180:d=0.1",
+      "color=c=red:s=319x179:d=0.1",
       "-frames:v",
       "1",
       "-c:v",
@@ -540,9 +540,11 @@ test("samples the latest JPEG into a parseable fixed-rate WebM", async () => {
     assert.equal(sink.workingOutputPath, `${outputPath}.partial`);
     assert.equal(stats.encoderExitCode, 0);
     assert.equal(probe.streams.length, 1);
-    assert.equal(probe.streams[0].codec_name, "vp8");
-    assert.equal(probe.streams[0].width, 320);
-    assert.equal(probe.streams[0].height, 180);
+    assert.equal(probe.streams[0].codec_name, "h264");
+    assert.equal(probe.streams[0].pix_fmt, "yuv420p");
+    assert.match(probe.format.format_name, /(?:^|,)mp4(?:,|$)/u);
+    assert.equal(probe.streams[0].width, 318);
+    assert.equal(probe.streams[0].height, 178);
     assert.ok(Number.parseFloat(probe.format.duration) > 0);
     assert.equal(existsSync(`${outputPath}.partial`), false);
   } finally {
@@ -552,7 +554,7 @@ test("samples the latest JPEG into a parseable fixed-rate WebM", async () => {
 
 test("discards the partial video instead of publishing a failed capture", async () => {
   const directory = mkdtempSync(join(tmpdir(), "browser-recorder-discard-"));
-  const outputPath = join(directory, "discarded.webm");
+  const outputPath = join(directory, "discarded.mp4");
 
   try {
     const validJpeg = execFileSync(ffmpegPath, [
@@ -586,7 +588,7 @@ test("discards the partial video instead of publishing a failed capture", async 
 
 test("enforces the output limit again before publishing the final video", async () => {
   const directory = mkdtempSync(join(tmpdir(), "browser-recorder-size-cap-"));
-  const outputPath = join(directory, "oversized.webm");
+  const outputPath = join(directory, "oversized.mp4");
 
   try {
     const validJpeg = execFileSync(ffmpegPath, [
@@ -640,7 +642,7 @@ test("does not enqueue more samples until FFmpeg stdin drains", async () => {
     const sink = createFfmpegSink({
       ffmpegPath: slowProcessPath,
       fps: 100,
-      outputPath: join(directory, "unused.webm"),
+      outputPath: join(directory, "unused.mp4"),
     });
     sink.accept(Buffer.alloc(1024 * 1024));
 
@@ -668,7 +670,7 @@ test("reports encoder failure when the process exits before consuming frames", a
     const sink = createFfmpegSink({
       ffmpegPath: failingProcessPath,
       fps: 100,
-      outputPath: join(directory, "unused.webm"),
+      outputPath: join(directory, "unused.mp4"),
     });
     sink.accept(Buffer.alloc(1024 * 1024));
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -683,8 +685,8 @@ test("reports encoder failure when the process exits before consuming frames", a
       JSON.stringify(observedError),
       /sensitive encoder diagnostic/,
     );
-    assert.equal(existsSync(join(directory, "unused.webm")), false);
-    assert.equal(existsSync(join(directory, "unused.webm.partial")), false);
+    assert.equal(existsSync(join(directory, "unused.mp4")), false);
+    assert.equal(existsSync(join(directory, "unused.mp4.partial")), false);
   } finally {
     rmSync(directory, { force: true, recursive: true });
   }
@@ -702,7 +704,7 @@ test("contains an asynchronous encoder spawn failure until stop observes it", as
     const sink = createFfmpegSink({
       ffmpegPath: join(directory, "missing-ffmpeg"),
       fps: 10,
-      outputPath: join(directory, "unused.webm"),
+      outputPath: join(directory, "unused.mp4"),
     });
 
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -730,7 +732,7 @@ test("terminates the Browser session when the encoder exits early", async () => 
     ffmpegPath: "/unused/ffmpeg",
     fps: 10,
     maxDecodedBytes: 1024,
-    outputPath: "/tmp/unused.webm",
+    outputPath: "/tmp/unused.mp4",
     readTimeoutMs: 1,
     sinkFactory: () => sink,
   });
@@ -760,7 +762,7 @@ test("kills an encoder that does not close within the shutdown timeout", async (
     const sink = createFfmpegSink({
       ffmpegPath: slowProcessPath,
       fps: 10,
-      outputPath: join(directory, "unused.webm"),
+      outputPath: join(directory, "unused.mp4"),
       shutdownTimeoutMs: 20,
     });
 
@@ -844,7 +846,7 @@ test("validates the CDP boundary before starting a recording", async () => {
       ffmpegPath: "/unused/ffmpeg",
       fps: 10,
       maxDecodedBytes: 1024,
-      outputPath: "/tmp/unused.webm",
+      outputPath: "/tmp/unused.mp4",
       readTimeoutMs: 1,
     }),
     (error) => error.code === "invalid_configuration",
@@ -904,7 +906,7 @@ test("starts from a captured cursor and finalizes every recorder component", asy
     ffmpegPath: "/unused/ffmpeg",
     fps: 10,
     maxDecodedBytes: 1024,
-    outputPath: "/tmp/unused.webm",
+    outputPath: "/tmp/unused.mp4",
     readTimeoutMs: 1,
     sinkFactory: (options) => {
       sinkFactoryOptions = options;
@@ -1052,7 +1054,7 @@ test("fails readiness when no screencast frame arrives before the timeout", asyn
     firstFrameTimeoutMs: 5,
     fps: 10,
     maxDecodedBytes: 1024,
-    outputPath: "/tmp/unused.webm",
+    outputPath: "/tmp/unused.mp4",
     readTimeoutMs: 1,
     sinkFactory: () => sink,
   });
@@ -1134,7 +1136,7 @@ test("excludes startup wait from capture time with a monotonic clock", async () 
     fps: 10,
     maxDecodedBytes: 1024,
     now: () => clockValues.shift(),
-    outputPath: "/tmp/unused.webm",
+    outputPath: "/tmp/unused.mp4",
     readTimeoutMs: 1,
     sinkFactory: () => sink,
   });
@@ -1171,7 +1173,7 @@ test("stops screencasting when encoder startup fails", async () => {
       ffmpegPath: "/unused/ffmpeg",
       fps: 10,
       maxDecodedBytes: 1024,
-      outputPath: "/tmp/unused.webm",
+      outputPath: "/tmp/unused.mp4",
       readTimeoutMs: 1,
       sinkFactory: () => {
         throw startupError;
@@ -1225,7 +1227,7 @@ test("retains cancellation while Page.enable startup is pending", async () => {
     firstFrameTimeoutMs: 10,
     fps: 10,
     maxDecodedBytes: 1024,
-    outputPath: "/tmp/unused.webm",
+    outputPath: "/tmp/unused.mp4",
     readTimeoutMs: 1,
     signal: abortController.signal,
     sinkFactory: () => {
@@ -1298,7 +1300,7 @@ test("keeps cancellation primary after screencast startup cleanup fails", async 
     firstFrameTimeoutMs: 10,
     fps: 10,
     maxDecodedBytes: 1024,
-    outputPath: "/tmp/unused.webm",
+    outputPath: "/tmp/unused.mp4",
     readTimeoutMs: 1,
     signal: abortController.signal,
     sinkFactory: () => {
@@ -1353,7 +1355,7 @@ test("discards a created sink when cancellation lands during startup handoff", a
     firstFrameTimeoutMs: 10,
     fps: 10,
     maxDecodedBytes: 1024,
-    outputPath: "/tmp/unused.webm",
+    outputPath: "/tmp/unused.mp4",
     readTimeoutMs: 1,
     signal: abortController.signal,
     sinkFactory: () => {
@@ -1395,7 +1397,7 @@ test("cancels and cleans up an active recording through AbortSignal", async () =
     ffmpegPath: "/unused/ffmpeg",
     fps: 10,
     maxDecodedBytes: 1024,
-    outputPath: "/tmp/unused.webm",
+    outputPath: "/tmp/unused.mp4",
     readTimeoutMs: 1,
     signal: abortController.signal,
     sinkFactory: () => createMemorySink(operations),
@@ -1427,7 +1429,7 @@ test("stops a recording at the configured duration limit", async () => {
     fps: 10,
     maxDecodedBytes: 1024,
     maxDurationMs: 15,
-    outputPath: "/tmp/unused.webm",
+    outputPath: "/tmp/unused.mp4",
     readTimeoutMs: 1,
     sinkFactory: () => createMemorySink(),
   });
@@ -1451,7 +1453,7 @@ test("arms the duration limit only after the first frame is ready", async () => 
     fps: 10,
     maxDecodedBytes: 1024,
     maxDurationMs: 20,
-    outputPath: "/tmp/unused.webm",
+    outputPath: "/tmp/unused.mp4",
     readTimeoutMs: 0,
     sinkFactory: () => createMemorySink(),
   });
@@ -1478,7 +1480,7 @@ test("stops when the configured output size limit is exceeded", async () => {
     getOutputSize: async () => 101,
     maxDecodedBytes: 1024,
     maxOutputBytes: 100,
-    outputPath: "/tmp/unused.webm",
+    outputPath: "/tmp/unused.mp4",
     readTimeoutMs: 1,
     resourceCheckIntervalMs: 5,
     sinkFactory: () => createMemorySink(),
@@ -1502,7 +1504,7 @@ test("stops when fresh source frames exceed the configured stall limit", async (
     fps: 10,
     maxDecodedBytes: 1024,
     maxFrameStallMs: 10,
-    outputPath: "/tmp/unused.webm",
+    outputPath: "/tmp/unused.mp4",
     readTimeoutMs: 1,
     resourceCheckIntervalMs: 5,
     sinkFactory: () => createMemorySink(),

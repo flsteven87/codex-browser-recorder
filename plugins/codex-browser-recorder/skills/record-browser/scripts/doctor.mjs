@@ -50,27 +50,27 @@ async function ffprobeSupportsJson(executable) {
 }
 
 async function inspectMediaCapabilities(ffmpegPath, ffprobePath) {
-  const [ffmpegVp8Available, ffmpegWebmAvailable, ffprobeUsable] =
+  const [ffmpegH264Available, ffmpegMp4Available, ffprobeUsable] =
     await Promise.all([
       ffmpegPath === null
         ? false
         : commandMatches(
             ffmpegPath,
-            ["-hide_banner", "-loglevel", "error", "-h", "encoder=libvpx"],
-            /^Encoder libvpx \[/m,
+            ["-hide_banner", "-loglevel", "error", "-h", "encoder=libx264"],
+            /^Encoder libx264 \[/m,
           ),
       ffmpegPath === null
         ? false
         : commandMatches(
             ffmpegPath,
-            ["-hide_banner", "-loglevel", "error", "-h", "muxer=webm"],
-            /^Muxer webm \[/m,
+            ["-hide_banner", "-loglevel", "error", "-h", "muxer=mp4"],
+            /^Muxer mp4 \[/m,
           ),
       ffprobePath === null
         ? false
         : ffprobeSupportsJson(ffprobePath),
     ]);
-  return { ffmpegVp8Available, ffmpegWebmAvailable, ffprobeUsable };
+  return { ffmpegH264Available, ffmpegMp4Available, ffprobeUsable };
 }
 
 async function resolveExecutableFromInheritedPath(name) {
@@ -126,10 +126,10 @@ export async function doctor({
     findExecutable("ffprobe", pathValue, resolveExecutableByName),
   ]);
   const capabilities = await probeMediaCapabilities(ffmpegPath, ffprobePath);
-  const ffmpegVp8Available =
-    ffmpegPath !== null && capabilities.ffmpegVp8Available === true;
-  const ffmpegWebmAvailable =
-    ffmpegPath !== null && capabilities.ffmpegWebmAvailable === true;
+  const ffmpegH264Available =
+    ffmpegPath !== null && capabilities.ffmpegH264Available === true;
+  const ffmpegMp4Available =
+    ffmpegPath !== null && capabilities.ffmpegMp4Available === true;
   const ffprobeUsable =
     ffprobePath !== null && capabilities.ffprobeUsable === true;
 
@@ -154,11 +154,11 @@ export async function doctor({
   if (ffmpegPath === null) {
     blockingReasons.push("ffmpeg_missing");
   } else {
-    if (!ffmpegVp8Available) {
-      blockingReasons.push("ffmpeg_vp8_unavailable");
+    if (!ffmpegH264Available) {
+      blockingReasons.push("ffmpeg_h264_unavailable");
     }
-    if (!ffmpegWebmAvailable) {
-      blockingReasons.push("ffmpeg_webm_unavailable");
+    if (!ffmpegMp4Available) {
+      blockingReasons.push("ffmpeg_mp4_unavailable");
     }
   }
   if (ffprobePath === null) {
@@ -174,8 +174,8 @@ export async function doctor({
     blockingReasons,
     cdpAvailable,
     ffmpegPath,
-    ffmpegVp8Available,
-    ffmpegWebmAvailable,
+    ffmpegH264Available,
+    ffmpegMp4Available,
     ffprobePath,
     ffprobeUsable,
     outputDirectoryWritable,

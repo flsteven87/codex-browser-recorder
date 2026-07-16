@@ -14,6 +14,7 @@ export async function runExampleRecordingReleaseGate({
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const handle = _dependencies.createRecording({
       browser,
+      destinationDirectory: temporaryRoot,
       durationMs,
       signal,
       targetUrl: EXAMPLE_PAGE_URL,
@@ -23,20 +24,20 @@ export async function runExampleRecordingReleaseGate({
     const output = await handle.stop();
     if (
       output?.result?.status !== "passed" ||
-      typeof output?.paths?.directory !== "string" ||
-      output.paths.directory.length === 0
+      typeof output?.paths?.outputPath !== "string" ||
+      output.paths.outputPath.length === 0
     ) {
       throw Object.assign(new Error("Example recording release gate failed"), {
         code: output?.result?.failureCode ?? "release_gate_failed",
       });
     }
-    attempts.push({ directory: output.paths.directory });
+    attempts.push({ outputPath: output.paths.outputPath });
     tabs.push(tab);
   }
 
   if (
     tabs[0] === tabs[1] ||
-    attempts[0].directory === attempts[1].directory
+    attempts[0].outputPath === attempts[1].outputPath
   ) {
     throw Object.assign(new Error("Example recording isolation check failed"), {
       code: "release_gate_isolation_failed",

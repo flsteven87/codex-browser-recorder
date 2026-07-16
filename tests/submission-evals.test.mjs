@@ -377,7 +377,8 @@ test("keeps every eval explicit, consent-bound, and free of sensitive flows", as
       `${item.id} must declare an approved origin or a pre-Browser refusal`,
     );
     assert.ok(item.expected.requiredSignals.includes("consolidated_consent"));
-    assert.ok(item.expected.requiredSignals.includes("private_local_output"));
+    assert.ok(item.expected.requiredSignals.includes("saved_recording_destination"));
+    assert.ok(item.expected.requiredSignals.includes("h264_mp4"));
     assert.doesNotMatch(JSON.stringify(item), /password|payment|passkey|health record/i);
   }
 });

@@ -113,11 +113,11 @@ test("plugin manifest and repository marketplace stay aligned", () => {
   assert.match(plugin.version, strictSemver);
   assert.equal(
     plugin.description,
-    "Record one explicitly approved Codex Browser test flow to a private local WebM file.",
+    "Save one explicitly approved Codex Browser test flow as a local H.264 MP4 recording.",
   );
   assert.equal(
     plugin.interface.shortDescription,
-    "Record an approved Browser test flow to local WebM.",
+    "Save an approved Browser test flow as local MP4.",
   );
   assert.doesNotMatch(
     JSON.stringify(plugin.interface),
@@ -200,7 +200,7 @@ test("record-browser is an explicit skill with one canonical script tree", () =>
   assert.match(agentManifest, /^policy:\n(?: {2}.+\n)* {2}allow_implicit_invocation: false$/m);
   assert.match(
     agentManifest,
-    /short_description: "Record one approved Browser test flow to local WebM"/,
+    /short_description: "Save one approved Browser test flow as local MP4"/,
   );
   assert.match(
     agentManifest,

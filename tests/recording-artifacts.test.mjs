@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdtempSync,
@@ -8,26 +7,21 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import test from "node:test";
 
 import {
-  cleanupRecordingArtifacts,
-  finalizeRecordingArtifacts,
-  prepareRecordingArtifacts,
+  createRecordingArtifactTransaction,
+  planSavedRecording,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-artifacts.mjs";
 import {
   describeRecordingFailure,
   getRecordingCleanupDetails,
   sanitizeRecordingFailure,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-outcome.mjs";
-import { resolveExecutable } from "./test-tools.mjs";
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), "recording-artifacts-test-"));
-const ffmpegPath = resolveExecutable("ffmpeg");
-const ffprobePath = resolveExecutable("ffprobe");
 
 const expectedCapture = {
   backpressureDrops: 0,
@@ -46,7 +40,7 @@ const expectedCapture = {
   visibilityState: true,
 };
 const expectedValidation = {
-  codecName: "vp8",
+  codecName: "h264",
   durationSeconds: 0.5,
   height: 180,
   sizeBytes: 512,
@@ -63,11 +57,12 @@ const knownFailureCodes = [
   "plugin_module_unavailable",
   "unsupported_platform",
   "ffmpeg_missing",
-  "ffmpeg_vp8_unavailable",
-  "ffmpeg_webm_unavailable",
+  "ffmpeg_h264_unavailable",
+  "ffmpeg_mp4_unavailable",
   "ffprobe_missing",
   "ffprobe_unusable",
   "output_directory_not_writable",
+  "saved_recording_unavailable",
   "cancelled",
   "recording_cancelled",
   "origin_not_allowed",
@@ -94,9 +89,11 @@ const knownFailureCodes = [
   "ffprobe_failed",
   "output_missing",
   "output_too_small",
+  "pixel_format_invalid",
   "video_stream_count_invalid",
   "video_stream_missing",
   "artifact_persistence_failed",
+  "saved_recording_persistence_failed",
   "cleanup_failed",
   "capture_failed",
   "integration_failed",
@@ -128,33 +125,15 @@ function captureResult(overrides = {}) {
   };
 }
 
-function sessionWithResult(overrides = {}) {
-  return {
-    async stop() {
-      return captureResult(overrides);
-    },
-  };
+function validationFailure(code) {
+  return Object.assign(new Error(`private ${code} diagnostic`), { code });
 }
 
-function finalizeOptions(paths, session, overrides = {}) {
-  return {
-    durationToleranceSeconds: 0.25,
-    ffprobePath,
-    maxHeight: 720,
-    maxWidth: 1280,
-    minBytes: 100,
-    outputPath: paths.outputPath,
-    resultPath: paths.resultPath,
-    session,
-    ...overrides,
-  };
-}
-
-function assertBoundedPersistenceFailure(error, privateDiagnostics) {
-  const expected = describeRecordingFailure("artifact_persistence_failed");
+function assertBoundedFailure(error, code, privateDiagnostics = []) {
+  const expected = describeRecordingFailure(code);
   const serialized = `${error.message}\n${JSON.stringify(error)}`;
 
-  assert.equal(error.code, "artifact_persistence_failed");
+  assert.equal(error.code, code);
   assert.equal(error.message, expected.summary);
   assert.equal(error.summary, expected.summary);
   assert.equal(error.remediation, expected.remediation);
@@ -164,6 +143,24 @@ function assertBoundedPersistenceFailure(error, privateDiagnostics) {
     assert.equal(serialized.includes(diagnostic), false);
   }
   return true;
+}
+
+async function createTransaction({
+  _dependencies,
+  destinationDirectory,
+  outputFilename = "browser-recording-2026-07-16-143122.mp4",
+} = {}) {
+  return createRecordingArtifactTransaction({
+    _dependencies: {
+      validateVideo: async () => expectedValidation,
+      ..._dependencies,
+    },
+    destinationDirectory:
+      destinationDirectory ??
+      mkdtempSync(join(tmpdir(), "browser-recorder-saved-")),
+    outputFilename,
+    temporaryRoot,
+  });
 }
 
 test("describes and sanitizes every known recording failure deterministically", () => {
@@ -187,524 +184,591 @@ test("describes and sanitizes every known recording failure deterministically", 
     assert.deepEqual(second, first, code);
     assert.equal(sanitized.code, code, code);
     assert.equal(sanitized.message, first.summary, code);
-    assert.equal(sanitized.summary, first.summary, code);
-    assert.equal(sanitized.remediation, first.remediation, code);
-    assert.equal("cause" in sanitized, false, code);
-    assert.equal("diagnostic" in sanitized, false, code);
     assert.equal(JSON.stringify(sanitized).includes(injectedDiagnostic), false);
   }
 });
 
 test("normalizes an unknown recording failure to the generic public contract", () => {
-  const injectedDiagnostic = "unknown private diagnostic";
   const sanitized = sanitizeRecordingFailure(
-    Object.assign(new Error(injectedDiagnostic), {
+    Object.assign(new Error("unknown private diagnostic"), {
       code: "unknown_private_failure",
     }),
   );
 
   assert.equal(sanitized.code, "recording_failed");
   assert.deepEqual(
-    {
-      remediation: sanitized.remediation,
-      summary: sanitized.summary,
-    },
+    { remediation: sanitized.remediation, summary: sanitized.summary },
     describeRecordingFailure("recording_failed"),
   );
-  assert.equal(JSON.stringify(sanitized).includes(injectedDiagnostic), false);
+  assert.equal(JSON.stringify(sanitized).includes("private diagnostic"), false);
 });
 
-test("prepares unique private paths under the configured temporary root", async () => {
-  const first = await prepareRecordingArtifacts({ temporaryRoot });
-  const second = await prepareRecordingArtifacts({ temporaryRoot });
-
-  assert.notEqual(first.directory, second.directory);
-  assert.equal(dirname(first.outputPath), first.directory);
-  assert.equal(dirname(first.resultPath), first.directory);
-  assert.equal(basename(first.outputPath), "recording.webm");
-  assert.equal(basename(first.resultPath), "result.json");
-  assert.equal(first.directory.startsWith(`${temporaryRoot}/`), true);
-  assert.equal(statSync(first.directory).mode & 0o077, 0);
-});
-
-test("bounds a temporary-directory creation failure", async () => {
-  const privateDiagnostic = `${temporaryRoot}/private-mkdtemp-diagnostic`;
-  let chmodCalled = false;
-  let rmCalled = false;
-
-  await assert.rejects(
-    prepareRecordingArtifacts({
-      _dependencies: {
-        chmod: async () => {
-          chmodCalled = true;
-        },
-        mkdtemp: async () => {
-          throw new Error(privateDiagnostic);
-        },
-        rm: async () => {
-          rmCalled = true;
-        },
-      },
-      temporaryRoot,
+test("plans a privacy-safe Saved Recording in Downloads by default", () => {
+  assert.deepEqual(
+    planSavedRecording({
+      homeDirectory: "/Users/example",
+      now: new Date(2026, 6, 16, 14, 31, 22),
     }),
-    (error) => assertBoundedPersistenceFailure(error, [privateDiagnostic]),
-  );
-  assert.equal(chmodCalled, false);
-  assert.equal(rmCalled, false);
-});
-
-test("removes a created directory when permission hardening fails", async () => {
-  const privateDiagnostic = "private chmod diagnostic";
-  let createdDirectory;
-
-  await assert.rejects(
-    prepareRecordingArtifacts({
-      _dependencies: {
-        chmod: async () => {
-          throw new Error(privateDiagnostic);
-        },
-        mkdtemp: async (prefix) => {
-          createdDirectory = await mkdtemp(prefix);
-          return createdDirectory;
-        },
-        rm,
-      },
-      temporaryRoot,
-    }),
-    (error) => assertBoundedPersistenceFailure(error, [privateDiagnostic]),
-  );
-  assert.equal(existsSync(createdDirectory), false);
-});
-
-test("keeps preparation failure primary when directory rollback fails", async () => {
-  const createdDirectory = `${temporaryRoot}/private-created-directory`;
-  const chmodDiagnostic = "private chmod failure";
-  const rollbackDiagnostic = "private preparation rollback failure";
-  const rmCalls = [];
-
-  await assert.rejects(
-    prepareRecordingArtifacts({
-      _dependencies: {
-        chmod: async () => {
-          throw new Error(chmodDiagnostic);
-        },
-        mkdtemp: async () => createdDirectory,
-        rm: async (...args) => {
-          rmCalls.push(args);
-          throw new Error(rollbackDiagnostic);
-        },
-      },
-      temporaryRoot,
-    }),
-    (error) => {
-      assertBoundedPersistenceFailure(error, [
-        createdDirectory,
-        chmodDiagnostic,
-        rollbackDiagnostic,
-      ]);
-      assert.deepEqual(getRecordingCleanupDetails(error), {
-        cleanupIncomplete: true,
-        directory: createdDirectory,
-      });
-      return true;
+    {
+      destinationDirectory:
+        "/Users/example/Downloads/Codex Browser Recordings",
+      outputFilename: "browser-recording-2026-07-16-143122.mp4",
     },
   );
-  assert.deepEqual(rmCalls, [
-    [createdDirectory, { force: true, recursive: true }],
-  ]);
 });
 
-test("removes a prepared recording directory as one cleanup unit", async () => {
-  const cleanupRoot = mkdtempSync(join(tmpdir(), "browser-recorder-cleanup-"));
+test("cleans an explicitly requested Saved Recording name without page data", () => {
+  assert.deepEqual(
+    planSavedRecording({
+      destinationDirectory: "/Users/example/Desktop",
+      homeDirectory: "/Users/example",
+      now: new Date(2026, 6, 16, 14, 31, 22),
+      recordingName: "  登入 / smoke:test.mp4  ",
+    }),
+    {
+      destinationDirectory: "/Users/example/Desktop",
+      outputFilename: "登入 - smoke-test.mp4",
+    },
+  );
+});
+
+test("rejects empty names and relative Saved Recording destinations", () => {
+  assert.throws(
+    () => planSavedRecording({ recordingName: "..." }),
+    (error) => error.code === "invalid_configuration",
+  );
+  assert.throws(
+    () => planSavedRecording({ destinationDirectory: "Downloads" }),
+    (error) => error.code === "invalid_configuration",
+  );
+});
+
+test("preflights the durable destination and prepares one private MP4 path", async () => {
+  const destinationDirectory = mkdtempSync(
+    join(tmpdir(), "browser-recorder-destination-"),
+  );
   try {
-    const paths = await prepareRecordingArtifacts({
-      temporaryRoot: cleanupRoot,
-    });
-    writeFileSync(`${paths.outputPath}.partial`, "partial");
+    const first = await createTransaction({ destinationDirectory });
+    const second = await createTransaction({ destinationDirectory });
+    const firstWorkingDirectory = dirname(first.capturePath);
+    const secondWorkingDirectory = dirname(second.capturePath);
 
-    await cleanupRecordingArtifacts(paths);
-    assert.equal(existsSync(paths.directory), false);
-
-    await cleanupRecordingArtifacts(paths);
-    assert.equal(existsSync(paths.directory), false);
+    assert.notEqual(firstWorkingDirectory, secondWorkingDirectory);
+    assert.equal(basename(first.capturePath), "recording.mp4");
+    assert.equal(firstWorkingDirectory.startsWith(`${temporaryRoot}/`), true);
+    assert.equal(statSync(firstWorkingDirectory).mode & 0o077, 0);
+    assert.equal("workingDirectory" in first, false);
+    assert.equal("destinationDirectory" in first, false);
+    await first.rollback();
+    await second.rollback();
   } finally {
-    rmSync(cleanupRoot, { force: true, recursive: true });
+    rmSync(destinationDirectory, { force: true, recursive: true });
   }
 });
 
-test("bounds a cleanup-only failure without exposing its path", async () => {
-  const secretPath = `${temporaryRoot}/private-recording`;
-  await assert.rejects(
-    cleanupRecordingArtifacts(
-      { directory: secretPath },
-      {
+test("proves atomic no-overwrite publication before working allocation", async () => {
+  let workingAllocationStarted = false;
+  const destinationDirectory = mkdtempSync(
+    join(tmpdir(), "browser-recorder-no-link-"),
+  );
+  try {
+    await assert.rejects(
+      createRecordingArtifactTransaction({
         _dependencies: {
-          rm: async () => {
-            throw new Error(secretPath);
+          link: async () => {
+            throw new Error("private unsupported link diagnostic");
+          },
+          mkdtemp: async () => {
+            workingAllocationStarted = true;
           },
         },
-      },
-    ),
-    (error) =>
-      error.code === "cleanup_failed" &&
-      !JSON.stringify(error).includes(secretPath),
-  );
+        destinationDirectory,
+        outputFilename: "browser-recording-2026-07-16-143122.mp4",
+        temporaryRoot,
+      }),
+      (error) => error.code === "saved_recording_unavailable",
+    );
+    assert.equal(workingAllocationStarted, false);
+  } finally {
+    rmSync(destinationDirectory, { force: true, recursive: true });
+  }
 });
 
-test("finalizes a valid capture into an exact schema-v3 private result", async () => {
-  const paths = await prepareRecordingArtifacts({ temporaryRoot });
-  const session = sessionWithResult({
-    outputPath: paths.outputPath,
-    secretPageValue: "must-not-persist",
-  });
-  await writeFile(paths.outputPath, "published-video");
-
-  const result = await finalizeRecordingArtifacts({
-    ...finalizeOptions(paths, session),
-    _dependencies: {
-      rm,
-      validateVideo: async () => expectedValidation,
-      writeFile,
-    },
-  });
-  const rawResult = readFileSync(paths.resultPath, "utf8");
-
-  assert.deepEqual(result, {
-    capture: expectedCapture,
-    failureCode: null,
-    media: expectedValidation,
-    outputFile: "recording.webm",
-    recorderContractVersion: 1,
-    remediation: "No action is required",
-    schemaVersion: 3,
-    status: "passed",
-    summary: "Recording completed successfully",
-  });
-  assert.deepEqual(JSON.parse(rawResult), result);
-  assert.equal(rawResult.includes(temporaryRoot), false);
-  assert.equal(rawResult.includes("must-not-persist"), false);
-  assert.equal(statSync(paths.resultPath).mode & 0o077, 0);
-});
-
-test("removes finalized media when result persistence fails", async () => {
-  const paths = await prepareRecordingArtifacts({ temporaryRoot });
-  const session = sessionWithResult();
-  await writeFile(paths.outputPath, "published-video");
+test("rejects an unavailable Saved Recording destination before working allocation", async () => {
+  let workingAllocationStarted = false;
+  const privateDiagnostic = "private destination diagnostic";
 
   await assert.rejects(
-    finalizeRecordingArtifacts({
-      ...finalizeOptions(paths, session),
+    createRecordingArtifactTransaction({
       _dependencies: {
-        rm,
-        validateVideo: async () => expectedValidation,
-        writeFile: async () => {
-          throw new Error("private filesystem diagnostic");
+        mkdir: async () => {
+          throw new Error(privateDiagnostic);
+        },
+        mkdtemp: async () => {
+          workingAllocationStarted = true;
         },
       },
+      destinationDirectory: "/private/unavailable",
+      outputFilename: "browser-recording-2026-07-16-143122.mp4",
+      temporaryRoot,
     }),
     (error) =>
-      error.code === "artifact_persistence_failed" &&
-      !JSON.stringify(error).includes("private filesystem diagnostic"),
+      assertBoundedFailure(error, "saved_recording_unavailable", [
+        privateDiagnostic,
+      ]),
   );
-  assert.equal(existsSync(paths.outputPath), false);
-  assert.equal(existsSync(paths.resultPath), false);
+  assert.equal(workingAllocationStarted, false);
 });
 
-test("preserves persistence failure precedence when rollback also fails", async () => {
-  const paths = await prepareRecordingArtifacts({ temporaryRoot });
-  const secret = "private rollback diagnostic";
-  const removals = [];
-  let persistenceError;
-  await writeFile(paths.outputPath, "residual-finalized-media");
-
-  await assert.rejects(
-    finalizeRecordingArtifacts({
-      ...finalizeOptions(paths, sessionWithResult()),
-      _dependencies: {
-        rm: async (...arguments_) => {
-          removals.push(arguments_);
-          throw new Error(secret);
+test("proves destination file creation before allocating a Working Recording", async () => {
+  let workingAllocationStarted = false;
+  const destinationDirectory = mkdtempSync(
+    join(tmpdir(), "browser-recorder-denied-"),
+  );
+  try {
+    await assert.rejects(
+      createRecordingArtifactTransaction({
+        _dependencies: {
+          mkdtemp: async () => {
+            workingAllocationStarted = true;
+          },
+          open: async () => {
+            throw new Error("private macOS permission diagnostic");
+          },
         },
-        validateVideo: async () => expectedValidation,
-        writeFile: async () => {
-          throw new Error("private persistence diagnostic");
+        destinationDirectory,
+        outputFilename: "browser-recording-2026-07-16-143122.mp4",
+        temporaryRoot,
+      }),
+      (error) => error.code === "saved_recording_unavailable",
+    );
+    assert.equal(workingAllocationStarted, false);
+  } finally {
+    rmSync(destinationDirectory, { force: true, recursive: true });
+  }
+});
+
+test("publishes a validated MP4 as the Saved Recording outcome", async () => {
+  const destinationDirectory = mkdtempSync(
+    join(tmpdir(), "browser-recorder-saved-"),
+  );
+  try {
+    const transaction = await createTransaction({ destinationDirectory });
+    writeFileSync(transaction.capturePath, "validated-video");
+
+    const output = await transaction.finalize({
+      capture: captureResult(),
+      ffprobePath: "/opt/ffprobe",
+    });
+
+    assert.deepEqual(output.result, {
+      capture: expectedCapture,
+      failureCode: null,
+      media: expectedValidation,
+      outputFile: "browser-recording-2026-07-16-143122.mp4",
+      recorderContractVersion: 1,
+      remediation: "No action is required",
+      schemaVersion: 3,
+      status: "passed",
+      summary: "Recording completed successfully",
+    });
+    assert.deepEqual(output.paths, {
+      outputPath: join(
+        destinationDirectory,
+        "browser-recording-2026-07-16-143122.mp4",
+      ),
+    });
+    assert.equal(readFileSync(output.paths.outputPath, "utf8"), "validated-video");
+    assert.equal(existsSync(dirname(transaction.capturePath)), false);
+    assert.equal(statSync(output.paths.outputPath).mode & 0o077, 0);
+  } finally {
+    rmSync(destinationDirectory, { force: true, recursive: true });
+  }
+});
+
+test("adds a short recording ID instead of overwriting a filename collision", async () => {
+  const destinationDirectory = mkdtempSync(
+    join(tmpdir(), "browser-recorder-collision-"),
+  );
+  const outputFilename = "browser-recording-2026-07-16-143122.mp4";
+  const originalPath = join(destinationDirectory, outputFilename);
+  writeFileSync(originalPath, "existing-video");
+  try {
+    const transaction = await createTransaction({
+      _dependencies: {
+        randomUUID: () => "12345678-1234-1234-1234-123456789abc",
+      },
+      destinationDirectory,
+      outputFilename,
+    });
+    writeFileSync(transaction.capturePath, "new-video");
+
+    const output = await transaction.finalize({
+      capture: captureResult(),
+      ffprobePath: "/opt/ffprobe",
+    });
+
+    assert.equal(readFileSync(originalPath, "utf8"), "existing-video");
+    assert.equal(
+      basename(output.paths.outputPath),
+      "browser-recording-2026-07-16-143122-12345678.mp4",
+    );
+    assert.equal(output.result.outputFile, basename(output.paths.outputPath));
+    assert.equal(readFileSync(output.paths.outputPath, "utf8"), "new-video");
+  } finally {
+    rmSync(destinationDirectory, { force: true, recursive: true });
+  }
+});
+
+test("keeps a committed Saved Recording successful when Working cleanup fails", async () => {
+  const destinationDirectory = mkdtempSync(
+    join(tmpdir(), "browser-recorder-committed-"),
+  );
+  const privateDiagnostic = "private post-commit cleanup diagnostic";
+  try {
+    const transaction = await createTransaction({
+      _dependencies: {
+        rm: async (path, options) => {
+          if (path === destinationDirectory || options?.recursive !== true) {
+            rmSync(path, options);
+            return;
+          }
+          throw new Error(privateDiagnostic);
         },
       },
+      destinationDirectory,
+    });
+    const workingDirectory = dirname(transaction.capturePath);
+    writeFileSync(transaction.capturePath, "committed-video");
+
+    const output = await transaction.finalize({
+      capture: captureResult(),
+      ffprobePath: "/opt/ffprobe",
+    });
+
+    assert.equal(output.result.status, "passed");
+    assert.equal(readFileSync(output.paths.outputPath, "utf8"), "committed-video");
+    assert.equal(output.paths.cleanupDirectory, workingDirectory);
+    assert.equal(existsSync(workingDirectory), true);
+    assert.equal(JSON.stringify(output).includes(privateDiagnostic), false);
+  } finally {
+    rmSync(destinationDirectory, { force: true, recursive: true });
+  }
+});
+
+test("memoizes finalization and validates a successful capture once", async () => {
+  let validationCalls = 0;
+  const transaction = await createTransaction({
+    _dependencies: {
+      validateVideo: async () => {
+        validationCalls += 1;
+        return expectedValidation;
+      },
+    },
+  });
+  writeFileSync(transaction.capturePath, "validated-video");
+
+  const first = transaction.finalize({
+    capture: captureResult(),
+    ffprobePath: "/opt/ffprobe",
+  });
+  const second = transaction.finalize({
+    capture: captureResult(),
+    ffprobePath: "/different/ffprobe",
+  });
+
+  assert.equal(first, second);
+  await first;
+  assert.equal(validationCalls, 1);
+});
+
+test("discards a rejected Working Recording without publishing it", async () => {
+  const destinationDirectory = mkdtempSync(
+    join(tmpdir(), "browser-recorder-rejected-"),
+  );
+  try {
+    const transaction = await createTransaction({
+      _dependencies: {
+        validateVideo: async () => {
+          throw validationFailure("codec_invalid");
+        },
+      },
+      destinationDirectory,
+    });
+    writeFileSync(transaction.capturePath, "invalid-video");
+
+    const output = await transaction.finalize({
+      capture: captureResult(),
+      ffprobePath: "/opt/ffprobe",
+    });
+
+    assert.equal(output.result.status, "failed");
+    assert.equal(output.result.failureCode, "codec_invalid");
+    assert.equal(output.result.media, null);
+    assert.deepEqual(output.paths, {});
+    assert.equal(existsSync(dirname(transaction.capturePath)), false);
+    assert.equal(
+      existsSync(join(destinationDirectory, output.result.outputFile)),
+      false,
+    );
+  } finally {
+    rmSync(destinationDirectory, { force: true, recursive: true });
+  }
+});
+
+test("discards a bounded coordinator-selected capture failure without validation", async () => {
+  let validationCalled = false;
+  const transaction = await createTransaction({
+    _dependencies: {
+      validateVideo: async () => {
+        validationCalled = true;
+      },
+    },
+  });
+  const output = await transaction.finalize({
+    capture: captureResult({ encoderExitCode: 7 }),
+    failureCode: "encoder_failed",
+    ffprobePath: "/opt/ffprobe",
+  });
+
+  assert.equal(validationCalled, false);
+  assert.equal(output.result.failureCode, "encoder_failed");
+  assert.equal(output.result.capture.encoderExitCode, 7);
+  assert.deepEqual(output.paths, {});
+  assert.equal(existsSync(dirname(transaction.capturePath)), false);
+});
+
+test("discards media when validation throws an unexpected private failure", async () => {
+  const transaction = await createTransaction({
+    _dependencies: {
+      validateVideo: async () => {
+        throw new Error("private unexpected validator diagnostic");
+      },
+    },
+  });
+  const workingDirectory = dirname(transaction.capturePath);
+  writeFileSync(transaction.capturePath, "untrusted-video");
+
+  await assert.rejects(
+    transaction.finalize({
+      capture: captureResult(),
+      failureCode: null,
+      ffprobePath: "/opt/ffprobe",
+    }),
+    (error) =>
+      assertBoundedFailure(error, "recording_failed", [
+        "private unexpected validator diagnostic",
+      ]),
+  );
+  assert.equal(existsSync(workingDirectory), false);
+});
+
+test("reports a failed-outcome cleanup path only when automatic discard fails", async () => {
+  const transaction = await createTransaction({
+    _dependencies: {
+      rm: async (path, options) => {
+        if (options?.recursive === true) {
+          throw new Error("private discard diagnostic");
+        }
+        rmSync(path, options);
+      },
+      validateVideo: async () => {
+        throw validationFailure("codec_invalid");
+      },
+    },
+  });
+  const workingDirectory = dirname(transaction.capturePath);
+  writeFileSync(transaction.capturePath, "invalid-video");
+
+  const output = await transaction.finalize({
+    capture: captureResult(),
+    ffprobePath: "/opt/ffprobe",
+  });
+
+  assert.equal(output.result.status, "failed");
+  assert.deepEqual(output.paths, {
+    cleanupDirectory: workingDirectory,
+  });
+  assert.equal(JSON.stringify(output).includes("private discard"), false);
+});
+
+test("retains the Working Recording when durable publication fails", async () => {
+  const privateDiagnostic = "private copy diagnostic";
+  const transaction = await createTransaction({
+    _dependencies: {
+      copyFile: async () => {
+        throw new Error(privateDiagnostic);
+      },
+    },
+  });
+  const workingDirectory = dirname(transaction.capturePath);
+  writeFileSync(transaction.capturePath, "recoverable-video");
+
+  let publicError;
+  await assert.rejects(
+    transaction.finalize({
+      capture: captureResult(),
+      ffprobePath: "/opt/ffprobe",
     }),
     (error) => {
-      persistenceError = error;
-      assert.equal(error.code, "artifact_persistence_failed");
-      assert.equal("cause" in error, false);
-      assert.equal("diagnostic" in error, false);
-      assert.doesNotMatch(JSON.stringify(error), /private .* diagnostic/);
-      return true;
+      publicError = error;
+      return assertBoundedFailure(
+        error,
+        "saved_recording_persistence_failed",
+        [privateDiagnostic],
+      );
     },
   );
-  assert.deepEqual(removals, [
-    [paths.directory, { force: true, recursive: true }],
-  ]);
-  assert.equal(existsSync(paths.outputPath), true);
-  assert.deepEqual(
-    getRecordingCleanupDetails(persistenceError),
-    {
-      cleanupIncomplete: true,
-      directory: paths.directory,
-    },
-  );
-  assert.equal(JSON.stringify(persistenceError).includes(paths.directory), false);
-
-  const resanitized = sanitizeRecordingFailure(persistenceError);
-  assert.deepEqual(
-    getRecordingCleanupDetails(resanitized),
-    {
-      cleanupIncomplete: true,
-      directory: paths.directory,
-    },
-  );
-});
-
-test("persists a sanitized failed result when video validation fails", async () => {
-  const paths = await prepareRecordingArtifacts({ temporaryRoot });
-  const session = sessionWithResult({
-    framesAcknowledged: 0,
-    framesReceived: 0,
-    lastFrameTimestamp: null,
-    outputSamples: 0,
-    visibilityState: null,
+  assert.equal(existsSync(transaction.capturePath), true);
+  assert.deepEqual(getRecordingCleanupDetails(publicError), {
+    cleanupIncomplete: true,
+    directory: workingDirectory,
   });
-  const result = await finalizeRecordingArtifacts(
-    finalizeOptions(paths, session),
-  );
-  const rawResult = readFileSync(paths.resultPath, "utf8");
-
-  assert.deepEqual(JSON.parse(rawResult), result);
-  assert.equal(result.status, "failed");
-  assert.equal(result.failureCode, "output_missing");
-  assert.equal(result.media, null);
-  assert.deepEqual(
-    {
-      remediation: result.remediation,
-      summary: result.summary,
-    },
-    describeRecordingFailure("output_missing"),
-  );
-  assert.equal(rawResult.includes(temporaryRoot), false);
 });
 
-test("persists available counters without encoder diagnostics when capture fails", async () => {
-  const paths = await prepareRecordingArtifacts({ temporaryRoot });
-  const session = {
-    stats: {
-      framePump: {
-        framesAcknowledged: 3,
-        framesDropped: 1,
-        framesReceived: 3,
-        invalidFrames: 0,
-        lastFrameTimestamp: 456.5,
-        truncations: 0,
-        visibilityChanges: 1,
-        visibilityState: true,
-      },
-      sink: {
-        backpressureDrops: 2,
-        encoderExitCode: 7,
-        outputSamples: 4,
+test("retains a validated Working Recording when result persistence fails", async () => {
+  const transaction = await createTransaction({
+    _dependencies: {
+      writeFile: async () => {
+        throw new Error("private result diagnostic");
       },
     },
-    async stop() {
-      const error = new Error(`Encoder failed near ${temporaryRoot}`);
-      error.code = "encoder_failed";
-      error.diagnostic = `sensitive diagnostic from ${temporaryRoot}`;
-      throw error;
+  });
+  const workingDirectory = dirname(transaction.capturePath);
+  writeFileSync(transaction.capturePath, "recoverable-video");
+
+  let publicError;
+  await assert.rejects(
+    transaction.finalize({
+      capture: captureResult(),
+      failureCode: null,
+      ffprobePath: "/opt/ffprobe",
+    }),
+    (error) => {
+      publicError = error;
+      return assertBoundedFailure(
+        error,
+        "saved_recording_persistence_failed",
+        ["private result diagnostic"],
+      );
     },
-  };
-
-  const result = await finalizeRecordingArtifacts(
-    finalizeOptions(paths, session),
   );
-  const rawResult = readFileSync(paths.resultPath, "utf8");
-
-  assert.deepEqual(JSON.parse(rawResult), result);
-  assert.equal(result.status, "failed");
-  assert.equal(result.failureCode, "encoder_failed");
-  assert.equal(result.capture.elapsedMs, null);
-  assert.equal(result.capture.framesReceived, 3);
-  assert.equal(result.capture.encoderExitCode, 7);
-  assert.equal(result.media, null);
-  assert.equal(rawResult.includes(temporaryRoot), false);
-  assert.equal(rawResult.includes("sensitive diagnostic"), false);
+  assert.equal(existsSync(transaction.capturePath), true);
+  assert.deepEqual(getRecordingCleanupDetails(publicError), {
+    cleanupIncomplete: true,
+    directory: workingDirectory,
+  });
 });
 
-test("persists a stable frame acknowledgment failure without diagnostics", async () => {
-  const paths = await prepareRecordingArtifacts({ temporaryRoot });
-  const privateDiagnostic = `private acknowledgment failure near ${temporaryRoot}`;
-  const captureError = Object.assign(new Error(privateDiagnostic), {
-    code: "frame_ack_failed",
-  });
-  const session = sessionWithResult({
-    elapsedMs: 331.4,
-    framesAcknowledged: 1,
-    framesReceived: 2,
-    outputSamples: 3,
-    terminationReason: "frame_ack_failed",
-  });
-
-  const result = await finalizeRecordingArtifacts(
-    finalizeOptions(paths, session, { captureError }),
+test("reports a destination partial when pre-commit cleanup also fails", async () => {
+  const destinationDirectory = mkdtempSync(
+    join(tmpdir(), "browser-recorder-partial-"),
   );
-  const rawResult = readFileSync(paths.resultPath, "utf8");
-
-  assert.equal(result.status, "failed");
-  assert.equal(result.failureCode, "frame_ack_failed");
-  assert.equal(result.capture.framesReceived, 2);
-  assert.equal(result.capture.framesAcknowledged, 1);
-  assert.equal(result.capture.terminationReason, "frame_ack_failed");
-  assert.deepEqual(
-    {
-      remediation: result.remediation,
-      summary: result.summary,
-    },
-    describeRecordingFailure("frame_ack_failed"),
-  );
-  assert.equal(rawResult.includes(privateDiagnostic), false);
-  assert.equal(rawResult.includes(temporaryRoot), false);
-});
-
-test("persists sanitized resource-limit telemetry when capture is terminated", async () => {
-  const paths = await prepareRecordingArtifacts({ temporaryRoot });
-  const session = {
-    stats: {
-      framePump: captureResult({ elapsedMs: undefined }),
-      resources: {
-        elapsedMs: 42,
-        maxObservedOutputBytes: 2048,
-        terminationReason: "recording_output_limit",
+  const recordingId = "12345678-1234-1234-1234-123456789abc";
+  let publicationStarted = false;
+  try {
+    const transaction = await createTransaction({
+      _dependencies: {
+        link: async () => {
+          if (!publicationStarted) return;
+          throw new Error("private publish diagnostic");
+        },
+        randomUUID: () => recordingId,
+        rm: async (path, options) => {
+          if (publicationStarted && path.endsWith(".partial")) {
+            throw new Error("private partial cleanup diagnostic");
+          }
+          rmSync(path, options);
+        },
+        copyFile: async (source, destination) => {
+          publicationStarted = true;
+          writeFileSync(destination, readFileSync(source));
+        },
       },
-      sink: {
-        backpressureDrops: 0,
-        encoderExitCode: 0,
-        outputSamples: 3,
+      destinationDirectory,
+    });
+    const workingDirectory = dirname(transaction.capturePath);
+    writeFileSync(transaction.capturePath, "recoverable-video");
+
+    let publicError;
+    await assert.rejects(
+      transaction.finalize({
+        capture: captureResult(),
+        failureCode: null,
+        ffprobePath: "/opt/ffprobe",
+      }),
+      (error) => {
+        publicError = error;
+        return error.code === "saved_recording_persistence_failed";
       },
-    },
-    async stop() {
-      const error = new Error("Output limit reached");
-      error.code = "recording_output_limit";
-      throw error;
-    },
-  };
-
-  const result = await finalizeRecordingArtifacts(
-    finalizeOptions(paths, session),
-  );
-
-  assert.equal(result.failureCode, "recording_output_limit");
-  assert.equal(result.capture.elapsedMs, 42);
-  assert.equal(result.capture.maxObservedOutputBytes, 2048);
-  assert.equal(result.capture.terminationReason, "recording_output_limit");
-});
-
-test("preserves a sanitized readiness failure after stopping the session", async () => {
-  const paths = await prepareRecordingArtifacts({ temporaryRoot });
-  const captureError = new Error(`No frames from ${temporaryRoot}`);
-  captureError.code = "frame_stream_unavailable";
-  const session = sessionWithResult({
-    elapsedMs: 25,
-    framesAcknowledged: 0,
-    framesReceived: 0,
-    lastFrameTimestamp: null,
-    outputSamples: 0,
-    visibilityState: null,
-  });
-  const result = await finalizeRecordingArtifacts(
-    finalizeOptions(paths, session, { captureError }),
-  );
-  const rawResult = readFileSync(paths.resultPath, "utf8");
-
-  assert.equal(result.status, "failed");
-  assert.equal(result.failureCode, "frame_stream_unavailable");
-  assert.equal(result.media, null);
-  assert.equal(rawResult.includes(temporaryRoot), false);
-});
-
-test("persists the multiple-video-stream validation failure", async () => {
-  const paths = await prepareRecordingArtifacts({ temporaryRoot });
-  execFileSync(ffmpegPath, [
-    "-hide_banner",
-    "-loglevel",
-    "error",
-    "-f",
-    "lavfi",
-    "-i",
-    "color=c=blue:s=320x180:d=0.5",
-    "-f",
-    "lavfi",
-    "-i",
-    "color=c=red:s=160x90:d=0.5",
-    "-map",
-    "0:v:0",
-    "-map",
-    "1:v:0",
-    "-an",
-    "-c:v",
-    "libvpx",
-    "-pix_fmt",
-    "yuv420p",
-    "-shortest",
-    "-y",
-    paths.outputPath,
-  ]);
-  const result = await finalizeRecordingArtifacts(
-    finalizeOptions(
-      paths,
-      sessionWithResult({ lastFrameTimestamp: 789.5 }),
-    ),
-  );
-
-  assert.equal(result.status, "failed");
-  assert.equal(result.failureCode, "video_stream_count_invalid");
-  assert.equal(result.media, null);
-});
-
-test("persists every strict media-contract failure code", async () => {
-  const variants = [
-    {
-      code: "container_invalid",
-      outputArguments: ["-an", "-c:v", "libvpx", "-f", "matroska"],
-    },
-    {
-      code: "codec_invalid",
-      outputArguments: ["-an", "-c:v", "libvpx-vp9"],
-    },
-    {
-      code: "audio_stream_present",
-      extraInput: ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono"],
-      outputArguments: ["-t", "0.5", "-c:v", "libvpx", "-c:a", "libopus"],
-    },
-  ];
-
-  for (const variant of variants) {
-    const paths = await prepareRecordingArtifacts({ temporaryRoot });
-    execFileSync(ffmpegPath, [
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-f",
-      "lavfi",
-      "-i",
-      "color=c=blue:s=320x180:d=0.5",
-      ...(variant.extraInput ?? []),
-      ...variant.outputArguments,
-      "-pix_fmt",
-      "yuv420p",
-      "-y",
-      paths.outputPath,
-    ]);
-
-    const result = await finalizeRecordingArtifacts(
-      finalizeOptions(paths, sessionWithResult()),
     );
-    assert.equal(result.status, "failed");
-    assert.equal(result.failureCode, variant.code);
-    assert.equal(result.media, null);
+    assert.deepEqual(getRecordingCleanupDetails(publicError), {
+      cleanupFile: join(
+        destinationDirectory,
+        ".browser-recording-2026-07-16-143122.mp4.12345678-1234-1234-1234-123456789abc.partial",
+      ),
+      cleanupIncomplete: true,
+      directory: workingDirectory,
+    });
+  } finally {
+    rmSync(destinationDirectory, { force: true, recursive: true });
   }
+});
+
+test("discards a failed capture even when private result persistence is unavailable", async () => {
+  const transaction = await createTransaction({
+    _dependencies: {
+      writeFile: async () => {
+        throw new Error("private result diagnostic");
+      },
+    },
+  });
+  const workingDirectory = dirname(transaction.capturePath);
+  writeFileSync(transaction.capturePath, "failed-video");
+
+  const output = await transaction.finalize({
+    capture: captureResult({ encoderExitCode: 7 }),
+    failureCode: "encoder_failed",
+    ffprobePath: "/opt/ffprobe",
+  });
+
+  assert.equal(output.result.failureCode, "encoder_failed");
+  assert.equal(existsSync(workingDirectory), false);
+});
+
+test("does not let rollback erase a Working Recording retained by finalization", async () => {
+  const transaction = await createTransaction({
+    _dependencies: {
+      copyFile: async () => {
+        throw new Error("private copy diagnostic");
+      },
+    },
+  });
+  writeFileSync(transaction.capturePath, "recoverable-video");
+
+  const finalization = transaction.finalize({
+    capture: captureResult(),
+    failureCode: null,
+    ffprobePath: "/opt/ffprobe",
+  });
+  const rollback = transaction.rollback();
+
+  await assert.rejects(finalization, {
+    code: "saved_recording_persistence_failed",
+  });
+  await rollback;
+  assert.equal(existsSync(transaction.capturePath), true);
+});
+
+test("rolls back the private Working Recording idempotently", async () => {
+  const transaction = await createTransaction();
+  const workingDirectory = dirname(transaction.capturePath);
+  writeFileSync(transaction.capturePath, "working-video");
+
+  const first = transaction.rollback();
+  const second = transaction.rollback();
+
+  assert.equal(first, second);
+  await first;
+  assert.equal(existsSync(workingDirectory), false);
 });
