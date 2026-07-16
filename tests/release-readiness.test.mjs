@@ -20,7 +20,7 @@ import {
 
 const sourceRoot = fileURLToPath(new URL("../", import.meta.url));
 const manifestPath = "plugins/codex-browser-recorder/.codex-plugin/plugin.json";
-const releaseVersion = "0.2.1";
+const releaseVersion = "0.2.2";
 const fixturePaths = [
   ".github/CODEOWNERS",
   ".github/ISSUE_TEMPLATE/bug_report.yml",
@@ -66,7 +66,7 @@ async function createFixture() {
   await replaceText(
     repositoryRoot,
     "CHANGELOG.md",
-    /^## \[0[.]2[.]1\] - .+$/mu,
+    /^## \[0[.]2[.]2\] - .+$/mu,
     `## [${releaseVersion}] - Unreleased`,
   );
   execFileSync("git", ["init", "--quiet"], { cwd: repositoryRoot });
@@ -156,7 +156,7 @@ test("accepts the complete release candidate fixture", async () => {
 });
 
 test("candidate accepts semantic versions with at most one Codex cachebuster", async () => {
-  for (const version of ["0.2.1+other.1", "0.2.1+codex.a.b", "v0.2.1"]) {
+  for (const version of ["0.2.2+other.1", "0.2.2+codex.a.b", "v0.2.2"]) {
     const repositoryRoot = await createFixture();
     await mutateJson(repositoryRoot, manifestPath, (manifest) => {
       manifest.version = version;
@@ -191,7 +191,7 @@ test("candidate accepts future canonical versions without validator edits", asyn
 test("candidate rejects a changelog version that differs from the manifest", async () => {
   const repositoryRoot = await createFixture();
   await mutateJson(repositoryRoot, manifestPath, (manifest) => {
-    manifest.version = "0.2.2";
+    manifest.version = "0.2.3";
   });
 
   await assertOnlyFailure(
@@ -242,13 +242,13 @@ test("release derives the changelog version from the manifest", async () => {
   const repositoryRoot = await createFixture();
   await finalizeReleaseFixture(repositoryRoot);
   await mutateJson(repositoryRoot, manifestPath, (manifest) => {
-    manifest.version = "0.2.2";
+    manifest.version = "1.0.0";
   });
   await replaceText(
     repositoryRoot,
     "CHANGELOG.md",
     `## [${releaseVersion}] - 2026-07-16`,
-    "## [0.2.2] - 2026-07-16",
+    "## [1.0.0] - 2026-07-16",
   );
 
   assert.deepEqual(
@@ -261,7 +261,7 @@ test("release rejects a changelog version that differs from the manifest", async
   const repositoryRoot = await createFixture();
   await finalizeReleaseFixture(repositoryRoot);
   await mutateJson(repositoryRoot, manifestPath, (manifest) => {
-    manifest.version = "0.2.2";
+    manifest.version = "0.2.3";
   });
 
   await assertOnlyFailure(
