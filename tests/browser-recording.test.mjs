@@ -561,6 +561,13 @@ test("acquires a fresh CDP capability for every recording session", async () => 
                 },
               };
             }
+            if (method === "Page.captureScreenshot") {
+              return {
+                data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString(
+                  "base64",
+                ),
+              };
+            }
           },
           async readEvents() {
             reads += 1;
@@ -657,6 +664,11 @@ test("discards the session when the event stream truncates after readiness", asy
           frameTree: {
             frame: { id: "main-frame", url: "https://example.com/start" },
           },
+        };
+      }
+      if (method === "Page.captureScreenshot") {
+        return {
+          data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64"),
         };
       }
     },
@@ -758,6 +770,11 @@ test("reports a stable failure when a screencast frame cannot be acknowledged", 
           frameTree: {
             frame: { id: "main-frame", url: "https://example.com/start" },
           },
+        };
+      }
+      if (method === "Page.captureScreenshot") {
+        return {
+          data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64"),
         };
       }
       if (method === "Page.screencastFrameAck") {

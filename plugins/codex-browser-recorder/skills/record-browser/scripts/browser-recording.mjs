@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import {
   createFfmpegSink,
+  parseScreencastFrame,
   startFramePump,
 } from "./media-recorder.mjs";
 import {
@@ -72,9 +73,9 @@ function awaitAbortable(operation, signal, onLateSuccess) {
   });
 }
 
-function waitForFirstFrame(ready, timeoutMs) {
+function createFirstFrameDeadline(timeoutMs) {
   let timer;
-  const timeout = new Promise((_, reject) => {
+  const promise = new Promise((_, reject) => {
     timer = setTimeout(
       () =>
         reject(
@@ -87,7 +88,43 @@ function waitForFirstFrame(ready, timeoutMs) {
     );
   });
 
-  return Promise.race([ready, timeout]).finally(() => clearTimeout(timer));
+  return {
+    clear() {
+      clearTimeout(timer);
+    },
+    promise,
+  };
+}
+
+async function captureInitialPageFrame({ cdp, maxDecodedBytes, signal }) {
+  try {
+    const screenshot = await awaitAbortable(
+      cdp.send("Page.captureScreenshot", {
+        captureBeyondViewport: false,
+        format: "jpeg",
+        fromSurface: true,
+        quality: RECORDING_JPEG_QUALITY,
+      }),
+      signal,
+    );
+    return parseScreencastFrame(
+      {
+        method: "Page.screencastFrame",
+        params: {
+          data: screenshot?.data,
+          metadata: {},
+          sessionId: 0,
+        },
+      },
+      maxDecodedBytes,
+    ).jpeg;
+  } catch (error) {
+    if (error?.code === "recording_cancelled") throw error;
+    throw new BrowserRecordingError(
+      "frame_stream_unavailable",
+      "The initial page frame could not be captured",
+    );
+  }
 }
 
 async function readOutputSize(outputPath) {
@@ -109,7 +146,6 @@ function validateStartConfiguration({
   getOutputSize,
   maxDecodedBytes,
   maxDurationMs,
-  maxFrameStallMs,
   maxOutputBytes,
   now,
   outputPath,
@@ -131,8 +167,6 @@ function validateStartConfiguration({
     maxDecodedBytes <= 0 ||
     !Number.isInteger(maxDurationMs) ||
     maxDurationMs <= 0 ||
-    (maxFrameStallMs !== null &&
-      (!Number.isInteger(maxFrameStallMs) || maxFrameStallMs <= 0)) ||
     !Number.isInteger(maxOutputBytes) ||
     maxOutputBytes <= 0 ||
     typeof now !== "function" ||
@@ -163,7 +197,6 @@ export async function startBrowserRecording({
   getOutputSize = readOutputSize,
   maxDecodedBytes = RECORDING_MAX_DECODED_BYTES,
   maxDurationMs = RECORDING_HARD_LIMIT_MS,
-  maxFrameStallMs = null,
   maxOutputBytes = RECORDING_MAX_OUTPUT_BYTES,
   now = () => performance.now(),
   outputPath,
@@ -180,7 +213,6 @@ export async function startBrowserRecording({
     getOutputSize,
     maxDecodedBytes,
     maxDurationMs,
-    maxFrameStallMs,
     maxOutputBytes,
     now,
     outputPath,
@@ -280,19 +312,52 @@ export async function startBrowserRecording({
     signal?.removeEventListener("abort", startupAbortListener);
     throw startupCancellation ?? error;
   }
-  let lastFrameAt = null;
   let startedAt = null;
+  let initialFrameSeeded = false;
+  let stopPromise = null;
+  const acceptFrame = (jpeg) => {
+    if (stopPromise !== null) return false;
+    const frameAt = now();
+    const accepted = sink.accept(jpeg);
+    if (accepted !== false) startedAt ??= frameAt;
+    return accepted;
+  };
+  const firstFrameDeadline = createFirstFrameDeadline(firstFrameTimeoutMs);
   const pump = startFramePump({
     cdp,
     initialCursor: baseline.cursor,
     mainFrameId,
     maxDecodedBytes,
-    onFrame: (frame) => {
-      const frameAt = now();
-      lastFrameAt = frameAt;
-      const accepted = sink.accept(frame.jpeg);
-      if (accepted !== false) startedAt ??= frameAt;
-      return accepted;
+    onFrame: async (frame) => {
+      if (!initialFrameSeeded) {
+        const screenshot = await Promise.race([
+          captureInitialPageFrame({ cdp, maxDecodedBytes, signal }),
+          firstFrameDeadline.promise,
+        ]);
+        try {
+          await Promise.race([
+            inspectTopLevelFrame({ approvedOrigin, cdp }),
+            firstFrameDeadline.promise,
+          ]);
+        } catch (error) {
+          if (error?.code === "origin_not_allowed") {
+            throw new BrowserRecordingError(
+              "origin_changed_during_recording",
+              "The recording page left the approved origin",
+            );
+          }
+          throw error;
+        }
+        if (acceptFrame(screenshot) === false) {
+          throw new BrowserRecordingError(
+            "frame_stream_unavailable",
+            "The initial page frame could not be recorded",
+          );
+        }
+        initialFrameSeeded = true;
+        return true;
+      }
+      return acceptFrame(frame.jpeg);
     },
     onTopFrameNavigation(url) {
       if (originOf(url) !== approvedOrigin) {
@@ -304,7 +369,6 @@ export async function startBrowserRecording({
     },
     readTimeoutMs,
   });
-  let stopPromise = null;
   let resolveCompletion;
   let terminationError = null;
   const completion = new Promise((resolve) => {
@@ -317,8 +381,13 @@ export async function startBrowserRecording({
     terminationReason: null,
   };
 
+  const recordingReady = Promise.race([
+    pump.ready,
+    firstFrameDeadline.promise,
+  ]).finally(() => firstFrameDeadline.clear());
+
   let durationTimer = null;
-  void pump.ready.then(
+  void recordingReady.then(
     () => {
       if (stopPromise !== null) return;
       durationTimer = setTimeout(() => {
@@ -360,18 +429,6 @@ export async function startBrowserRecording({
           ),
         );
         return;
-      }
-      if (
-        maxFrameStallMs !== null &&
-        lastFrameAt !== null &&
-        now() - lastFrameAt > maxFrameStallMs
-      ) {
-        terminate(
-          new BrowserRecordingError(
-            "frame_stream_stalled",
-            "Fresh screencast frames stopped arriving",
-          ),
-        );
       }
     } catch (error) {
       terminate(
@@ -468,7 +525,7 @@ export async function startBrowserRecording({
 
   return {
     completion,
-    ready: waitForFirstFrame(pump.ready, firstFrameTimeoutMs).catch(
+    ready: recordingReady.catch(
       async (error) => {
         terminationError ??= error;
         resourceStats.terminationReason =

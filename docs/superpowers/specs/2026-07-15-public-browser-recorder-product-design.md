@@ -146,7 +146,8 @@ payload limit, output limit, or media format.
 Owns the CDP recording transaction. It acquires the current tab capability,
 enables the Page domain, captures the event baseline, verifies the current top
 frame, starts screencasting, monitors top-frame navigation, enforces runtime
-resources, and finalizes stop or abort.
+resources, captures a fresh initial page frame after screencast readiness, and
+finalizes stop or abort.
 
 Startup order is fixed:
 
@@ -154,20 +155,29 @@ Startup order is fixed:
 2. capture the event baseline cursor
 3. `Page.getFrameTree` and verify the approved origin
 4. `Page.startScreencast`
-5. consume events after the baseline, including `Page.frameNavigated`
+5. receive and acknowledge the first screencast frame
+6. `Page.captureScreenshot` to seed the Working Recording from the painted page,
+   then re-verify the current top-frame origin before accepting the screenshot
+7. consume later media and visibility events after the baseline
 
 The top-frame ID from `Page.getFrameTree` identifies relevant navigation
-events. Any top-frame origin mismatch records the stable policy failure and
-causes finalization to discard the working output. This closes the gap between
-one-time startup verification and continuous recording policy.
+events. Navigation policy events are enforced immediately, including before
+the seed screenshot, and the current origin is re-verified after a pending
+screenshot request returns; later media frames remain serialized behind
+screenshot acceptance. Any top-frame origin mismatch records the stable policy
+failure and causes finalization to discard the working output. This closes the
+gap between one-time startup verification and continuous recording policy
+without ever seeding media from an unapproved origin.
 
 ### `media-recorder.mjs`
 
 Owns bounded frame parsing, immediate frame acknowledgement, latest-frame
 sampling, FFmpeg backpressure, output-size enforcement, encoder shutdown, and
 creation of the private H.264 `yuv420p` MP4 Working Recording. It normalizes odd
-Browser dimensions to even values required by H.264 and never returns
-subprocess output or frame content.
+Browser dimensions to even values required by H.264, bounds screenshot inputs
+within 1280×720 without upscaling, and never returns subprocess output or frame
+content. A static page remains valid because the encoder samples its latest
+accepted frame at the fixed output rate.
 
 ### `validate-video.mjs`
 

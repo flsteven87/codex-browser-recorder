@@ -252,7 +252,6 @@ async function startRecordingTransaction({
       ffmpegPath: options.ffmpegPath,
       firstFrameTimeoutMs: 5000,
       maxDurationMs: RECORDING_HARD_LIMIT_MS,
-      maxFrameStallMs: 5000,
       outputPath: artifacts.capturePath,
       readTimeoutMs: 1000,
       resourceCheckIntervalMs: 1000,

@@ -47,7 +47,7 @@ function frameEvent(overrides = {}) {
   };
 }
 
-function createLiveCdp(operations = []) {
+function createLiveCdp(operations = [], screenshot = jpeg) {
   let reads = 0;
   return {
     async send(method) {
@@ -58,6 +58,9 @@ function createLiveCdp(operations = []) {
             frame: { id: "main-frame", url: "https://example.com/start" },
           },
         };
+      }
+      if (method === "Page.captureScreenshot") {
+        return { data: screenshot.toString("base64") };
       }
     },
     async readEvents() {
@@ -127,6 +130,9 @@ function createQueuedCdp({
     async send(method, params) {
       operations.push([method, params]);
       if (method === "Page.getFrameTree") return frameTree;
+      if (method === "Page.captureScreenshot") {
+        return { data: jpeg.toString("base64") };
+      }
     },
   };
 }
@@ -151,7 +157,8 @@ function createNavigationSessionHarness({
   frameTree,
   stopScreencastError,
 }) {
-  const cdp = createQueuedCdp({ frameTree });
+  const operations = [];
+  const cdp = createQueuedCdp({ frameTree, operations });
   const send = cdp.send.bind(cdp);
   cdp.send = async (method, params) => {
     if (
@@ -173,6 +180,7 @@ function createNavigationSessionHarness({
   return {
     cdp,
     flush: () => cdp.flush(),
+    operations,
     publishFrame() {
       cdp.publish(frameEvent());
     },
@@ -308,6 +316,44 @@ test("exposes a frame-pump policy failure through completion", async () => {
 
   assert.deepEqual(await pump.completion, { error: policyError });
   await assert.rejects(pump.stop(), (error) => error === policyError);
+});
+
+test("enforces navigation policy before the first frame consumer", async () => {
+  const cdp = createQueuedCdp();
+  const firstFrameAccepted = deferred();
+  const firstFrameReceived = deferred();
+  const operations = [];
+  const pump = startFramePump({
+    cdp,
+    initialCursor: 0,
+    mainFrameId: "main-frame",
+    maxDecodedBytes: 1024,
+    async onFrame() {
+      operations.push("frame");
+      firstFrameReceived.resolve();
+      await firstFrameAccepted.promise;
+      operations.push("frame-accepted");
+      return true;
+    },
+    onTopFrameNavigation() {
+      operations.push("navigation");
+    },
+    readTimeoutMs: 0,
+  });
+
+  cdp.publish({
+    method: "Page.frameNavigated",
+    params: { frame: { id: "main-frame", url: "https://example.com/next" } },
+  });
+  cdp.publish(frameEvent());
+  await firstFrameReceived.promise;
+  const operationsBeforeFrameAcceptance = [...operations];
+  firstFrameAccepted.resolve();
+  await pump.ready;
+  await pump.stop();
+
+  assert.deepEqual(operationsBeforeFrameAcceptance, ["navigation", "frame"]);
+  assert.deepEqual(operations, ["navigation", "frame", "frame-accepted"]);
 });
 
 test("acknowledges a frame before handing it to the consumer", async () => {
@@ -547,6 +593,60 @@ test("normalizes an odd Browser frame into a parseable H.264 MP4", async () => {
     assert.equal(probe.streams[0].height, 178);
     assert.ok(Number.parseFloat(probe.format.duration) > 0);
     assert.equal(existsSync(`${outputPath}.partial`), false);
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("bounds an oversized screenshot frame within the MP4 contract", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "browser-recorder-large-"));
+  const outputPath = join(directory, "bounded.mp4");
+
+  try {
+    const screenshot = execFileSync(ffmpegPath, [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=red:s=1919x1079:d=0.1",
+      "-frames:v",
+      "1",
+      "-c:v",
+      "mjpeg",
+      "-f",
+      "image2pipe",
+      "pipe:1",
+    ]);
+    const sink = createFfmpegSink({
+      ffmpegPath,
+      fps: 10,
+      maxHeight: 9_999,
+      maxWidth: 9_999,
+      outputPath,
+    });
+
+    assert.equal(sink.accept(screenshot), true);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await sink.stop();
+    const probe = JSON.parse(
+      execFileSync(
+        ffprobePath,
+        [
+          "-v",
+          "error",
+          "-show_entries",
+          "stream=width,height",
+          "-of",
+          "json",
+          outputPath,
+        ],
+        { encoding: "utf8" },
+      ),
+    );
+
+    assert.deepEqual(probe.streams, [{ height: 720, width: 1280 }]);
   } finally {
     rmSync(directory, { force: true, recursive: true });
   }
@@ -866,6 +966,9 @@ test("starts from a captured cursor and finalizes every recorder component", asy
           },
         };
       }
+      if (method === "Page.captureScreenshot") {
+        return { data: jpeg.toString("base64") };
+      }
     },
     async readEvents(options) {
       reads += 1;
@@ -930,6 +1033,18 @@ test("starts from a captured cursor and finalizes every recorder component", asy
       quality: 70,
     },
   ]);
+  assert.deepEqual(
+    operations.find(([name]) => name === "Page.captureScreenshot"),
+    [
+      "Page.captureScreenshot",
+      {
+        captureBeyondViewport: false,
+        format: "jpeg",
+        fromSurface: true,
+        quality: 70,
+      },
+    ],
+  );
   assert.ok(
     operations.findIndex(([name]) => name === "Page.stopScreencast") <
       operations.findIndex(([name]) => name === "sink.stop"),
@@ -985,6 +1100,91 @@ test("discards output after cross-origin top-frame navigation", async () => {
   assert.equal(harness.sinkStopOptions.discard, true);
 });
 
+test("rejects cross-origin navigation before capturing the seed screenshot", async () => {
+  const harness = createNavigationSessionHarness({
+    approvedOrigin: "https://example.com",
+    frameTree: {
+      frameTree: {
+        frame: { id: "main", url: "https://example.com/start" },
+      },
+    },
+  });
+  const session = await harness.start();
+  harness.publishNavigation({ id: "main", url: "https://other.example/" });
+  harness.publishFrame();
+
+  await assert.rejects(
+    session.ready,
+    (error) => error.code === "origin_changed_during_recording",
+  );
+  await assert.rejects(
+    session.stop(),
+    (error) => error.code === "origin_changed_during_recording",
+  );
+  assert.equal(
+    harness.operations.filter(([method]) => method === "Page.captureScreenshot")
+      .length,
+    0,
+  );
+  assert.equal(harness.sinkStopOptions.discard, true);
+});
+
+test("rechecks the origin before accepting a pending seed screenshot", async () => {
+  const frameTree = {
+    frameTree: {
+      frame: { id: "main", url: "https://example.com/start" },
+    },
+  };
+  const screenshotResult = deferred();
+  const captureStarted = deferred();
+  const cdp = createQueuedCdp({ frameTree });
+  const send = cdp.send.bind(cdp);
+  cdp.send = async (method, params) => {
+    if (method === "Page.captureScreenshot") {
+      captureStarted.resolve();
+      return screenshotResult.promise;
+    }
+    return send(method, params);
+  };
+  let framesAccepted = 0;
+  const sink = createMemorySink();
+  sink.accept = () => {
+    framesAccepted += 1;
+    return true;
+  };
+  const session = await startBrowserRecording({
+    approvedOrigin: "https://example.com",
+    cdp,
+    ffmpegPath: "/unused/ffmpeg",
+    fps: 10,
+    maxDecodedBytes: 1024,
+    outputPath: "/tmp/unused.mp4",
+    readTimeoutMs: 0,
+    sinkFactory: () => sink,
+  });
+  const readinessFailure = session.ready.catch((error) => error);
+  cdp.publish(frameEvent());
+  await captureStarted.promise;
+  frameTree.frameTree.frame.url = "https://other.example/";
+  cdp.publish({
+    method: "Page.frameNavigated",
+    params: { frame: { id: "main", url: "https://other.example/" } },
+  });
+  screenshotResult.resolve({ data: jpeg.toString("base64") });
+
+  const outcome = await session.completion;
+  assert.equal(outcome.error.code, "origin_changed_during_recording");
+  assert.equal(
+    (await readinessFailure).code,
+    "origin_changed_during_recording",
+  );
+  await assert.rejects(
+    session.stop(),
+    (error) => error.code === "origin_changed_during_recording",
+  );
+  assert.equal(framesAccepted, 0);
+});
+
 test("preserves cross-origin failure when screencast cleanup also fails", async () => {
   const cleanupSecret = "private stop-screencast diagnostic";
   const harness = createNavigationSessionHarness({
@@ -1026,6 +1226,9 @@ test("fails readiness when no screencast frame arrives before the timeout", asyn
             frame: { id: "main-frame", url: "https://example.com/start" },
           },
         };
+      }
+      if (method === "Page.captureScreenshot") {
+        return { data: jpeg.toString("base64") };
       }
     },
     async readEvents() {
@@ -1090,6 +1293,44 @@ test("fails readiness when no screencast frame arrives before the timeout", asyn
   }
 });
 
+test("bounds a hanging initial page screenshot with the readiness timeout", async () => {
+  const screenshotResult = deferred();
+  const controller = new AbortController();
+  const cdp = createLiveCdp();
+  const send = cdp.send.bind(cdp);
+  cdp.send = async (method, params) => {
+    if (method === "Page.captureScreenshot") return screenshotResult.promise;
+    return send(method, params);
+  };
+  const session = await startBrowserRecording({
+    approvedOrigin: "https://example.com",
+    cdp,
+    ffmpegPath: "/unused/ffmpeg",
+    firstFrameTimeoutMs: 5,
+    fps: 10,
+    maxDecodedBytes: 1024,
+    outputPath: "/tmp/unused.mp4",
+    readTimeoutMs: 1,
+    signal: controller.signal,
+    sinkFactory: () => createMemorySink(),
+  });
+
+  const outcome = await Promise.race([
+    session.ready.then(
+      () => "ready",
+      (error) => error.code,
+    ),
+    new Promise((resolve) => setTimeout(() => resolve("hung"), 40)),
+  ]);
+  if (outcome === "hung") controller.abort();
+
+  await assert.rejects(
+    session.stop(),
+    (error) => error.code === "frame_stream_unavailable",
+  );
+  assert.equal(outcome, "frame_stream_unavailable");
+});
+
 test("excludes startup wait from capture time with a monotonic clock", async () => {
   const clockValues = [100, 120, 160];
   let reads = 0;
@@ -1101,6 +1342,9 @@ test("excludes startup wait from capture time with a monotonic clock", async () 
             frame: { id: "main-frame", url: "https://example.com/start" },
           },
         };
+      }
+      if (method === "Page.captureScreenshot") {
+        return { data: jpeg.toString("base64") };
       }
     },
     async readEvents() {
@@ -1496,14 +1740,13 @@ test("stops when the configured output size limit is exceeded", async () => {
   assert.equal(session.stats.resources.maxObservedOutputBytes, 101);
 });
 
-test("stops when fresh source frames exceed the configured stall limit", async () => {
+test("keeps recording a static page after its first screencast frame", async () => {
   const session = await startBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: createLiveCdp(),
     ffmpegPath: "/unused/ffmpeg",
     fps: 10,
     maxDecodedBytes: 1024,
-    maxFrameStallMs: 10,
     outputPath: "/tmp/unused.mp4",
     readTimeoutMs: 1,
     resourceCheckIntervalMs: 5,
@@ -1513,8 +1756,132 @@ test("stops when fresh source frames exceed the configured stall limit", async (
   await session.ready;
   await new Promise((resolve) => setTimeout(resolve, 20));
 
+  const result = await session.stop();
+
+  assert.equal(result.encoderExitCode, 0);
+  assert.equal(result.framesReceived, 1);
+  assert.equal(result.terminationReason, null);
+});
+
+test("seeds a static recording from a post-screencast page screenshot", async () => {
+  const screenshot = Buffer.from([0xff, 0xd8, 0x01, 0x02, 0xff, 0xd9]);
+  const acceptedFrames = [];
+  const sink = createMemorySink();
+  sink.accept = (frame) => {
+    acceptedFrames.push(frame);
+    sink.stats.outputSamples += 1;
+    return true;
+  };
+  const session = await startBrowserRecording({
+    approvedOrigin: "https://example.com",
+    cdp: createLiveCdp([], screenshot),
+    ffmpegPath: "/unused/ffmpeg",
+    fps: 10,
+    maxDecodedBytes: 1024,
+    outputPath: "/tmp/unused.mp4",
+    readTimeoutMs: 1,
+    sinkFactory: () => sink,
+  });
+
+  await session.ready;
+  await session.stop();
+
+  assert.deepEqual(acceptedFrames.at(-1), screenshot);
+});
+
+test("seeds the screenshot before consuming later screencast frames", async () => {
+  const screenshot = Buffer.from([0xff, 0xd8, 0x01, 0x02, 0xff, 0xd9]);
+  const laterFrame = Buffer.from([0xff, 0xd8, 0x03, 0x04, 0xff, 0xd9]);
+  const screenshotResult = deferred();
+  const captureStarted = deferred();
+  const laterFrameAcknowledged = deferred();
+  const acknowledgements = [];
+  const acceptedFrames = [];
+  const cdp = createQueuedCdp();
+  const send = cdp.send.bind(cdp);
+  cdp.send = async (method, params) => {
+    if (method === "Page.captureScreenshot") {
+      captureStarted.resolve();
+      return screenshotResult.promise;
+    }
+    if (method === "Page.screencastFrameAck") {
+      acknowledgements.push(params.sessionId);
+      if (params.sessionId === 8) laterFrameAcknowledged.resolve();
+    }
+    return send(method, params);
+  };
+  const sink = createMemorySink();
+  sink.accept = (frame) => {
+    acceptedFrames.push(frame);
+    sink.stats.outputSamples += 1;
+    return true;
+  };
+  const session = await startBrowserRecording({
+    approvedOrigin: "https://example.com",
+    cdp,
+    ffmpegPath: "/unused/ffmpeg",
+    fps: 10,
+    maxDecodedBytes: 1024,
+    outputPath: "/tmp/unused.mp4",
+    readTimeoutMs: 1,
+    sinkFactory: () => sink,
+  });
+
+  cdp.publish(frameEvent({ sessionId: 7 }));
+  cdp.publish(
+    frameEvent({ data: laterFrame.toString("base64"), sessionId: 8 }),
+  );
+  await captureStarted.promise;
+  await new Promise((resolve) => setImmediate(resolve));
+  const acknowledgementsBeforeScreenshot = [...acknowledgements];
+  screenshotResult.resolve({ data: screenshot.toString("base64") });
+  await session.ready;
+  await laterFrameAcknowledged.promise;
+  await session.stop();
+
+  assert.deepEqual(acknowledgementsBeforeScreenshot, [7]);
+  assert.deepEqual(acceptedFrames, [screenshot, laterFrame]);
+});
+
+test("fails closed when the initial page screenshot is unavailable", async () => {
+  const privateDiagnostic = "private screenshot diagnostic";
+  const cdp = createLiveCdp();
+  const send = cdp.send.bind(cdp);
+  cdp.send = async (method, params) => {
+    if (method === "Page.captureScreenshot") {
+      throw new Error(privateDiagnostic);
+    }
+    return send(method, params);
+  };
+  const stopOptions = [];
+  const sink = createMemorySink();
+  sink.stop = async (options) => {
+    stopOptions.push(options);
+    sink.stats.encoderExitCode = 0;
+    return sink.stats;
+  };
+  const session = await startBrowserRecording({
+    approvedOrigin: "https://example.com",
+    cdp,
+    ffmpegPath: "/unused/ffmpeg",
+    fps: 10,
+    maxDecodedBytes: 1024,
+    outputPath: "/tmp/unused.mp4",
+    readTimeoutMs: 1,
+    sinkFactory: () => sink,
+  });
+
+  await assert.rejects(session.ready, (error) => {
+    assert.equal(error.code, "frame_stream_unavailable");
+    assert.doesNotMatch(
+      `${error.message}\n${JSON.stringify(error)}`,
+      /private screenshot diagnostic/,
+    );
+    return true;
+  });
   await assert.rejects(
     session.stop(),
-    (error) => error.code === "frame_stream_stalled",
+    (error) => error.code === "frame_stream_unavailable",
   );
+  assert.deepEqual(stopOptions, [{ discard: true }]);
 });

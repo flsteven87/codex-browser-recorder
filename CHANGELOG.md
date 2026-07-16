@@ -25,6 +25,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Durable publication failures retain a validated Working Recording for
   recovery and return a specific allowlisted remediation.
 - Odd Browser viewport dimensions are normalized for H.264 encoding.
+- Static pages now reuse their latest frame instead of being treated as a
+  stalled stream, and recording readiness seeds the encoder from a fresh page
+  screenshot instead of a transient compositor frame. Navigation policy is
+  enforced before that screenshot and re-verified before the frame is accepted;
+  the readiness timeout also bounds a stalled screenshot request.
 - Failed validation, publication partials, and concurrent rollback now follow
   deterministic cleanup and bounded recovery reporting.
 

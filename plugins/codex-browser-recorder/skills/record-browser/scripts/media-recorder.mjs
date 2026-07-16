@@ -1,6 +1,11 @@
 import { spawn } from "node:child_process";
 import { rename, rm, stat } from "node:fs/promises";
 
+import {
+  RECORDING_MAX_HEIGHT,
+  RECORDING_MAX_WIDTH,
+} from "./recording-policy.mjs";
+
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u;
 
 class RecorderError extends Error {
@@ -152,7 +157,7 @@ export function startFramePump({
     // Consumers may choose completion when readiness is no longer relevant.
   });
 
-  async function handleEvent(event) {
+  async function handleNonFrameEvent(event) {
     if (event?.method === "Page.frameNavigated") {
       const frame = event.params?.frame;
       if (
@@ -172,8 +177,11 @@ export function startFramePump({
       }
       return;
     }
+  }
 
+  async function handleEvent(event) {
     if (event?.method !== "Page.screencastFrame") {
+      await handleNonFrameEvent(event);
       return;
     }
 
@@ -312,7 +320,7 @@ export function createFfmpegSink({
       "-crf",
       "23",
       "-vf",
-      "scale=trunc(iw/2)*2:trunc(ih/2)*2:in_range=pc:out_range=tv,format=yuv420p",
+      `scale=w='min(${RECORDING_MAX_WIDTH},iw)':h='min(${RECORDING_MAX_HEIGHT},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2:in_range=pc:out_range=tv,format=yuv420p`,
       "-pix_fmt",
       "yuv420p",
       "-movflags",
