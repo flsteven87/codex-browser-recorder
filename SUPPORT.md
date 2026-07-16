@@ -1,6 +1,6 @@
 # Support
 
-Browser Recorder for Codex `v0.2.0` has a deliberately narrow support boundary.
+Browser Recorder for Codex `v0.2.1` has a deliberately narrow support boundary.
 
 ## Non-sensitive bugs and questions
 

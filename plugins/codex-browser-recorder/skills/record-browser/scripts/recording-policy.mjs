@@ -27,7 +27,7 @@ export function originOf(value) {
   }
 }
 
-export function hasPointerActionEvidence({
+export function hasPointerEvidenceAfterActionBoundary({
   actionStartedAtEpochMs,
   beforeEvents,
   capture,

@@ -1,6 +1,6 @@
 interface:
   display_name: "Record Browser"
-  short_description: "Save one cursor-complete Browser flow as local MP4"
+  short_description: "Save one Browser flow as MP4 with a visible cursor"
   default_prompt: "Use $record-browser to record an approved Browser test flow."
 policy:
   allow_implicit_invocation: false

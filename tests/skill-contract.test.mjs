@@ -5,6 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+const changelog = readFileSync(join(repositoryRoot, "CHANGELOG.md"), "utf8");
 const privacy = readFileSync(join(repositoryRoot, "PRIVACY.md"), "utf8");
 const readme = readFileSync(join(repositoryRoot, "README.md"), "utf8");
 const skillRoot = join(
@@ -278,10 +279,30 @@ test("README documents the public recording contract", () => {
     /fresh tab in the browser selected\s+by the installed Browser plugin/i,
   );
   assert.doesNotMatch(readme, /fresh Codex in-app Browser tab/i);
+  assert.doesNotMatch(readme, /cursor-complete/i);
   assert.match(
     readme,
     /attempts to close the fresh tab\s+on every path[^.]*reports bounded manual cleanup instructions/i,
   );
+});
+
+test("public copy states the observable cursor boundary without claiming event provenance", () => {
+  for (const [label, source] of [
+    ["README", readme],
+    ["changelog", changelog],
+    ["skill", skill],
+    ["agent metadata", agent],
+  ]) {
+    assert.match(source, /visible cursor/i, `${label} must describe the visible cursor`);
+    assert.doesNotMatch(
+      source,
+      /cursor-complete/i,
+      `${label} must not claim unprovable cursor completeness`,
+    );
+  }
+  assert.match(privacy, /page-scripted synthetic events may also be observed/i);
+  assert.match(privacy, /does not authenticate the source of an observed event/i);
+  assert.doesNotMatch(privacy, /synthetic events are ignored/i);
 });
 
 test("public docs disclose failure-specific local media retention", () => {
@@ -384,7 +405,7 @@ test("skill validates before Browser activity and delegates recording to product
   assert.match(skill, /freshTab = await handle[.]ready/);
   assert.match(skill, /handle[.]status[(][)]/);
   assert.match(skill, /cursorEventsCaptured/);
-  assert.match(skill, /hasPointerActionEvidence/);
+  assert.match(skill, /hasPointerEvidenceAfterActionBoundary/);
   assert.match(skill, /requiresPointerEvidence/);
   assert.match(skill, /new AbortController[(][)]/);
   assert.match(skill, /signal: actionAbortController[.]signal/);

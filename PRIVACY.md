@@ -15,11 +15,13 @@ explicitly approved non-sensitive Browser test flow.
 - Cursor capture uses temporary isolated-world listeners in the approved page
   and supported embedded frames. It observes only pointer event type,
   coordinates, button state, frame identity, viewport dimensions, sequence,
-  page-event occurrence time, and recorder-relative time. Page-scripted
-  synthetic events are ignored. The occurrence time is used transiently to
-  associate an event with the current approved action; it is not persisted in
-  result JSON. The plugin does not read event targets, selectors, form values,
-  storage, credentials, or network traffic.
+  page-event occurrence time, and recorder-relative time. Browser controls can
+  expose pointer events with the same DOM trust flag as script-dispatched
+  events, so page-scripted synthetic events may also be observed. The recorder
+  uses occurrence time only to require new evidence after an approved action
+  begins; it does not authenticate the source of an observed event or persist
+  the occurrence time in result JSON. The plugin does not read event targets,
+  selectors, form values, storage, credentials, or network traffic.
 
 The bounded cursor timeline is held locally only long enough to composite the
 project-owned cursor and click feedback. It is not written beside the Saved

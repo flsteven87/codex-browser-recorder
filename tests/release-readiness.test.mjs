@@ -20,6 +20,7 @@ import {
 
 const sourceRoot = fileURLToPath(new URL("../", import.meta.url));
 const manifestPath = "plugins/codex-browser-recorder/.codex-plugin/plugin.json";
+const releaseVersion = "0.2.1";
 const fixturePaths = [
   ".github/CODEOWNERS",
   ".github/ISSUE_TEMPLATE/bug_report.yml",
@@ -60,13 +61,13 @@ async function createFixture() {
     await cp(source, target, { recursive: true });
   }
   await mutateJson(repositoryRoot, manifestPath, (manifest) => {
-    manifest.version = "0.2.0+codex.fixture";
+    manifest.version = `${releaseVersion}+codex.fixture`;
   });
   await replaceText(
     repositoryRoot,
     "CHANGELOG.md",
-    /^## \[0[.]2[.]0\] - .+$/mu,
-    "## [0.2.0] - Unreleased",
+    /^## \[0[.]2[.]1\] - .+$/mu,
+    `## [${releaseVersion}] - Unreleased`,
   );
   execFileSync("git", ["init", "--quiet"], { cwd: repositoryRoot });
   return repositoryRoot;
@@ -133,13 +134,13 @@ async function assertSemanticAndHashFailures(repositoryRoot, code) {
 
 async function finalizeReleaseFixture(repositoryRoot) {
   await mutateJson(repositoryRoot, manifestPath, (manifest) => {
-    manifest.version = "0.2.0";
+    manifest.version = releaseVersion;
   });
   await replaceText(
     repositoryRoot,
     "CHANGELOG.md",
-    "## [0.2.0] - Unreleased",
-    "## [0.2.0] - 2026-07-16",
+    `## [${releaseVersion}] - Unreleased`,
+    `## [${releaseVersion}] - 2026-07-16`,
   );
 }
 
@@ -154,8 +155,8 @@ test("accepts the complete release candidate fixture", async () => {
   assert.deepEqual(candidate, { status: "pass", mode: "candidate" });
 });
 
-test("candidate accepts only the canonical version or one Codex cachebuster", async () => {
-  for (const version of ["0.2.1", "0.2.0+other.1", "0.2.0+codex.a.b"]) {
+test("candidate accepts semantic versions with at most one Codex cachebuster", async () => {
+  for (const version of ["0.2.1+other.1", "0.2.1+codex.a.b", "v0.2.1"]) {
     const repositoryRoot = await createFixture();
     await mutateJson(repositoryRoot, manifestPath, (manifest) => {
       manifest.version = version;
@@ -168,7 +169,55 @@ test("candidate accepts only the canonical version or one Codex cachebuster", as
   }
 });
 
-test("release accepts only canonical 0.2.0 with a dated changelog", async () => {
+test("candidate accepts future canonical versions without validator edits", async () => {
+  for (const version of ["0.2.2", "1.0.0", "1.0.0+codex.fixture"]) {
+    const repositoryRoot = await createFixture();
+    await mutateJson(repositoryRoot, manifestPath, (manifest) => {
+      manifest.version = version;
+    });
+    await replaceText(
+      repositoryRoot,
+      "CHANGELOG.md",
+      `## [${releaseVersion}] - Unreleased`,
+      `## [${version.split("+")[0]}] - Unreleased`,
+    );
+    assert.deepEqual(
+      await validateReleaseReadiness({ mode: "candidate", repositoryRoot }),
+      { status: "pass", mode: "candidate" },
+    );
+  }
+});
+
+test("candidate rejects a changelog version that differs from the manifest", async () => {
+  const repositoryRoot = await createFixture();
+  await mutateJson(repositoryRoot, manifestPath, (manifest) => {
+    manifest.version = "0.2.2";
+  });
+
+  await assertOnlyFailure(
+    repositoryRoot,
+    "CHANGELOG_RELEASE_INCOMPLETE",
+    "CHANGELOG.md",
+  );
+});
+
+test("cachebusted candidate requires an Unreleased changelog entry", async () => {
+  const repositoryRoot = await createFixture();
+  await replaceText(
+    repositoryRoot,
+    "CHANGELOG.md",
+    `## [${releaseVersion}] - Unreleased`,
+    `## [${releaseVersion}] - 2026-07-16`,
+  );
+
+  await assertOnlyFailure(
+    repositoryRoot,
+    "CHANGELOG_RELEASE_INCOMPLETE",
+    "CHANGELOG.md",
+  );
+});
+
+test("release accepts a canonical manifest version with a matching dated changelog", async () => {
   const repositoryRoot = await createFixture();
   await finalizeReleaseFixture(repositoryRoot);
 
@@ -179,7 +228,7 @@ test("release accepts only canonical 0.2.0 with a dated changelog", async () => 
   assert.deepEqual(release, { status: "pass", mode: "release" });
 
   await mutateJson(repositoryRoot, manifestPath, (manifest) => {
-    manifest.version = "0.2.0+codex.20260716";
+    manifest.version = `${releaseVersion}+codex.20260716`;
   });
   await assertOnlyFailure(
     repositoryRoot,
@@ -189,10 +238,30 @@ test("release accepts only canonical 0.2.0 with a dated changelog", async () => 
   );
 });
 
-test("release rejects an undated canonical changelog entry", async () => {
+test("release derives the changelog version from the manifest", async () => {
   const repositoryRoot = await createFixture();
+  await finalizeReleaseFixture(repositoryRoot);
   await mutateJson(repositoryRoot, manifestPath, (manifest) => {
-    manifest.version = "0.2.0";
+    manifest.version = "0.2.2";
+  });
+  await replaceText(
+    repositoryRoot,
+    "CHANGELOG.md",
+    `## [${releaseVersion}] - 2026-07-16`,
+    "## [0.2.2] - 2026-07-16",
+  );
+
+  assert.deepEqual(
+    await validateReleaseReadiness({ mode: "release", repositoryRoot }),
+    { status: "pass", mode: "release" },
+  );
+});
+
+test("release rejects a changelog version that differs from the manifest", async () => {
+  const repositoryRoot = await createFixture();
+  await finalizeReleaseFixture(repositoryRoot);
+  await mutateJson(repositoryRoot, manifestPath, (manifest) => {
+    manifest.version = "0.2.2";
   });
 
   await assertOnlyFailure(
@@ -203,10 +272,24 @@ test("release rejects an undated canonical changelog entry", async () => {
   );
 });
 
-test("release rejects duplicate or residual Unreleased 0.2.0 headings", async () => {
+test("release rejects an undated canonical changelog entry", async () => {
+  const repositoryRoot = await createFixture();
+  await mutateJson(repositoryRoot, manifestPath, (manifest) => {
+    manifest.version = releaseVersion;
+  });
+
+  await assertOnlyFailure(
+    repositoryRoot,
+    "CHANGELOG_RELEASE_INCOMPLETE",
+    "CHANGELOG.md",
+    "release",
+  );
+});
+
+test("release rejects duplicate or residual Unreleased release headings", async () => {
   for (const extraHeading of [
-    "## [0.2.0] - 2026-07-17",
-    "## [0.2.0] - Unreleased",
+    `## [${releaseVersion}] - 2026-07-17`,
+    `## [${releaseVersion}] - Unreleased`,
   ]) {
     const repositoryRoot = await createFixture();
     await finalizeReleaseFixture(repositoryRoot);

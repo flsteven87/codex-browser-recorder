@@ -48,7 +48,8 @@ const requiredPaths = [
   ...workflowPaths,
 ].toSorted();
 const placeholderPattern = /\b(?:TBD|TODO|example@example[.]com|YOUR_NAME)\b/iu;
-const candidateVersionPattern = /^0[.]2[.]0(?:[+]codex[.][0-9A-Za-z-]+)?$/u;
+const candidateVersionPattern =
+  /^((?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*))(?:[+]codex[.][0-9A-Za-z-]+)?$/u;
 const fullShaPattern = /^[0-9a-f]{40}$/u;
 const recordingArtifactPattern =
   /(?:^|\/)(?:[^/]+[.](?:webm|mp4|mov|mkv|part)|result[.]json|recording-[^/]+\/)/iu;
@@ -159,10 +160,13 @@ function manifestLinks(value, key = "") {
 
 function validateManifest(manifest, mode, failures) {
   const version = manifest?.version;
+  const versionMatch =
+    typeof version === "string" ? version.match(candidateVersionPattern) : null;
+  const canonicalVersion = versionMatch?.[1] ?? null;
   const versionValid =
     mode === "release"
-      ? version === "0.2.0"
-      : typeof version === "string" && candidateVersionPattern.test(version);
+      ? canonicalVersion !== null && version === canonicalVersion
+      : canonicalVersion !== null;
   if (!versionValid) addFailure(failures, "VERSION_INVALID", manifestPath);
 
   const links = manifestLinks(manifest);
@@ -181,6 +185,10 @@ function validateManifest(manifest, mode, failures) {
   ) {
     addFailure(failures, "DEFAULT_PROMPTS_INVALID", manifestPath);
   }
+
+  return versionValid
+    ? { cachebusted: version !== canonicalVersion, canonicalVersion }
+    : null;
 }
 
 function validateEvalCorpus(corpus, failures) {
@@ -207,19 +215,33 @@ async function validatePublicText(repositoryRoot, existing, failures) {
   }
 }
 
-async function validateReleaseChangelog(repositoryRoot, existing, failures) {
-  if (!existing.has("CHANGELOG.md")) return;
+async function validateChangelogVersion(
+  repositoryRoot,
+  existing,
+  mode,
+  versionInfo,
+  failures,
+) {
+  if (!existing.has("CHANGELOG.md") || versionInfo === null) return;
   const changelog = await readFile(
     repositoryPath(repositoryRoot, "CHANGELOG.md"),
     "utf8",
   );
+  const escapedVersion = versionInfo.canonicalVersion.replaceAll(".", "[.]");
   const releaseHeadings = [
-    ...changelog.matchAll(/^## \[0[.]2[.]0\] - (.+)$/gmu),
+    ...changelog.matchAll(
+      new RegExp(`^## \\[${escapedVersion}\\] - (.+)$`, "gmu"),
+    ),
   ];
-  const datedHeadings = releaseHeadings.filter(([, value]) =>
-    /^\d{4}-\d{2}-\d{2}$/u.test(value),
-  );
-  if (releaseHeadings.length !== 1 || datedHeadings.length !== 1) {
+  const [, headingStatus] = releaseHeadings[0] ?? [];
+  const dated = /^\d{4}-\d{2}-\d{2}$/u.test(headingStatus);
+  const statusValid =
+    mode === "release"
+      ? dated
+      : versionInfo.cachebusted
+        ? headingStatus === "Unreleased"
+        : dated || headingStatus === "Unreleased";
+  if (releaseHeadings.length !== 1 || !statusValid) {
     addFailure(failures, "CHANGELOG_RELEASE_INCOMPLETE", "CHANGELOG.md");
   }
 }
@@ -365,19 +387,26 @@ export async function validateReleaseReadiness({ mode, repositoryRoot }) {
   await access(repositoryRoot);
   const failures = [];
   const existing = await existingPaths(repositoryRoot, failures);
+  let versionInfo = null;
 
   if (existing.has(manifestPath)) {
     const manifest = await readJson(repositoryRoot, manifestPath, failures);
-    if (manifest != null) validateManifest(manifest, mode, failures);
+    if (manifest != null) {
+      versionInfo = validateManifest(manifest, mode, failures);
+    }
   }
   if (existing.has(evalPath)) {
     const corpus = await readJson(repositoryRoot, evalPath, failures);
     if (corpus != null) validateEvalCorpus(corpus, failures);
   }
   await validatePublicText(repositoryRoot, existing, failures);
-  if (mode === "release") {
-    await validateReleaseChangelog(repositoryRoot, existing, failures);
-  }
+  await validateChangelogVersion(
+    repositoryRoot,
+    existing,
+    mode,
+    versionInfo,
+    failures,
+  );
   await validateActionPins(repositoryRoot, existing, failures);
   await validateCi(repositoryRoot, existing, failures);
   await validateGitArtifacts(repositoryRoot, failures);

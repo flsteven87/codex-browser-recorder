@@ -26,8 +26,9 @@ server.
 
 Do not commit recordings, raw frames, full URLs, Browser or CDP diagnostics,
 credentials, tokens, personal data, generated temporary results, or plugin
-cache contents. Tests and examples must use deterministic synthetic fixtures
-and preserve the one-origin, explicit-consent, non-sensitive recording policy.
+cache contents. Automated tests must use deterministic synthetic fixtures;
+submission cases must declare a public, no-login reviewer fixture. Both must
+preserve the one-origin, explicit-consent, non-sensitive recording policy.
 
 Use concise conventional commit messages. Keep pull requests narrowly scoped,
 explain the privacy and security impact, identify the RED and GREEN commands,
