@@ -10,7 +10,7 @@ import {
   captureFailureCode,
   describeRecordingFailure,
   getRecordingCleanupDetails,
-  sanitizeCaptureResult,
+  sanitizeCaptureStatus,
   sanitizeRecordingFailure,
 } from "./recording-outcome.mjs";
 import {
@@ -254,6 +254,7 @@ async function startRecordingTransaction({
       maxDurationMs: RECORDING_HARD_LIMIT_MS,
       outputPath: artifacts.capturePath,
       readTimeoutMs: 1000,
+      requirePointerEvents: request.requirePointerEvents,
       resourceCheckIntervalMs: 1000,
       signal,
       tab,
@@ -304,7 +305,8 @@ async function startRecordingTransaction({
     ready,
     status() {
       return {
-        capture: sanitizeCaptureResult({
+        capture: sanitizeCaptureStatus({
+          ...session.stats?.cursor,
           ...session.stats?.framePump,
           ...session.stats?.resources,
           ...session.stats?.sink,
@@ -318,12 +320,18 @@ async function startRecordingTransaction({
           capture = await session.stop();
         } catch (error) {
           capture = {
+            ...session.stats?.cursor,
             ...session.stats?.framePump,
             ...session.stats?.resources,
             ...session.stats?.sink,
             elapsedMs: session.stats?.resources?.elapsedMs ?? null,
           };
           captureError ??= error;
+        }
+        if (signal.aborted) {
+          captureError ??= Object.assign(new Error("Recording was cancelled"), {
+            code: "recording_cancelled",
+          });
         }
         return artifacts.finalize({
           capture,

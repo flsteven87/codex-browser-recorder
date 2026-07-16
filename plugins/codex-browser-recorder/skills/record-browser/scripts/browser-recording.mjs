@@ -1,4 +1,8 @@
-import { stat } from "node:fs/promises";
+import { rm, stat } from "node:fs/promises";
+import {
+  renderCursorRecording,
+  startCursorCapture,
+} from "./cursor-recording.mjs";
 import {
   createFfmpegSink,
   parseScreencastFrame,
@@ -169,6 +173,8 @@ async function readOutputSize(outputPath) {
 function validateStartConfiguration({
   approvedOrigin,
   cdp,
+  cursorCaptureFactory,
+  cursorRenderer,
   firstFrameTimeoutMs,
   fps,
   getOutputSize,
@@ -178,6 +184,7 @@ function validateStartConfiguration({
   now,
   outputPath,
   readTimeoutMs,
+  requirePointerEvents,
   resourceCheckIntervalMs,
   signal,
   sinkFactory,
@@ -186,6 +193,8 @@ function validateStartConfiguration({
     originOf(approvedOrigin) !== approvedOrigin ||
     typeof cdp?.readEvents !== "function" ||
     typeof cdp?.send !== "function" ||
+    typeof cursorCaptureFactory !== "function" ||
+    typeof cursorRenderer !== "function" ||
     !Number.isInteger(firstFrameTimeoutMs) ||
     firstFrameTimeoutMs <= 0 ||
     !Number.isFinite(fps) ||
@@ -202,6 +211,7 @@ function validateStartConfiguration({
     outputPath.length === 0 ||
     !Number.isInteger(readTimeoutMs) ||
     readTimeoutMs < 0 ||
+    typeof requirePointerEvents !== "boolean" ||
     !Number.isInteger(resourceCheckIntervalMs) ||
     resourceCheckIntervalMs <= 0 ||
     (signal !== undefined &&
@@ -219,6 +229,8 @@ function validateStartConfiguration({
 export async function startBrowserRecording({
   approvedOrigin,
   cdp,
+  cursorCaptureFactory = startCursorCapture,
+  cursorRenderer = renderCursorRecording,
   ffmpegPath,
   firstFrameTimeoutMs = 5000,
   fps = RECORDING_FPS,
@@ -229,6 +241,7 @@ export async function startBrowserRecording({
   now = () => performance.now(),
   outputPath,
   readTimeoutMs,
+  requirePointerEvents = false,
   resourceCheckIntervalMs = 1000,
   signal,
   sinkFactory = createFfmpegSink,
@@ -236,6 +249,8 @@ export async function startBrowserRecording({
   validateStartConfiguration({
     approvedOrigin,
     cdp,
+    cursorCaptureFactory,
+    cursorRenderer,
     firstFrameTimeoutMs,
     fps,
     getOutputSize,
@@ -245,6 +260,7 @@ export async function startBrowserRecording({
     now,
     outputPath,
     readTimeoutMs,
+    requirePointerEvents,
     resourceCheckIntervalMs,
     signal,
     sinkFactory,
@@ -274,10 +290,16 @@ export async function startBrowserRecording({
   }
 
   let baseline;
+  let cursorCapture;
+  let cursorTimeOrigin = null;
   let mainFrameId;
   let screencastAttempted = false;
   let screencastPending = false;
   let sink;
+  let baseOutputMayExist = false;
+  const baseOutputPath = `${outputPath}.cursor-base.mp4`;
+  const cursorNow = () =>
+    cursorTimeOrigin === null ? 0 : Math.max(0, now() - cursorTimeOrigin);
   try {
     throwIfStartupCancelled();
     await awaitStartup(cdp.send("Page.enable"));
@@ -303,6 +325,10 @@ export async function startBrowserRecording({
     ({ frameId: mainFrameId } = await awaitStartup(
       inspectTopLevelFrame({ approvedOrigin, cdp }),
     ));
+    cursorCapture = await awaitStartup(
+      cursorCaptureFactory({ cdp, mainFrameId, now: cursorNow }),
+      (lateCapture) => lateCapture?.stop?.(),
+    );
     screencastAttempted = true;
     screencastPending = true;
     const startScreencast = Promise.resolve(
@@ -320,7 +346,13 @@ export async function startBrowserRecording({
       startScreencast,
       () => cdp.send("Page.stopScreencast"),
     );
-    sink = sinkFactory({ ffmpegPath, fps, maxOutputBytes, outputPath });
+    baseOutputMayExist = true;
+    sink = sinkFactory({
+      ffmpegPath,
+      fps,
+      maxOutputBytes,
+      outputPath: baseOutputPath,
+    });
     throwIfStartupCancelled();
   } catch (error) {
     if (screencastAttempted && !screencastPending) {
@@ -337,6 +369,16 @@ export async function startBrowserRecording({
         // Preserve the bounded startup failure as primary.
       }
     }
+    if (cursorCapture !== undefined) {
+      try {
+        await cursorCapture.stop();
+      } catch {
+        // Preserve the bounded startup failure as primary.
+      }
+    }
+    if (baseOutputMayExist) {
+      await rm(baseOutputPath, { force: true }).catch(() => {});
+    }
     signal?.removeEventListener("abort", startupAbortListener);
     throw startupCancellation ?? error;
   }
@@ -346,6 +388,7 @@ export async function startBrowserRecording({
   const acceptFrame = (jpeg) => {
     if (stopPromise !== null) return false;
     const frameAt = now();
+    cursorTimeOrigin ??= frameAt;
     const accepted = sink.accept(jpeg);
     if (accepted !== false) startedAt ??= frameAt;
     return accepted;
@@ -369,6 +412,7 @@ export async function startBrowserRecording({
           signal,
         });
         if (acceptFrame(screenshot) === false) {
+          if (stopPromise !== null) return false;
           throw new BrowserRecordingError(
             "frame_stream_unavailable",
             "The page frame could not be recorded",
@@ -433,7 +477,7 @@ export async function startBrowserRecording({
     resourceCheckRunning = true;
     try {
       const outputBytes = await getOutputSize(
-        sink.workingOutputPath ?? outputPath,
+        sink.workingOutputPath ?? baseOutputPath,
       );
       if (!Number.isFinite(outputBytes) || outputBytes < 0) {
         throw new Error("Output size monitor returned an invalid value");
@@ -487,6 +531,14 @@ export async function startBrowserRecording({
       }
     });
   }
+  if (typeof cursorCapture.completion?.then === "function") {
+    void cursorCapture.completion.then((outcome) => {
+      const error = outcome?.error;
+      if (error !== null && error !== undefined && stopPromise === null) {
+        terminate(error);
+      }
+    });
+  }
   void pump.completion.then(({ error }) => {
     if (error !== null && stopPromise === null) terminate(error);
   });
@@ -496,7 +548,10 @@ export async function startBrowserRecording({
     clearInterval(resourceTimer);
     signal?.removeEventListener("abort", abortListener);
     let cleanupError = null;
+    let cursorError = null;
+    let cursorTimeline = null;
     let pumpError = null;
+    let renderedCursor = null;
 
     try {
       await cdp.send("Page.stopScreencast");
@@ -511,9 +566,26 @@ export async function startBrowserRecording({
     }
 
     try {
+      cursorTimeline = await cursorCapture.stop();
+      if (
+        requirePointerEvents &&
+        (!Array.isArray(cursorTimeline?.events) ||
+          cursorTimeline.events.length === 0)
+      ) {
+        cursorError = new BrowserRecordingError(
+          "cursor_recording_failed",
+          "The approved pointer flow produced no observable pointer event",
+        );
+      }
+    } catch (error) {
+      cursorError = error;
+    }
+
+    try {
       await sink.stop({
         discard:
           cleanupError !== null ||
+          cursorError !== null ||
           pumpError !== null ||
           terminationError !== null,
       });
@@ -526,19 +598,63 @@ export async function startBrowserRecording({
       );
     }
 
+    if (signal?.aborted) cursorError ??= cancellationFailure();
+
+    if (
+      cleanupError === null &&
+      cursorError === null &&
+      pumpError === null &&
+      terminationError === null
+    ) {
+      try {
+        renderedCursor = await cursorRenderer({
+          ffmpegPath,
+          inputPath: baseOutputPath,
+          outputPath,
+          signal,
+          timeline: cursorTimeline,
+        });
+        if (signal?.aborted) cursorError ??= cancellationFailure();
+      } catch (error) {
+        cursorError =
+          error?.code === "cursor_recording_failed"
+            ? error
+            : new BrowserRecordingError(
+                "cursor_recording_failed",
+                "Cursor recording could not be completed",
+              );
+      }
+    }
+
+    try {
+      await rm(baseOutputPath, { force: true });
+    } catch {
+      cursorError ??= new BrowserRecordingError(
+        "cursor_recording_failed",
+        "Cursor recording could not be completed",
+      );
+    }
+
     if (terminationError !== null) {
       throw terminationError;
     }
     if (pumpError !== null) {
       throw pumpError;
     }
+    if (cursorError !== null) {
+      throw cursorError;
+    }
     if (cleanupError !== null) {
       throw cleanupError;
     }
 
     return {
+      ...cursorCapture.stats,
       ...pump.stats,
       ...sink.stats,
+      ...(Number.isFinite(renderedCursor?.outputBytes)
+        ? { outputBytes: renderedCursor.outputBytes }
+        : {}),
       ...resourceStats,
       outputPath,
     };
@@ -560,6 +676,7 @@ export async function startBrowserRecording({
       },
     ),
     stats: {
+      cursor: cursorCapture.stats,
       framePump: pump.stats,
       resources: resourceStats,
       sink: sink.stats,

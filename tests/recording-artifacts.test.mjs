@@ -65,6 +65,7 @@ const knownFailureCodes = [
   "saved_recording_unavailable",
   "cancelled",
   "recording_cancelled",
+  "cursor_recording_failed",
   "origin_not_allowed",
   "origin_verification_failed",
   "origin_changed_during_recording",

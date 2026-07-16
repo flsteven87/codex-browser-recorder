@@ -1,7 +1,19 @@
 # Public Browser Recorder Product Design
 
-**Status:** Approved on 2026-07-15; Saved Recording amendment approved on
-2026-07-16.
+**Status:** Approved on 2026-07-15; Saved Recording and Cursor-complete
+amendments approved on 2026-07-16.
+
+## v0.2 Cursor-complete Recording Amendment
+
+Version `0.2.0` produces a Cursor-complete Recording as defined in
+`CONTEXT.md`. The focused design is
+[`2026-07-16-cursor-complete-recording-design.md`](./2026-07-16-cursor-complete-recording-design.md).
+It inserts cursor-observer readiness before approved Browser actions and a
+bounded cursor-composition pass before validation and durable publication.
+Browser chrome remains excluded; the output contains an original,
+project-owned Codex-style cursor synchronized to publicly observable pointer
+events. Cursor observation or composition failure discards the Working
+Recording instead of publishing cursor-incomplete media.
 
 ## v0.2 Saved Recording Amendment
 

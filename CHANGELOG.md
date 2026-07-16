@@ -8,6 +8,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.2.0] - 2026-07-16
 
+### Added
+
+- Cursor-complete recording for top-level and supported embedded-frame pointer
+  actions using public-CDP isolated-world observation, a project-owned
+  Codex-style cursor, and 200 ms click feedback.
+- Fail-closed cursor coverage across dynamic frames, reloads, cross-origin
+  frames, and Browser-managed out-of-process iframe targets.
+- Per-action pointer evidence uses the trusted event occurrence boundary, and
+  any missing evidence aborts before finalization can publish media.
+
 ### Changed
 
 - Successful recordings are now Saved Recordings in H.264 MP4 format under
@@ -34,6 +44,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   screenshot request.
 - Failed validation, publication partials, and concurrent rollback now follow
   deterministic cleanup and bounded recovery reporting.
+- Normal stop no longer misclassifies an already in-flight final screenshot as
+  a frame-stream failure.
+- Cursor capture ignores page-scripted synthetic input, drains buffered tail
+  events, rejects unsupported perspective frame geometry, and owns a bounded,
+  killable composition deadline so timed-out media cannot publish later.
 
 ## [0.1.0] - 2026-07-16
 

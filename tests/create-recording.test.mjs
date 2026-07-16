@@ -169,6 +169,7 @@ function createHarness({
       return {
         approvedOrigin: rawRecordingOptions.approvedOrigin,
         maxDurationMs: rawRecordingOptions.maxDurationMs,
+        requirePointerEvents: rawRecordingOptions.requirePointerEvents,
       };
     },
     stopDeferred,
@@ -215,6 +216,7 @@ test("returns a preparing handle and validates before allocating Browser resourc
     maxDecodedBytes: 1,
     maxOutputBytes: 1,
     maxWidth: 9_999,
+    requirePointerEvents: true,
     targetUrl: "https://example.com/demo",
     browser: harness.browser,
   });
@@ -230,6 +232,7 @@ test("returns a preparing handle and validates before allocating Browser resourc
   assert.deepEqual(harness.recordingOptions, {
     approvedOrigin: "https://example.com",
     maxDurationMs: 65_000,
+    requirePointerEvents: true,
   });
   assert.equal("maxDecodedBytes" in harness.rawRecordingOptions, false);
   assert.equal("maxOutputBytes" in harness.rawRecordingOptions, false);
@@ -735,6 +738,121 @@ test("bounds a hanging finalization and releases the singleton", async () => {
   });
   assert.equal(harness.calls.tabClose, 1);
   await assertSingletonReleased();
+});
+
+test("a timed-out finalization cannot publish after its capture resolves late", async () => {
+  const clock = createFakeClock();
+  const lateCapture = deferred();
+  let finalization;
+  let published = false;
+  const handle = createRecording({
+    _dependencies: {
+      clock,
+      async createRecordingArtifactTransaction() {
+        return {
+          capturePath: "/private/recording/recording.mp4",
+          async finalize(options) {
+            finalization = options;
+            published = options.failureCode === null;
+            return {
+              paths: {},
+              result: {
+                failureCode: options.failureCode,
+                status: options.failureCode === null ? "passed" : "failed",
+              },
+            };
+          },
+          async rollback() {},
+        };
+      },
+      async doctor() {
+        return {
+          blockingReasons: [],
+          ffmpegPath: "/opt/ffmpeg",
+          ffprobePath: "/opt/ffprobe",
+          supported: true,
+        };
+      },
+      async startBrowserRecordingForTab() {
+        return {
+          completion: new Promise(() => {}),
+          ready: Promise.resolve(),
+          stats: { framePump: {}, resources: {}, sink: {} },
+          status() {
+            return { capture: null };
+          },
+          stop() {
+            return lateCapture.promise;
+          },
+        };
+      },
+    },
+    browser: {
+      tabs: {
+        async new() {
+          return {
+            capabilities: {
+              async get() {
+                return { readEvents() {}, send() {} };
+              },
+            },
+            async close() {},
+            async goto() {},
+          };
+        },
+      },
+    },
+    targetUrl: "https://example.com/",
+  });
+
+  await handle.ready;
+  const stopping = handle.stop();
+  await settleWorkflow();
+  clock.advance(10_000);
+  await assert.rejects(stopping, { code: "integration_failed" });
+
+  lateCapture.resolve({ elapsedMs: 100, framesReceived: 1 });
+  await settleWorkflow();
+  assert.equal(finalization.failureCode, "recording_cancelled");
+  assert.equal(published, false);
+});
+
+test("an action-evidence abort cannot publish after earlier pointer evidence", async () => {
+  const harness = createHarness({
+    autoStop: false,
+    capture: {
+      cursorEventsCaptured: 4,
+      cursorFramesObserved: 1,
+      cursorLastEventEpochMs: 1_000,
+      framesReceived: 12,
+    },
+  });
+  const actionAbortController = new AbortController();
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    signal: actionAbortController.signal,
+    targetUrl: "https://example.com/",
+    browser: harness.browser,
+  });
+  await handle.ready;
+
+  actionAbortController.abort();
+  const stopping = handle.stop();
+  await settleWorkflow();
+  assert.equal(
+    harness.rawFinalizationOptions.failureCode,
+    "recording_cancelled",
+  );
+  harness.stopDeferred.resolve({
+    paths: {},
+    result: { failureCode: "recording_cancelled", status: "failed" },
+  });
+
+  const output = await stopping;
+  assert.deepEqual(output.paths, {});
+  assert.equal(output.result.status, "failed");
+  assert.equal(output.result.failureCode, "recording_cancelled");
+  assertPublicStatus(handle, "cancelled");
 });
 
 test("bounds readiness cleanup when lower-level stop never settles", async () => {

@@ -12,6 +12,18 @@ explicitly approved non-sensitive Browser test flow.
 - Raw frames, page text, full URLs, CDP payloads, subprocess output,
   credentials, and internal plugin paths are excluded from result JSON and
   skill diagnostics.
+- Cursor capture uses temporary isolated-world listeners in the approved page
+  and supported embedded frames. It observes only pointer event type,
+  coordinates, button state, frame identity, viewport dimensions, sequence,
+  page-event occurrence time, and recorder-relative time. Page-scripted
+  synthetic events are ignored. The occurrence time is used transiently to
+  associate an event with the current approved action; it is not persisted in
+  result JSON. The plugin does not read event targets, selectors, form values,
+  storage, credentials, or network traffic.
+
+The bounded cursor timeline is held locally only long enough to composite the
+project-owned cursor and click feedback. It is not written beside the Saved
+Recording or returned in result JSON.
 
 The local result contains only bounded counters, media validation metadata, an
 output filename, and an allowlisted status or failure code with its fixed

@@ -33,6 +33,7 @@ const VIDEO_VALIDATION_FAILURE_CODES = new Set([
 
 const CAPTURE_FAILURE_CODES = new Set([
   "cdp_unavailable",
+  "cursor_recording_failed",
   "encoder_failed",
   "encoder_finalize_failed",
   "encoder_shutdown_timeout",
@@ -52,6 +53,12 @@ const CAPTURE_FAILURE_CODES = new Set([
 ]);
 
 const MESSAGE_GROUPS = [
+  {
+    codes: ["cursor_recording_failed"],
+    summary: "The pointer interactions could not be recorded completely",
+    remediation:
+      "Keep every participating frame available, confirm full CDP approval, and record the flow again",
+  },
   {
     codes: [
       "invalid_target",
@@ -253,6 +260,15 @@ export function sanitizeCaptureResult(capture) {
   return Object.fromEntries(
     CAPTURE_RESULT_FIELDS.map((field) => [field, capture[field] ?? null]),
   );
+}
+
+export function sanitizeCaptureStatus(capture) {
+  return {
+    ...sanitizeCaptureResult(capture),
+    cursorEventsCaptured: capture.cursorEventsCaptured ?? null,
+    cursorFramesObserved: capture.cursorFramesObserved ?? null,
+    cursorLastEventEpochMs: capture.cursorLastEventEpochMs ?? null,
+  };
 }
 
 export function captureFailureCode(error) {

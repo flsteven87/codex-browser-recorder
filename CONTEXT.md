@@ -15,3 +15,7 @@ _Avoid_: Saved recording, final recording
 **Saved Recording**:
 A validated recording delivered to a user-approved, durable location where the user can find and retain it. This is the successful product outcome.
 _Avoid_: Temporary recording, working output
+
+**Cursor-complete Recording**:
+A recording in which every pointer action in the top-level page and its embedded frames is represented by a synchronized visible cursor. The recorder observes every frame it can reliably instrument through public CDP APIs; if any participating frame cannot be observed or its cursor timeline cannot be preserved, the Recording Session fails closed. Only cursor-complete media may become a Saved Recording.
+_Avoid_: Page-only recording, cursor-optional recording

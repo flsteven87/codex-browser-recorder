@@ -18,12 +18,17 @@ const skillRoot = join(pluginRoot, "skills", "record-browser");
 const requiredScripts = [
   "browser-recording.mjs",
   "create-recording.mjs",
+  "cursor-recording.mjs",
   "doctor.mjs",
   "media-recorder.mjs",
   "recording-artifacts.mjs",
   "recording-outcome.mjs",
   "recording-policy.mjs",
   "validate-video.mjs",
+];
+const requiredSkillAssets = [
+  "codex-style-click-ring.xpm",
+  "codex-style-cursor.xpm",
 ];
 const requiredPublicFiles = [
   "README.md",
@@ -113,11 +118,11 @@ test("plugin manifest and repository marketplace stay aligned", () => {
   assert.match(plugin.version, strictSemver);
   assert.equal(
     plugin.description,
-    "Save one explicitly approved Codex Browser test flow as a local H.264 MP4 recording.",
+    "Save one approved Codex Browser test flow as a cursor-complete local H.264 MP4 recording.",
   );
   assert.equal(
     plugin.interface.shortDescription,
-    "Save an approved Browser test flow as local MP4.",
+    "Save a cursor-complete Browser flow as local MP4.",
   );
   assert.doesNotMatch(
     JSON.stringify(plugin.interface),
@@ -200,7 +205,7 @@ test("record-browser is an explicit skill with one canonical script tree", () =>
   assert.match(agentManifest, /^policy:\n(?: {2}.+\n)* {2}allow_implicit_invocation: false$/m);
   assert.match(
     agentManifest,
-    /short_description: "Save one approved Browser test flow as local MP4"/,
+    /short_description: "Save one cursor-complete Browser flow as local MP4"/,
   );
   assert.match(
     agentManifest,
@@ -222,6 +227,10 @@ test("record-browser is an explicit skill with one canonical script tree", () =>
       .filter((path) => extname(path) === ".mjs")
       .sort(),
     requiredScripts.toSorted(),
+  );
+  assert.deepEqual(
+    readdirSync(join(skillRoot, "assets")).sort(),
+    requiredSkillAssets.toSorted(),
   );
   const legacyRoot = join(repositoryRoot, "poc");
   assert.ok(

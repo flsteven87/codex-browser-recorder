@@ -173,15 +173,20 @@ function assertPositivePolicyContract(cases) {
   const failures = [];
   for (const item of cases.filter(({ kind }) => kind === "positive")) {
     const durationMs = item.setup.durationSeconds * 1_000;
+    const requirePointerEvents = item.setup.plannedActions.some((action) =>
+      /click|drag|hover|scroll/u.test(action),
+    );
     try {
       assert.deepEqual(
         validateRecordingRequest({
           durationMs,
+          requirePointerEvents,
           targetUrl: item.setup.targetUrl,
         }),
         {
           approvedOrigin: item.setup.approvedOrigin,
           durationMs,
+          requirePointerEvents,
           targetUrl: item.setup.targetUrl,
         },
       );
@@ -196,6 +201,17 @@ function assertPositivePolicyContract(cases) {
     failures,
     [],
     "positive eval targets must satisfy the production recording policy",
+  );
+  assert.equal(
+    cases
+      .filter(({ kind }) => kind === "positive")
+      .filter(({ setup }) =>
+        setup.plannedActions.some((action) =>
+          /click|drag|hover|scroll/u.test(action),
+        ),
+      ).length,
+    4,
+    "scroll evals must exercise the production pointer-evidence policy",
   );
 }
 

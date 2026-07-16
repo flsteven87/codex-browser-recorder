@@ -2,8 +2,9 @@
 
 Browser Recorder is an experimental, community-developed Codex plugin that
 records one explicitly approved test flow in a fresh tab in the browser selected
-by the installed Browser plugin and saves it as a local MP4. The recording
-contains the page viewport only, uses H.264 video with no audio, and defaults to
+by the installed Browser plugin and saves it as a cursor-complete local MP4.
+The recording contains the page viewport plus a project-owned Codex-style
+cursor and click feedback, uses H.264 video with no audio, and defaults to
 `~/Downloads/Codex Browser Recordings/` so the user can find and retain it.
 
 The plugin reuses the installed Browser plugin's permission-gated CDP session.
@@ -13,9 +14,9 @@ profile, and it does not add an upload or sharing path.
 ## Status
 
 This checkout prepares version `v0.2.0`. Its automated repository test,
-coverage, eval, isolated-install, metadata, asset, and release gates pass. The
-required two-run installed-desktop gate and immutable `v0.2.0` tag remain
-release-operator steps; the mutable `main` branch is not a supported release
+coverage, eval, isolated-install, metadata, asset, release, real cursor-output,
+and two-run installed-desktop gates pass. The immutable `v0.2.0` tag remains a
+release-operator step; the mutable `main` branch is not a supported release
 source.
 
 Publication in the universal Plugin Directory is a separate OpenAI review and
@@ -38,9 +39,11 @@ The public workflow accepts:
   consent;
 - durations from 5 through 60 seconds, with 15 seconds as the default.
 
-Existing tabs, multiple tabs, non-loopback `http:` targets, URL credentials,
-audio, authenticated or sensitive flows, and cross-origin recording are not
-supported.
+Pointer actions in supported embedded frames, including cross-origin and
+out-of-process iframes observable through public CDP, are composited into the
+recording. Existing tabs, multiple tabs, non-loopback `http:` targets, URL
+credentials, audio, authenticated or sensitive flows, and cross-origin
+top-frame navigation are not supported.
 
 ## Requirements
 
@@ -108,7 +111,8 @@ denied site or CDP approval.
 Before creating or navigating a Browser tab, the skill presents one
 consolidated consent request containing the normalized approved origin, planned
 actions, duration, Saved Recording destination and filename, H.264 MP4 with no
-audio, no browser chrome, no other tabs, and the sensitive-data exclusion.
+audio, the visible project-owned cursor and click feedback, no browser chrome,
+no other tabs, and the sensitive-data exclusion.
 Recording begins only after the user explicitly confirms that complete scope.
 If macOS denies access to the destination, the run stops before creating a
 Browser tab and never falls back silently to temporary storage.
@@ -137,7 +141,13 @@ local directory before consent. Default filenames use
 host, URL, or page text. Explicit custom names are cleaned before use. A
 collision adds a short recording ID instead of overwriting an existing file.
 
-A run is successful only after the Working Recording validates as one H.264
+A pointer-driven run is successful only when its planned actions produce
+new trusted pointer events in the top-level page or supported embedded frames;
+each event must occur at or after its current action boundary, and every
+planned pointer action is checked before the next action begins.
+Cursor observation, coordinate mapping, composition, or cleanup failure
+discards the Working Recording. A run is successful only after the Working
+Recording validates as one H.264
 `yuv420p` video stream in an MP4 container, contains no audio, and is atomically
 published as the Saved Recording with mode `0600`. The private schema-v3 result
 contains bounded counters, validation metadata, an output filename, and
@@ -164,8 +174,9 @@ flowchart LR
     D --> B["One fresh approved Browser tab"]
     B --> R["Public createRecording coordinator"]
     R --> O["Continuous approved-origin enforcement"]
-    O --> F["Bounded frame pump and local FFmpeg"]
-    F --> V["H.264 MP4 validation"]
+    O --> F["Page frames and isolated-world pointer observers"]
+    F --> C2["Deterministic cursor composition"]
+    C2 --> V["H.264 MP4 validation"]
     V --> A["Saved Recording transaction"]
 ```
 

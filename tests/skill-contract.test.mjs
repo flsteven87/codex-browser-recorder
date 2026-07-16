@@ -224,7 +224,7 @@ function assertActionFailureBoundary(source) {
   const outerCatch = lifecycle.slice(outerTry.end, cleanup.markerIndex);
   assert.match(
     outerCatch,
-    /catch \(error\)\s*{\s*primaryFailure = sanitizeActionFailure\(error\);\s*throw primaryFailure;\s*}/,
+    /catch \(error\)\s*{\s*actionAbortController[.]abort\(\);\s*primaryFailure = sanitizeActionFailure\(error\);\s*throw primaryFailure;\s*}/,
     "the outer approved-action boundary must never retain or throw a raw error",
   );
   assert.doesNotMatch(
@@ -379,9 +379,20 @@ test("skill validates before Browser activity and delegates recording to product
   assert.match(skill, /scripts\/create-recording[.]mjs/);
   assert.doesNotMatch(skill, /resolve\(installedSkillRoot, "scripts\/doctor[.]mjs"\)/);
   assert.match(skill, /validateRecordingRequest/);
+  assert.match(skill, /requirePointerEvents/);
   assert.match(skill, /createRecording/);
   assert.match(skill, /freshTab = await handle[.]ready/);
   assert.match(skill, /handle[.]status[(][)]/);
+  assert.match(skill, /cursorEventsCaptured/);
+  assert.match(skill, /hasPointerActionEvidence/);
+  assert.match(skill, /requiresPointerEvidence/);
+  assert.match(skill, /new AbortController[(][)]/);
+  assert.match(skill, /signal: actionAbortController[.]signal/);
+  assert.match(
+    skill,
+    /catch \(error\) \{\s*actionAbortController[.]abort[(][)];\s*primaryFailure = sanitizeActionFailure\(error\);/,
+  );
+  assert.match(skill, /pointer action.{0,100}observed pointer event/is);
   assert.match(skill, /handle[.]stop[(][)]/);
   assert.match(skill, /stop performing Browser actions/i);
   assert.doesNotMatch(skill, /example[.]com|integration gate|createExampleRecording/i);
@@ -489,7 +500,7 @@ test("skill keeps one outer-scoped handle through deterministic cleanup", () => 
   );
   assert.match(
     lifecycle.slice(outerTry.end, cleanup.markerIndex),
-    /catch [(]error[)]\s*{\s*primaryFailure\s*=\s*sanitizeActionFailure[(]error[)];\s*throw primaryFailure;\s*}/,
+    /catch [(]error[)]\s*{\s*actionAbortController[.]abort[(][)];\s*primaryFailure\s*=\s*sanitizeActionFailure[(]error[)];\s*throw primaryFailure;\s*}/,
   );
   assert.match(cleanup.body, /^\s*let cleanupFailure;/);
   assert.match(

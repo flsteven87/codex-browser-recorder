@@ -11,12 +11,15 @@ import {
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-outcome.mjs";
 import {
   inspectTopLevelFrame,
-  startBrowserRecordingForTab,
+  startBrowserRecordingForTab as startBrowserRecordingForTabProduction,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/browser-recording.mjs";
 import { createRecording } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/create-recording.mjs";
 
 const captureFields = [
   "backpressureDrops",
+  "cursorEventsCaptured",
+  "cursorFramesObserved",
+  "cursorLastEventEpochMs",
   "elapsedMs",
   "encoderExitCode",
   "framesAcknowledged",
@@ -31,6 +34,32 @@ const captureFields = [
   "visibilityChanges",
   "visibilityState",
 ];
+
+async function createTestCursorCapture({ now }) {
+  const startedAt = now();
+  return {
+    completion: new Promise(() => {}),
+    stats: { cursorEventsCaptured: 0, cursorFramesObserved: 1 },
+    async stop() {
+      return {
+        durationMs: Math.max(1, now() - startedAt),
+        events: [],
+        viewport: { height: 720, width: 1280 },
+      };
+    },
+  };
+}
+
+function startBrowserRecordingForTab(options) {
+  return startBrowserRecordingForTabProduction({
+    ...options,
+    cursorCaptureFactory:
+      options.cursorCaptureFactory ?? createTestCursorCapture,
+    cursorRenderer:
+      options.cursorRenderer ??
+      (async ({ outputPath }) => ({ outputBytes: 0, outputPath })),
+  });
+}
 
 function deferred() {
   let reject;
@@ -67,6 +96,10 @@ function createHarness({
     completion,
     ready,
     stats: {
+      cursor: {
+        cursorEventsCaptured: 0,
+        cursorFramesObserved: 1,
+      },
       framePump: {
         framesAcknowledged: 8,
         framesDropped: 1,
@@ -434,6 +467,8 @@ test("status exposes only bounded sanitized capture fields", async () => {
   assert.deepEqual(Object.keys(status.capture).sort(), captureFields.sort());
   assert.equal(status.capture.framesReceived, 9);
   assert.equal(status.capture.outputSamples, 7);
+  assert.equal(status.capture.cursorEventsCaptured, 0);
+  assert.equal(status.capture.cursorFramesObserved, 1);
   assert.doesNotMatch(JSON.stringify(status), /must-not-leak|\/private\//);
   await handle.stop();
 });
@@ -1069,6 +1104,7 @@ test("sanitizes every pre-handle Browser and CDP startup failure after rollback"
                 supported: true,
               };
             },
+            startBrowserRecordingForTab,
           },
           browser: { tabs: { async new() { return tab; } } },
           targetUrl: "https://example.com/",

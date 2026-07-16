@@ -4,7 +4,9 @@ import {
   chmodSync,
   existsSync,
   mkdtempSync,
+  renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,12 +19,48 @@ import {
   parseScreencastFrame,
   startFramePump,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/media-recorder.mjs";
-import { startBrowserRecording } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/browser-recording.mjs";
+import { startBrowserRecording as startBrowserRecordingProduction } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/browser-recording.mjs";
 import { resolveExecutable } from "./test-tools.mjs";
 
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
 const ffmpegPath = resolveExecutable("ffmpeg");
 const ffprobePath = resolveExecutable("ffprobe");
+
+async function createTestCursorCapture({ now }) {
+  const startedAt = now();
+  let stopPromise;
+  return {
+    completion: new Promise(() => {}),
+    stats: { cursorEventsCaptured: 0, cursorFramesObserved: 1 },
+    stop() {
+      stopPromise ??= Promise.resolve({
+        durationMs: Math.max(1, now() - startedAt),
+        events: [],
+        viewport: { height: 720, width: 1280 },
+      });
+      return stopPromise;
+    },
+  };
+}
+
+async function renderTestCursor({ inputPath, outputPath }) {
+  let outputBytes = 0;
+  if (existsSync(inputPath)) {
+    rmSync(outputPath, { force: true });
+    renameSync(inputPath, outputPath);
+    outputBytes = statSync(outputPath).size;
+  }
+  return { outputBytes, outputPath };
+}
+
+function startBrowserRecording(options) {
+  return startBrowserRecordingProduction({
+    ...options,
+    cursorCaptureFactory:
+      options.cursorCaptureFactory ?? createTestCursorCapture,
+    cursorRenderer: options.cursorRenderer ?? renderTestCursor,
+  });
+}
 
 function deferred() {
   let reject;
@@ -852,6 +890,34 @@ test("terminates the Browser session when the encoder exits early", async () => 
   );
 });
 
+test("fails closed when an approved pointer flow captures no pointer event", async () => {
+  const operations = [];
+  const sink = createMemorySink(operations);
+  let renderCalls = 0;
+  const session = await startBrowserRecording({
+    approvedOrigin: "https://example.com",
+    cdp: createLiveCdp(operations),
+    cursorRenderer: async () => {
+      renderCalls += 1;
+      return { outputBytes: 1, outputPath: "/tmp/unused.mp4" };
+    },
+    ffmpegPath: "/unused/ffmpeg",
+    fps: 10,
+    maxDecodedBytes: 1024,
+    outputPath: "/tmp/unused.mp4",
+    readTimeoutMs: 1,
+    requirePointerEvents: true,
+    sinkFactory: () => sink,
+  });
+
+  await session.ready;
+  await assert.rejects(
+    session.stop(),
+    (error) => error.code === "cursor_recording_failed",
+  );
+  assert.equal(renderCalls, 0);
+});
+
 test("kills an encoder that does not close within the shutdown timeout", async () => {
   const directory = mkdtempSync(join(tmpdir(), "browser-recorder-timeout-"));
   const slowProcessPath = join(directory, "slow-exit.sh");
@@ -1183,6 +1249,57 @@ test("rechecks the origin before accepting a pending seed screenshot", async () 
     (error) => error.code === "origin_changed_during_recording",
   );
   assert.equal(framesAccepted, 0);
+});
+
+test("does not fail a normal stop while a later screenshot is in flight", async () => {
+  const frameTree = {
+    frameTree: {
+      frame: { id: "main", url: "https://example.com/start" },
+    },
+  };
+  const pendingScreenshot = deferred();
+  const laterCaptureStarted = deferred();
+  const cdp = createQueuedCdp({ frameTree });
+  const send = cdp.send.bind(cdp);
+  let screenshotCalls = 0;
+  cdp.send = async (method, params) => {
+    if (method === "Page.captureScreenshot") {
+      screenshotCalls += 1;
+      if (screenshotCalls > 1) {
+        laterCaptureStarted.resolve();
+        return pendingScreenshot.promise;
+      }
+    }
+    return send(method, params);
+  };
+  let framesAccepted = 0;
+  const sink = createMemorySink();
+  sink.accept = () => {
+    framesAccepted += 1;
+    return true;
+  };
+  const session = await startBrowserRecording({
+    approvedOrigin: "https://example.com",
+    cdp,
+    ffmpegPath: "/unused/ffmpeg",
+    fps: 10,
+    maxDecodedBytes: 1024,
+    outputPath: "/tmp/unused.mp4",
+    readTimeoutMs: 0,
+    sinkFactory: () => sink,
+  });
+  cdp.publish(frameEvent());
+  await session.ready;
+  cdp.publish(frameEvent());
+  await laterCaptureStarted.promise;
+
+  const stopping = session.stop();
+  pendingScreenshot.resolve({ data: jpeg.toString("base64") });
+
+  const result = await stopping;
+  assert.equal(result.framesReceived, 2);
+  assert.equal(result.framesDropped, 1);
+  assert.equal(framesAccepted, 1);
 });
 
 test("preserves cross-origin failure when screencast cleanup also fails", async () => {
