@@ -17,10 +17,6 @@ const EVENT_METHODS = [
   "Target.attachedToTarget",
   "Target.detachedFromTarget",
 ];
-const TARGET_EVENT_METHODS = [
-  "Target.attachedToTarget",
-  "Target.detachedFromTarget",
-];
 const POINTER_TYPES = new Set([
   "click",
   "double",
@@ -111,9 +107,9 @@ function parsePointerPayload(payload) {
   return parsed;
 }
 
-function installerExpression() {
+function installerExpression(bindingName) {
   return `(() => {
-    const bindingName = ${JSON.stringify(BINDING_NAME)};
+    const bindingName = ${JSON.stringify(bindingName)};
     const cleanupName = "__codexBrowserRecorderCursorCleanup";
     globalThis[cleanupName]?.();
     const emit = (type, pointer) => globalThis[bindingName](JSON.stringify({
@@ -140,7 +136,6 @@ function installerExpression() {
       emit("move", move);
     };
     const queueMove = (event) => {
-      if (!event.isTrusted) return;
       pendingMove = {
         button: event.button,
         buttons: event.buttons,
@@ -153,7 +148,6 @@ function installerExpression() {
       }
     };
     const emitBoundary = (type, event) => {
-      if (!event.isTrusted) return;
       flushMove();
       emit(type, event);
     };
@@ -583,11 +577,21 @@ export async function startCursorCapture({ cdp, mainFrameId, now }) {
   const discoveredParents = new Map();
   const pendingFrames = new Map();
   const bindingTargets = new Map();
+  const bindingTargetsByName = new Map();
   const targetSessions = new Map();
   let cursor = 0;
+  let nextBindingId = 1;
   let recordingViewport;
 
-  const targetKey = (target) => target?.sessionId ?? "root";
+  const targetKey = (target) => {
+    if (typeof target?.sessionId === "string") {
+      return `session:${target.sessionId}`;
+    }
+    if (typeof target?.targetId === "string") {
+      return `target:${target.targetId}`;
+    }
+    return "root";
+  };
   const contextKey = (target, contextId) =>
     `${targetKey(target)}:${contextId}`;
   const sendTo = (target, method, params) =>
@@ -609,12 +613,19 @@ export async function startCursorCapture({ cdp, mainFrameId, now }) {
 
   async function addBinding(target) {
     const key = targetKey(target);
-    if (bindingTargets.has(key)) return;
+    const existing = bindingTargets.get(key);
+    if (existing !== undefined) return existing.name;
+    const name =
+      target === null
+        ? BINDING_NAME
+        : `${BINDING_NAME}_${nextBindingId++}`;
     await sendTo(target, "Runtime.addBinding", {
       executionContextName: WORLD_NAME,
-      name: BINDING_NAME,
+      name,
     });
-    bindingTargets.set(key, target);
+    bindingTargets.set(key, { name, target });
+    bindingTargetsByName.set(name, target);
+    return name;
   }
 
   async function removeFrame(frameId, cleanup = false) {
@@ -676,7 +687,9 @@ export async function startCursorCapture({ cdp, mainFrameId, now }) {
     try {
       const installed = await sendTo(target, "Runtime.evaluate", {
         contextId,
-        expression: installerExpression(),
+        expression: installerExpression(
+          bindingTargets.get(targetKey(target))?.name,
+        ),
         returnByValue: true,
       });
       const frame = {
@@ -742,7 +755,10 @@ export async function startCursorCapture({ cdp, mainFrameId, now }) {
     ) {
       throw invalidCursorRecording();
     }
-    const target = { sessionId };
+    const target =
+      bindingTargets.get(`target:${targetInfo.targetId}`)?.target ?? {
+        sessionId,
+      };
     targetSessions.set(sessionId, target);
     await sendTo(target, "Page.enable");
     await sendTo(target, "Runtime.enable");
@@ -780,17 +796,22 @@ export async function startCursorCapture({ cdp, mainFrameId, now }) {
     if (typeof sessionId !== "string") throw invalidCursorRecording();
     const target = targetSessions.get(sessionId);
     if (target === undefined) return;
+    const key = targetKey(target);
     for (const frame of [...frames.values()]) {
-      if (targetKey(frame.target) === sessionId) {
+      if (targetKey(frame.target) === key) {
         await removeFrame(frame.frameId).catch(() => {});
       }
     }
     for (const [frameId, pending] of pendingFrames) {
-      if (targetKey(pending.target) === sessionId) {
+      if (targetKey(pending.target) === key) {
         pendingFrames.delete(frameId);
       }
     }
-    bindingTargets.delete(sessionId);
+    const binding = bindingTargets.get(key);
+    if (binding !== undefined) {
+      bindingTargetsByName.delete(binding.name);
+      bindingTargets.delete(key);
+    }
     targetSessions.delete(sessionId);
   }
 
@@ -822,7 +843,10 @@ export async function startCursorCapture({ cdp, mainFrameId, now }) {
       }
       discoveredParents.set(frameId, parentFrameId);
       const pending = pendingFrames.get(frameId);
-      const target = pending?.target ?? targetFromSource(event.source);
+      const target =
+        pending?.target ??
+        frames.get(parentFrameId)?.target ??
+        targetFromSource(event.source);
       const discovered = { frameId, parentFrameId };
       rememberPendingFrame(discovered, target);
       if (frames.has(parentFrameId)) {
@@ -839,7 +863,10 @@ export async function startCursorCapture({ cdp, mainFrameId, now }) {
     if (event?.method === "Page.frameNavigated") {
       const frame = event.params?.frame;
       if (typeof frame?.id !== "string") throw invalidCursorRecording();
-      const target = targetFromSource(event.source);
+      const target =
+        frames.get(frame.id)?.target ??
+        pendingFrames.get(frame.id)?.target ??
+        targetFromSource(event.source);
       const parentFrameId =
         typeof frame.parentId === "string"
           ? frame.parentId
@@ -859,13 +886,14 @@ export async function startCursorCapture({ cdp, mainFrameId, now }) {
       stats.cursorFramesObserved = frames.size;
       return;
     }
-    if (
-      event?.method !== "Runtime.bindingCalled" ||
-      event.params?.name !== BINDING_NAME
-    ) {
+    if (event?.method !== "Runtime.bindingCalled") {
       return;
     }
-    const target = targetFromSource(event.source);
+    const target = bindingTargetsByName.get(event.params?.name);
+    if (target === undefined && event.params?.name !== BINDING_NAME) return;
+    if (target === undefined && !bindingTargetsByName.has(BINDING_NAME)) {
+      throw invalidCursorRecording();
+    }
     const frameId = contexts.get(
       contextKey(target, event.params.executionContextId),
     );
@@ -920,42 +948,30 @@ export async function startCursorCapture({ cdp, mainFrameId, now }) {
         failed = true;
       }
     }
-    for (const target of [...bindingTargets.values()].reverse()) {
+    for (const binding of [...bindingTargets.values()].reverse()) {
       try {
-        await sendTo(target, "Runtime.removeBinding", { name: BINDING_NAME });
+        await sendTo(binding.target, "Runtime.removeBinding", {
+          name: binding.name,
+        });
       } catch {
         failed = true;
       }
     }
     bindingTargets.clear();
+    bindingTargetsByName.clear();
     return failed;
   }
 
   try {
     await cdp.send("Page.enable");
     await cdp.send("Runtime.enable");
-    const bufferedTargetEvents = [];
-    let targetHistoryComplete = false;
-    for (
-      let batchCount = 0;
-      batchCount < MAX_STARTUP_TARGET_BATCHES;
-      batchCount += 1
-    ) {
-      const batch = await cdp.readEvents({
-        afterSequence: cursor,
-        limit: 1000,
-        methods: TARGET_EVENT_METHODS,
-        timeoutMs: 0,
-      });
-      validateEventBatch(batch, cursor);
-      cursor = batch.cursor;
-      bufferedTargetEvents.push(...batch.events);
-      if (!batch.hasMore) {
-        targetHistoryComplete = true;
-        break;
-      }
-    }
-    if (!targetHistoryComplete) throw invalidCursorRecording();
+    const baseline = await cdp.readEvents({
+      limit: 1,
+      methods: EVENT_METHODS,
+      timeoutMs: 0,
+    });
+    validateEventBatch(baseline, cursor);
+    cursor = baseline.cursor;
     const frameTree = await cdp.send("Page.getFrameTree");
     const discoveredFrames = flattenFrameTree(frameTree?.frameTree);
     if (discoveredFrames[0]?.frameId !== mainFrameId) {
@@ -968,10 +984,17 @@ export async function startCursorCapture({ cdp, mainFrameId, now }) {
         await installFrame(discovered);
       } catch (error) {
         if (discovered.parentFrameId === null) throw error;
-        rememberPendingFrame(discovered, null);
+        const target = { targetId: discovered.frameId };
+        try {
+          await sendTo(target, "Page.enable");
+          await sendTo(target, "Runtime.enable");
+          await addBinding(target);
+          await installFrame(discovered, target);
+        } catch {
+          rememberPendingFrame(discovered, null);
+        }
       }
     }
-    for (const event of bufferedTargetEvents) await handleEvent(event);
     for (
       let batchCount = 0;
       pendingFrames.size > 0 && batchCount < MAX_STARTUP_TARGET_BATCHES;

@@ -142,7 +142,8 @@ host, URL, or page text. Explicit custom names are cleaned before use. A
 collision adds a short recording ID instead of overwriting an existing file.
 
 A pointer-driven run is successful only when its planned actions produce
-new trusted pointer events in the top-level page or supported embedded frames;
+new Browser-dispatched pointer events in the top-level page or supported
+embedded frames;
 each event must occur at or after its current action boundary, and every
 planned pointer action is checked before the next action begins.
 Cursor observation, coordinate mapping, composition, or cleanup failure
