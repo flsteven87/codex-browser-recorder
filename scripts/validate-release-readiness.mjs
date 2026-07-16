@@ -10,7 +10,7 @@ const manifestPath = "plugins/codex-browser-recorder/.codex-plugin/plugin.json";
 const evalPath = "evals/plugin-submission-cases.json";
 const ciPath = ".github/workflows/ci.yml";
 const canonicalCiSha256 =
-  "6af74c696f5cd63306a88d04e75d846bdb100b08ea0117a211fcb085cadff4b7";
+  "c5b7284877525757aaa5eb9be5640d9a213bfadeb01582f99f82d4cd0346257c";
 const workflowPaths = [ciPath, ".github/workflows/codeql.yml"];
 const publicTextPaths = [
   "README.md",
