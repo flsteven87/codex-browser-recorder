@@ -15,26 +15,6 @@ import {
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/browser-recording.mjs";
 import { createRecording } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/create-recording.mjs";
 
-const captureFields = [
-  "backpressureDrops",
-  "cursorEventsCaptured",
-  "cursorFramesObserved",
-  "cursorLastEventEpochMs",
-  "elapsedMs",
-  "encoderExitCode",
-  "framesAcknowledged",
-  "framesDropped",
-  "framesReceived",
-  "invalidFrames",
-  "lastFrameTimestamp",
-  "maxObservedOutputBytes",
-  "outputSamples",
-  "terminationReason",
-  "truncations",
-  "visibilityChanges",
-  "visibilityState",
-];
-
 async function createTestCursorCapture({ now }) {
   const startedAt = now();
   return {
@@ -442,35 +422,26 @@ test("returns the public handle before first-frame readiness resolves", async ()
   const handle = await createHandle(harness);
 
   assert.deepEqual(Object.keys(handle).sort(), [
+    "finished",
     "ready",
     "runAction",
-    "status",
     "stop",
   ]);
-  assert.equal(handle.status().state, "preparing");
+  assert.equal(typeof handle.finished.then, "function");
 
   firstFrame.resolve();
   await handle.ready;
-  assert.equal(handle.status().state, "recording");
   assert.equal(harness.calls.prepare, 1);
   assert.equal(harness.calls.start, 1);
   await handle.stop();
 });
 
-test("status exposes only bounded sanitized capture fields", async () => {
+test("keeps capture diagnostics behind the Recording Session interface", async () => {
   const harness = createHarness();
   const handle = await createHandle(harness);
   await handle.ready;
 
-  const status = handle.status();
-  assert.deepEqual(Object.keys(status).sort(), ["capture", "state"]);
-  assert.equal(status.state, "recording");
-  assert.deepEqual(Object.keys(status.capture).sort(), captureFields.sort());
-  assert.equal(status.capture.framesReceived, 9);
-  assert.equal(status.capture.outputSamples, 7);
-  assert.equal(status.capture.cursorEventsCaptured, 0);
-  assert.equal(status.capture.cursorFramesObserved, 1);
-  assert.doesNotMatch(JSON.stringify(status), /must-not-leak|\/private\//);
+  assert.equal("status" in handle, false);
   await handle.stop();
 });
 
@@ -483,7 +454,7 @@ test("stop memoizes one finalization promise and completes once", async () => {
   const secondStop = handle.stop();
 
   assert.equal(firstStop, secondStop);
-  assert.equal(handle.status().state, "stopping");
+  assert.equal(firstStop, handle.finished);
   assert.deepEqual(await firstStop, {
     paths: harness.paths,
     result: {
@@ -492,7 +463,6 @@ test("stop memoizes one finalization promise and completes once", async () => {
       outputFile: "recording.mp4",
     },
   });
-  assert.equal(handle.status().state, "completed");
   assert.equal(harness.calls.finalize, 1);
   assert.equal(harness.calls.sessionStop, 1);
 });
@@ -879,9 +849,9 @@ test("stop returns the finalized output through the Recording Session lifecycle"
   await handle.ready;
 
   assert.deepEqual(Object.keys(handle).sort(), [
+    "finished",
     "ready",
     "runAction",
-    "status",
     "stop",
   ]);
   const stopped = handle.stop();
@@ -916,14 +886,16 @@ test("readiness failure is retained as the primary cleanup error", async () => {
     (error) =>
       error !== readinessError && error.code === readinessError.code,
   );
-  assert.equal(handle.status().state, "failed");
-  await assert.rejects(handle.stop(), (error) => error.code === readinessError.code);
+  await assert.rejects(
+    handle.finished,
+    (error) => error.code === readinessError.code,
+  );
+  assert.equal(handle.stop(), handle.finished);
   assert.equal(
     harness.finalizedOptions.failureCode,
     readinessError.code,
   );
   assert.equal(harness.calls.sessionStop, 1);
-  assert.equal(handle.status().state, "failed");
 });
 
 test("an automatic capture failure finalizes without an explicit stop", async () => {
@@ -947,11 +919,11 @@ test("an automatic capture failure finalizes without an explicit stop", async ()
   });
   await completed.promise;
   const result = await harness.finalized.promise;
-  await handle.stop();
+  const output = await handle.finished;
 
-  assert.equal(handle.status().state, "failed");
   assert.equal(result.status, "failed");
   assert.equal(result.failureCode, "frame_stream_stalled");
+  assert.equal(output.result, result);
   assert.equal(harness.calls.finalize, 1);
   assert.equal(harness.calls.sessionStop, 1);
 });
@@ -1165,7 +1137,7 @@ test("finalization failure is memoized and leaves the handle failed", async () =
       !error.message.includes("private result persistence diagnostic"),
   );
   assert.equal(firstStop, secondStop);
-  assert.equal(handle.status().state, "failed");
+  assert.equal(firstStop, handle.finished);
   assert.equal(harness.calls.finalize, 1);
   assert.equal(harness.calls.sessionStop, 1);
 });
