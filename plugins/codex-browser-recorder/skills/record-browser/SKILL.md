@@ -27,7 +27,6 @@ const moduleFailure = Object.freeze({
 });
 let describeRecordingFailure;
 let getRecordingCleanupDetails;
-let hasPointerEvidenceAfterActionBoundary;
 let planSavedRecording;
 let sanitizeRecordingFailure;
 let validateRecordingRequest;
@@ -50,10 +49,7 @@ try {
   const artifactsUrl = pathToFileURL(
     resolve(installedSkillRoot, "scripts/recording-artifacts.mjs"),
   ).href;
-  ({
-    hasPointerEvidenceAfterActionBoundary,
-    validateRecordingRequest,
-  } = await import(policyUrl));
+  ({ validateRecordingRequest } = await import(policyUrl));
   ({ planSavedRecording } = await import(artifactsUrl));
   ({
     describeRecordingFailure,
@@ -143,11 +139,11 @@ try {
 
 Call `createRecording()` once with `selectedBrowser` after consent. The coordinator owns creation, navigation, full-CDP preflight, environment doctor, capture startup, finalization, fresh-tab closure, and rollback for exactly one fresh blank Browser tab. Its `ready` promise returns only that fresh tab for the approved Browser actions. A denied site or CDP approval returns `cancelled`; never retry or bypass it.
 
-Keep top-level navigation within `request.approvedOrigin`; stop if the page leaves that approved origin. Route every concrete approved Browser call through `runApprovedAction()` below and mark each click, hover, drag, or pointer-positioned scroll with `requiresPointerEvidence: true`. Every pointer action requires a new observed pointer event whose captured page timestamp is at or after the current action boundary; a delayed event from an earlier action never satisfies a later pointer action. This is an observation boundary, not source authentication. Check `handle.status()` before and after each approved action. Stop performing Browser actions immediately when the state is no longer `recording`. Poll at most every 250 milliseconds and never beyond the requested duration plus 10 seconds. `handle.stop()` then returns the same memoized finalization result.
+Keep top-level navigation within `request.approvedOrigin`; stop if the page leaves that approved origin. Route every concrete approved Browser call through `handle.runAction()` and mark each click, hover, drag, or pointer-positioned scroll with `requiresPointerEvidence: true`. Every pointer action requires a new observed pointer event whose captured page timestamp is at or after the current action boundary; a delayed event from an earlier action never satisfies a later pointer action. This is an observation boundary, not source authentication. The Recording Session owns the action state checks, evidence snapshot and boundary, bounded wait, failure sanitation, cancellation, and no-publication cleanup. Stop performing Browser actions immediately when `handle.runAction()` rejects. After the approved actions, poll only the Session lifecycle at most every 250 milliseconds and never beyond the requested duration plus 10 seconds. `handle.stop()` then returns the same memoized finalization result.
 
 Do not inject clocks, animations, test text, or diagnostic interactions such as an unapproved scroll. Do not enable Developer mode, change policy, install packages, retry denied approval, broaden the origin, switch browsers, use an existing tab, or expose Browser/CDP objects.
 
-Treat every failure during approved actions as untrusted. Preserve allowlisted failure codes and trusted cleanup metadata, map an action-time Browser approval denial to `cancelled`, and map every other unknown action failure through the generic allowlisted recording failure without exposing its message or diagnostics.
+Treat every failure during approved actions as untrusted. `handle.runAction()` preserves allowlisted failure codes and trusted cleanup metadata, maps an action-time Browser approval denial to `cancelled`, and maps every other unknown action failure through the generic allowlisted recording failure without exposing its message or diagnostics.
 
 ```js
 let freshTab;
@@ -155,30 +151,6 @@ let handle;
 let recordingResult;
 let primaryFailure;
 let incompleteCleanup;
-const actionAbortController = new AbortController();
-const isBrowserApprovalDenial = (error) => {
-  const message = error instanceof Error ? error.message : "";
-  return /Browser Use rejected this action due to browser security policy[.] Reason: The user has requested that .+(?:should not be used|not be used on)/su.test(
-    message,
-  );
-};
-const sanitizeActionFailure = (error) => {
-  if (!isBrowserApprovalDenial(error)) {
-    return sanitizeRecordingFailure(error);
-  }
-  const cleanup = getRecordingCleanupDetails(error);
-  return sanitizeRecordingFailure(
-    { code: "cancelled" },
-    {
-      artifactCleanupIncomplete:
-        cleanup?.artifactCleanupIncomplete === true,
-      browserTabCleanupIncomplete:
-        cleanup?.browserTabCleanupIncomplete === true,
-      cleanupDirectory: cleanup?.directory,
-      cleanupFile: cleanup?.cleanupFile,
-    },
-  );
-};
 try {
   handle = createRecording({
     browser: selectedBrowser,
@@ -187,7 +159,6 @@ try {
     now: recordingTimestamp,
     recordingName,
     requirePointerEvents: request.requirePointerEvents,
-    signal: actionAbortController.signal,
     targetUrl: request.targetUrl,
     temporaryRoot,
   });
@@ -195,42 +166,11 @@ try {
 
   const pollDeadline = Date.now() + request.durationMs + 10_000;
   const terminalStates = new Set(["cancelled", "completed", "failed"]);
-  const runApprovedAction = async ({ perform, requiresPointerEvidence }) => {
-    const before = handle.status();
-    if (before.state !== "recording") {
-      throw stableFailure("integration_failed");
-    }
-    const beforeEvents = before.capture?.cursorEventsCaptured;
-    const actionStartedAtEpochMs = Date.now();
-    await perform();
-    if (requiresPointerEvidence !== true) {
-      if (handle.status().state !== "recording") {
-        throw stableFailure("integration_failed");
-      }
-      return;
-    }
-    const evidenceDeadline = Math.min(Date.now() + 1_000, pollDeadline);
-    while (Date.now() <= evidenceDeadline) {
-      const current = handle.status();
-      if (current.state !== "recording") {
-        throw stableFailure("integration_failed");
-      }
-      if (hasPointerEvidenceAfterActionBoundary({
-        actionStartedAtEpochMs,
-        beforeEvents,
-        capture: current.capture,
-      })) {
-        return;
-      }
-      await new Promise((resolveEvidence) =>
-        setTimeout(resolveEvidence, 50),
-      );
-    }
-    throw stableFailure("cursor_recording_failed");
-  };
-
-  // Perform each concrete approved Browser call here with runApprovedAction().
-  // Use requiresPointerEvidence: true for every planned pointer action.
+  // Repeat this shape for each concrete approved Browser call:
+  // await handle.runAction({
+  //   perform: () => freshTab.<approved Browser call>,
+  //   requiresPointerEvidence: <true for a pointer action; otherwise false>,
+  // });
   while (Date.now() < pollDeadline) {
     const current = handle.status();
     if (terminalStates.has(current.state)) break;
@@ -265,8 +205,7 @@ try {
     });
   }
 } catch (error) {
-  actionAbortController.abort();
-  primaryFailure = sanitizeActionFailure(error);
+  primaryFailure = sanitizeRecordingFailure(error);
   throw primaryFailure;
 } finally {
   let cleanupFailure;

@@ -126,11 +126,13 @@ delete a Saved Recording.
 
 ## Architecture
 
-`$record-browser` delegates the complete transaction to `createRecording()`:
-request policy, consent, destination preflight, fresh-tab capture, continuous
-origin enforcement, cursor composition, media validation, durable publication,
-and cleanup. Its public handle exposes only `ready`, `status()`, and idempotent
-`stop()`.
+`$record-browser` owns request collection, local validation, explicit consent,
+Browser selection, concrete approved actions, and user-facing reporting. It
+delegates the recording transaction and per-action evidence boundary to
+`createRecording()`: destination preflight, fresh-tab capture, continuous origin
+enforcement, cursor composition, media validation, durable publication, and
+cleanup. Its public handle exposes `ready`, `runAction()`, diagnostic `status()`,
+and idempotent `stop()`.
 
 ## Development
 

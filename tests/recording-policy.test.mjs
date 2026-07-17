@@ -12,50 +12,9 @@ import {
   RECORDING_MAX_HEIGHT,
   RECORDING_MAX_OUTPUT_BYTES,
   RECORDING_MAX_WIDTH,
-  hasPointerEvidenceAfterActionBoundary,
   originOf,
   validateRecordingRequest,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-policy.mjs";
-
-test("accepts only new pointer evidence observed after the action boundary", () => {
-  const firstActionStartedAt = 1_000;
-  assert.equal(
-    hasPointerEvidenceAfterActionBoundary({
-      actionStartedAtEpochMs: firstActionStartedAt,
-      beforeEvents: 0,
-      capture: {
-        cursorEventsCaptured: 4,
-        cursorLastEventEpochMs: 1_010,
-      },
-    }),
-    true,
-  );
-
-  const secondActionStartedAt = 1_020;
-  assert.equal(
-    hasPointerEvidenceAfterActionBoundary({
-      actionStartedAtEpochMs: secondActionStartedAt,
-      beforeEvents: 4,
-      capture: {
-        cursorEventsCaptured: 6,
-        cursorLastEventEpochMs: 1_015,
-      },
-    }),
-    false,
-    "a delayed tail from the first action must not satisfy the second action",
-  );
-  assert.equal(
-    hasPointerEvidenceAfterActionBoundary({
-      actionStartedAtEpochMs: secondActionStartedAt,
-      beforeEvents: 4,
-      capture: {
-        cursorEventsCaptured: 7,
-        cursorLastEventEpochMs: 1_025,
-      },
-    }),
-    true,
-  );
-});
 
 test("normalizes approved HTTPS and loopback targets", () => {
   const cases = [
