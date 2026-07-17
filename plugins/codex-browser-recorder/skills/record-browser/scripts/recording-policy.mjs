@@ -27,21 +27,6 @@ export function originOf(value) {
   }
 }
 
-export function hasPointerEvidenceAfterActionBoundary({
-  actionStartedAtEpochMs,
-  beforeEvents,
-  capture,
-}) {
-  return (
-    Number.isFinite(actionStartedAtEpochMs) &&
-    Number.isInteger(beforeEvents) &&
-    Number.isInteger(capture?.cursorEventsCaptured) &&
-    capture.cursorEventsCaptured > beforeEvents &&
-    Number.isFinite(capture?.cursorLastEventEpochMs) &&
-    capture.cursorLastEventEpochMs >= actionStartedAtEpochMs
-  );
-}
-
 export function validateRecordingRequest({
   durationMs = DEFAULT_RECORDING_DURATION_MS,
   requirePointerEvents = false,

@@ -175,64 +175,32 @@ function javascriptBlocksFor(source) {
   );
 }
 
-function assertActionFailureBoundary(source) {
-  const lifecycle = [...source.matchAll(/```js\n([\s\S]*?)\n```/g)]
-    .map(([, block]) => block)
-    .find(
-      (block) =>
-        block.includes("const sanitizeActionFailure = (error) =>") &&
-        block.includes("createRecording"),
-    );
-  assert.ok(lifecycle, "missing approved-action failure boundary");
-
-  const sanitizer = readBracedBlockAfter(
-    lifecycle,
-    "const sanitizeActionFailure = (error) =>",
+function assertDelegatedActionBoundary(source) {
+  const runSection = source.slice(
+    source.indexOf("## Run The Recording"),
+    source.indexOf("## Clean Up"),
   );
   assert.match(
-    sanitizer.body,
-    /if \(!isBrowserApprovalDenial\(error\)\)\s*{\s*return sanitizeRecordingFailure\(error\);\s*}/,
-    "raw and already-sanitized action failures must cross the allowlist sanitizer",
+    runSection,
+    /await handle[.]runAction[(][{]/,
+    "every approved Browser action must cross the Recording Session seam",
   );
-  assert.match(
-    sanitizer.body,
-    /const cleanup = getRecordingCleanupDetails\(error\);/,
-    "action failure sanitization must read only trusted cleanup metadata",
-  );
-  assert.match(
-    sanitizer.body,
-    /sanitizeRecordingFailure\(\s*{ code: "cancelled" },\s*{/,
-    "action-time Browser approval denial must map to cancelled without losing trusted cleanup metadata",
-  );
-  for (const trustedField of [
-    "artifactCleanupIncomplete",
-    "browserTabCleanupIncomplete",
-    "cleanupDirectory: cleanup?.directory",
-    "cleanupFile: cleanup?.cleanupFile",
+  for (const implementationDetail of [
+    "cursorEventsCaptured",
+    "cursorLastEventEpochMs",
+    "hasPointerEvidenceAfterActionBoundary",
+    "beforeEvents",
+    "evidenceDeadline",
+    "actionAbortController",
+    "isBrowserApprovalDenial",
+    "sanitizeActionFailure",
   ]) {
     assert.equal(
-      sanitizer.body.includes(trustedField),
-      true,
-      `action-time cancellation must retain trusted ${trustedField} metadata`,
+      runSection.includes(implementationDetail),
+      false,
+      `the skill must not own ${implementationDetail}`,
     );
   }
-
-  const recordingTryIndex = lifecycle.indexOf(
-    "try {\n  await navigateFreshTab(request.targetUrl);",
-  );
-  const outerTry = readBracedBlockAfter(lifecycle, "try", recordingTryIndex);
-  const cleanup = readBracedBlockAfter(lifecycle, "finally", outerTry.end);
-  const outerCatch = lifecycle.slice(outerTry.end, cleanup.markerIndex);
-  assert.match(
-    outerCatch,
-    /catch \(error\)\s*{\s*actionAbortController[.]abort\(\);\s*primaryFailure = sanitizeActionFailure\(error\);\s*throw primaryFailure;\s*}/,
-    "the outer approved-action boundary must never retain or throw a raw error",
-  );
-  assert.doesNotMatch(
-    outerCatch,
-    /primaryFailure\s*=\s*error|throw\s+error/,
-    "the outer approved-action boundary must not expose raw action diagnostics",
-  );
 }
 
 function readBracedBlockAfter(source, marker, fromIndex = 0) {
@@ -404,14 +372,16 @@ test("skill validates before Browser activity and delegates recording to product
   assert.match(skill, /createRecording/);
   assert.match(skill, /freshTab = await handle[.]ready/);
   assert.match(skill, /handle[.]status[(][)]/);
-  assert.match(skill, /cursorEventsCaptured/);
-  assert.match(skill, /hasPointerEvidenceAfterActionBoundary/);
+  assert.match(skill, /await handle[.]runAction[(][{]/);
+  assert.match(skill, /perform: [(][)] => freshTab[.]/);
+  assert.doesNotMatch(skill, /cursorEventsCaptured|cursorLastEventEpochMs/);
+  assert.doesNotMatch(skill, /hasPointerEvidenceAfterActionBoundary/);
   assert.match(skill, /requiresPointerEvidence/);
-  assert.match(skill, /new AbortController[(][)]/);
-  assert.match(skill, /signal: actionAbortController[.]signal/);
+  assert.doesNotMatch(skill, /new AbortController[(][)]/);
+  assert.doesNotMatch(skill, /actionAbortController/);
   assert.match(
     skill,
-    /catch \(error\) \{\s*actionAbortController[.]abort[(][)];\s*primaryFailure = sanitizeActionFailure\(error\);/,
+    /catch \(error\) \{\s*primaryFailure = sanitizeRecordingFailure\(error\);/,
   );
   assert.match(skill, /pointer action.{0,100}observed pointer event/is);
   assert.match(skill, /handle[.]stop[(][)]/);
@@ -439,7 +409,7 @@ test("skill delegates the deterministic Browser transaction to createRecording",
 
 test("skill defines the Browser binding, action guard, and result workflow", () => {
   assertOfficialBrowserSelection(skill);
-  assertActionFailureBoundary(skill);
+  assertDelegatedActionBoundary(skill);
   assert.match(skill, /recordingResult[.]result[.]status === "passed"/);
   assert.match(skill, /recordingResult[.]result[.]status === "failed"/);
 });
@@ -464,36 +434,33 @@ test("official Browser selection guard rejects implicit overrides", () => {
   );
 });
 
-test("approved-action guard rejects raw errors and action-time approval denial mutants", () => {
+test("approved-action contract rejects leaked Session implementation mutants", () => {
   assert.throws(
     () =>
-      assertActionFailureBoundary(
-        skill.replace(
-          "primaryFailure = sanitizeActionFailure(error);\n  throw primaryFailure;",
-          "primaryFailure = error;\n  throw error;",
-        ),
+      assertDelegatedActionBoundary(
+        skill.replaceAll("handle.runAction", "performDirectBrowserAction"),
       ),
-    /never retain or throw a raw error|must not expose raw action diagnostics/,
+    /must cross the Recording Session seam/,
   );
   assert.throws(
     () =>
-      assertActionFailureBoundary(
+      assertDelegatedActionBoundary(
         skill.replace(
-          "if (!isBrowserApprovalDenial(error))",
-          "if (true)",
+          "let recordingResult;",
+          "let recordingResult;\nconst cursorEventsCaptured = 0;",
         ),
       ),
-    /approval denial must map to cancelled|must cross the allowlist sanitizer/,
+    /must not own cursorEventsCaptured/,
   );
   assert.throws(
     () =>
-      assertActionFailureBoundary(
+      assertDelegatedActionBoundary(
         skill.replace(
-          "const cleanup = getRecordingCleanupDetails(error);",
-          "const cleanup = null;",
+          "let recordingResult;",
+          "let recordingResult;\nconst actionAbortController = new AbortController();",
         ),
       ),
-    /trusted cleanup metadata/,
+    /must not own actionAbortController/,
   );
 });
 
@@ -521,7 +488,7 @@ test("skill keeps one outer-scoped handle through deterministic cleanup", () => 
   );
   assert.match(
     lifecycle.slice(outerTry.end, cleanup.markerIndex),
-    /catch [(]error[)]\s*{\s*actionAbortController[.]abort[(][)];\s*primaryFailure\s*=\s*sanitizeActionFailure[(]error[)];\s*throw primaryFailure;\s*}/,
+    /catch [(]error[)]\s*{\s*primaryFailure\s*=\s*sanitizeRecordingFailure[(]error[)];\s*throw primaryFailure;\s*}/,
   );
   assert.match(cleanup.body, /^\s*let cleanupFailure;/);
   assert.match(

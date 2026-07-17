@@ -21,6 +21,8 @@ import {
 export { describeRecordingFailure };
 
 const ACTIVE_RECORDING_KEY = Symbol.for("codex-browser-recorder.active");
+const ACTION_EVIDENCE_INTERVAL_MS = 50;
+const ACTION_EVIDENCE_TIMEOUT_MS = 1000;
 const CLEANUP_DEADLINE_MS = 5000;
 const FINALIZATION_DEADLINE_MS = 10_000;
 const TERMINAL_STATES = new Set(["cancelled", "completed", "failed"]);
@@ -72,6 +74,50 @@ function awaitAbortable(operation, signal) {
         reject(error);
       },
     );
+  });
+}
+
+function clockNow(clock) {
+  return typeof clock.now === "function" ? clock.now() : Date.now();
+}
+
+function hasPointerEvidenceAfterActionBoundary({
+  actionStartedAtEpochMs,
+  beforeEvents,
+  capture,
+}) {
+  return (
+    Number.isFinite(actionStartedAtEpochMs) &&
+    Number.isInteger(beforeEvents) &&
+    Number.isInteger(capture?.cursorEventsCaptured) &&
+    capture.cursorEventsCaptured > beforeEvents &&
+    Number.isFinite(capture?.cursorLastEventEpochMs) &&
+    capture.cursorLastEventEpochMs >= actionStartedAtEpochMs
+  );
+}
+
+function waitForClockDelay(clock, delayMs, signal) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clock.clearTimeout(timer);
+      removeAbortListener(signal, abort);
+      if (error == null) {
+        resolve();
+      } else {
+        reject(error);
+      }
+    };
+    const abort = () => {
+      finish(sanitizeRecordingFailure({ code: "recording_cancelled" }));
+    };
+
+    timer = clock.setTimeout(() => finish(), delayMs);
+    addAbortListener(signal, abort);
+    if (isAborted(signal)) abort();
   });
 }
 
@@ -226,12 +272,31 @@ function sanitizeBrowserFailure(error, options) {
   );
 }
 
+function sanitizeActionFailure(error) {
+  if (!isBrowserApprovalDenial(error)) {
+    return sanitizeRecordingFailure(error);
+  }
+  const cleanup = getRecordingCleanupDetails(error);
+  return sanitizeRecordingFailure(
+    { code: "cancelled" },
+    {
+      artifactCleanupIncomplete:
+        cleanup?.artifactCleanupIncomplete === true,
+      browserTabCleanupIncomplete:
+        cleanup?.browserTabCleanupIncomplete === true,
+      cleanupDirectory: cleanup?.directory,
+      cleanupFile: cleanup?.cleanupFile,
+    },
+  );
+}
+
 function failedHandle(code) {
   const error = sanitizeRecordingFailure({ code });
   const failure = Promise.reject(error);
   void failure.catch(() => {});
   return {
     ready: failure,
+    runAction: () => failure,
     status: () => ({ capture: null, state: "failed" }),
     stop: () => failure,
   };
@@ -240,6 +305,7 @@ function failedHandle(code) {
 async function startRecordingTransaction({
   artifacts,
   dependencies,
+  getForcedFailureCode,
   options,
   request,
   signal,
@@ -335,7 +401,8 @@ async function startRecordingTransaction({
         }
         return artifacts.finalize({
           capture,
-          failureCode: captureFailureCode(captureError),
+          failureCode:
+            getForcedFailureCode() ?? captureFailureCode(captureError),
           ffprobePath: options.ffprobePath,
         });
       })();
@@ -367,6 +434,11 @@ export function createRecording(options) {
   let durationTimer;
   let freshTab;
   let artifactTransaction;
+  let actionFailure;
+  let actionInFlight = false;
+  let forcedFailureCode;
+  let recordingDeadlineMs;
+  let sessionRequiresPointerEvidence;
   let stopPromise;
   let terminal = false;
   let ownsFreshTab = false;
@@ -432,6 +504,115 @@ export function createRecording(options) {
     return { capture: inner?.status().capture ?? null, state };
   }
 
+  function latchActionFailure(error) {
+    actionFailure ??= sanitizeActionFailure(error);
+    forcedFailureCode ??=
+      actionFailure.code === "cancelled"
+        ? "recording_cancelled"
+        : actionFailure.code;
+    return actionFailure;
+  }
+
+  async function failAction(error) {
+    const primaryFailure = latchActionFailure(error);
+    cancellation.abort();
+
+    let cleanupOptions = {};
+    try {
+      const output = await finish({ cancelPending: true });
+      cleanupOptions = {
+        cleanupDirectory: output?.paths?.cleanupDirectory,
+        cleanupFile: output?.paths?.cleanupFile,
+      };
+    } catch (cleanupError) {
+      const cleanup = getRecordingCleanupDetails(cleanupError);
+      cleanupOptions = {
+        artifactCleanupIncomplete:
+          cleanup?.artifactCleanupIncomplete === true,
+        browserTabCleanupIncomplete:
+          cleanup?.browserTabCleanupIncomplete === true,
+        cleanupDirectory: cleanup?.directory,
+        cleanupFile: cleanup?.cleanupFile,
+      };
+    }
+    throw sanitizeRecordingFailure(primaryFailure, cleanupOptions);
+  }
+
+  async function waitForPointerEvidence({
+    actionStartedAtEpochMs,
+    beforeEvents,
+  }) {
+    const evidenceDeadline = Math.min(
+      clockNow(dependencies.clock) + ACTION_EVIDENCE_TIMEOUT_MS,
+      recordingDeadlineMs ?? Number.POSITIVE_INFINITY,
+    );
+    while (true) {
+      if (state !== "recording") {
+        throw sanitizeRecordingFailure({ code: "integration_failed" });
+      }
+      if (
+        hasPointerEvidenceAfterActionBoundary({
+          actionStartedAtEpochMs,
+          beforeEvents,
+          capture: inner.status().capture,
+        })
+      ) {
+        return;
+      }
+      const remainingMs = evidenceDeadline - clockNow(dependencies.clock);
+      if (remainingMs <= 0) {
+        throw sanitizeRecordingFailure({ code: "cursor_recording_failed" });
+      }
+      await waitForClockDelay(
+        dependencies.clock,
+        Math.min(ACTION_EVIDENCE_INTERVAL_MS, remainingMs),
+        cancellation.signal,
+      );
+    }
+  }
+
+  async function runAction({ perform, requiresPointerEvidence } = {}) {
+    if (
+      typeof perform !== "function" ||
+      typeof requiresPointerEvidence !== "boolean"
+    ) {
+      return failAction({ code: "invalid_configuration" });
+    }
+    if (
+      requiresPointerEvidence &&
+      sessionRequiresPointerEvidence !== true
+    ) {
+      return failAction({ code: "invalid_configuration" });
+    }
+    if (actionInFlight || state !== "recording") {
+      return failAction({ code: "integration_failed" });
+    }
+
+    actionInFlight = true;
+    try {
+      const beforeEvents = inner.status().capture?.cursorEventsCaptured;
+      const actionStartedAtEpochMs = clockNow(dependencies.clock);
+      const result = await awaitAbortable(
+        Promise.resolve().then(perform),
+        cancellation.signal,
+      );
+      if (state !== "recording") {
+        throw sanitizeRecordingFailure({ code: "integration_failed" });
+      }
+      if (requiresPointerEvidence) {
+        await waitForPointerEvidence({
+          actionStartedAtEpochMs,
+          beforeEvents,
+        });
+      }
+      return result;
+    } catch (error) {
+      return failAction(error);
+    } finally {
+      actionInFlight = false;
+    }
+  }
+
   async function closeFreshTab() {
     if (!ownsFreshTab || freshTab == null) return;
     const tab = freshTab;
@@ -448,6 +629,10 @@ export function createRecording(options) {
   }
 
   function finish({ cancelPending }) {
+    if (actionInFlight) {
+      latchActionFailure({ code: "integration_failed" });
+      cancellation.abort();
+    }
     if (cancelPending && ["preparing", "awaiting_frame"].includes(state)) {
       cancellation.abort();
     }
@@ -521,6 +706,7 @@ export function createRecording(options) {
         throw sanitizeRecordingFailure({ code: "recording_cancelled" });
       }
       const request = validateRecordingRequest(options);
+      sessionRequiresPointerEvidence = request.requirePointerEvents;
       const savedRecording = planSavedRecording(options);
       if (cancellation.signal.aborted) {
         throw sanitizeRecordingFailure({ code: "recording_cancelled" });
@@ -593,6 +779,7 @@ export function createRecording(options) {
             dependencies.startBrowserRecordingForTab ??
             startBrowserRecordingForTab,
         },
+        getForcedFailureCode: () => forcedFailureCode,
         options: { ...options, ffmpegPath, ffprobePath },
         request,
         signal: cancellation.signal,
@@ -601,16 +788,21 @@ export function createRecording(options) {
       state = "awaiting_frame";
       if (typeof inner.completion?.then === "function") {
         void inner.completion.then(
-          () => {
+          (outcome) => {
+            if (actionInFlight && outcome?.error != null) {
+              latchActionFailure(outcome.error);
+            }
             void finish({ cancelPending: false }).catch(() => {});
           },
-          () => {
+          (error) => {
+            if (actionInFlight) latchActionFailure(error);
             void finish({ cancelPending: false }).catch(() => {});
           },
         );
       }
       await inner.ready;
       state = "recording";
+      recordingDeadlineMs = clockNow(dependencies.clock) + request.durationMs;
       durationTimer = dependencies.clock.setTimeout(() => {
         void stop().catch(() => {});
       }, request.durationMs);
@@ -671,7 +863,7 @@ export function createRecording(options) {
     });
   void ready.catch(() => {});
 
-  handle = { ready, status, stop };
+  handle = { ready, runAction, status, stop };
   globalThis[ACTIVE_RECORDING_KEY] = handle;
   return handle;
 }

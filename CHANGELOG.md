@@ -6,6 +6,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Moved approved Browser action coordination into the Recording Session so the
+  skill supplies only the concrete action and its pointer-evidence requirement;
+  state checks, evidence timing, failure sanitation, cancellation, and
+  no-publication cleanup now share the recording transaction boundary.
+
 ## [0.2.2] - 2026-07-16
 
 ### Fixed

@@ -50,6 +50,9 @@ function createFakeClock() {
     get pending() {
       return timers.size;
     },
+    now() {
+      return now;
+    },
     setTimeout(callback, delayMs) {
       const id = nextId;
       nextId += 1;
@@ -221,7 +224,12 @@ test("returns a preparing handle and validates before allocating Browser resourc
     browser: harness.browser,
   });
 
-  assert.deepEqual(Object.keys(handle).sort(), ["ready", "status", "stop"]);
+  assert.deepEqual(Object.keys(handle).sort(), [
+    "ready",
+    "runAction",
+    "status",
+    "stop",
+  ]);
   assert.deepEqual(assertPublicStatus(handle, "preparing"), {
     capture: null,
     state: "preparing",
@@ -341,11 +349,421 @@ test("owns fresh-tab preflight and returns only the approved tab at readiness", 
   assert.deepEqual(calls.slice(-2), ["artifacts:finalize", "tab:close"]);
 });
 
+test("runs a pointer action only after fresh evidence crosses its boundary", async () => {
+  const capture = {
+    cursorEventsCaptured: 0,
+    cursorFramesObserved: 1,
+    cursorLastEventEpochMs: null,
+    framesReceived: 12,
+  };
+  const harness = createHarness({ capture });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    requirePointerEvents: true,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  let actionsPerformed = 0;
+  const result = await handle.runAction({
+    perform() {
+      actionsPerformed += 1;
+      capture.cursorEventsCaptured = 1;
+      capture.cursorLastEventEpochMs = harness.clock.now();
+      return "clicked";
+    },
+    requiresPointerEvidence: true,
+  });
+
+  assert.equal(result, "clicked");
+  assert.equal(actionsPerformed, 1);
+  await handle.stop();
+});
+
+test("waits for fresh pointer evidence within the bounded grace period", async () => {
+  const capture = {
+    cursorEventsCaptured: 0,
+    cursorFramesObserved: 1,
+    cursorLastEventEpochMs: null,
+    framesReceived: 12,
+  };
+  const harness = createHarness({ capture });
+  harness.clock.advance(1_000);
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    requirePointerEvents: true,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  const action = handle.runAction({
+    perform: () => "clicked",
+    requiresPointerEvidence: true,
+  });
+  await settleWorkflow();
+  harness.clock.advance(50);
+  capture.cursorEventsCaptured = 1;
+  capture.cursorLastEventEpochMs = harness.clock.now();
+
+  assert.equal(await action, "clicked");
+  await handle.stop();
+});
+
+test("rejects delayed old pointer evidence without publishing", async () => {
+  const capture = {
+    cursorEventsCaptured: 4,
+    cursorFramesObserved: 1,
+    cursorLastEventEpochMs: 900,
+    framesReceived: 12,
+  };
+  const harness = createHarness({ autoStop: false, capture });
+  harness.clock.advance(1_000);
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    requirePointerEvents: true,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  let actionSettled = false;
+  const action = handle.runAction({
+    perform() {
+      capture.cursorEventsCaptured = 5;
+      capture.cursorLastEventEpochMs = 999;
+    },
+    requiresPointerEvidence: true,
+  });
+  void action.then(
+    () => {
+      actionSettled = true;
+    },
+    () => {
+      actionSettled = true;
+    },
+  );
+
+  await settleWorkflow();
+  assert.equal(actionSettled, false, "evidence receives a bounded grace period");
+  harness.clock.advance(1_000);
+  await settleWorkflow();
+  assert.equal(
+    harness.rawFinalizationOptions.failureCode,
+    "cursor_recording_failed",
+  );
+  assert.equal(
+    actionSettled,
+    false,
+    "the action failure waits for recording cleanup",
+  );
+
+  harness.stopDeferred.resolve({
+    paths: {},
+    result: { failureCode: "cursor_recording_failed", status: "failed" },
+  });
+  await assert.rejects(action, { code: "cursor_recording_failed" });
+  const output = await handle.stop();
+  assert.deepEqual(output.paths, {});
+  assert.equal(output.result.failureCode, "cursor_recording_failed");
+  assertPublicStatus(handle, "failed");
+});
+
+test("sanitizes an action failure before cleanup and publication", async () => {
+  const harness = createHarness({ autoStop: false });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  const action = handle.runAction({
+    perform() {
+      throw new Error("private Browser action diagnostic");
+    },
+    requiresPointerEvidence: false,
+  });
+  void action.catch(() => {});
+  await settleWorkflow();
+  assert.equal(harness.rawFinalizationOptions.failureCode, "recording_failed");
+
+  harness.stopDeferred.resolve({
+    paths: {},
+    result: { failureCode: "recording_failed", status: "failed" },
+  });
+  await assert.rejects(action, (error) => {
+    assert.equal(error.code, "recording_failed");
+    assert.doesNotMatch(JSON.stringify(error), /private Browser action/);
+    return true;
+  });
+  assert.deepEqual((await handle.stop()).paths, {});
+});
+
+test("preserves bounded cleanup metadata on an action failure", async () => {
+  const harness = createHarness({ autoStop: false });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  const action = handle.runAction({
+    perform() {
+      throw new Error("private action failure");
+    },
+    requiresPointerEvidence: false,
+  });
+  void action.catch(() => {});
+  await settleWorkflow();
+  harness.stopDeferred.resolve({
+    paths: { cleanupDirectory: "/private/action-cleanup" },
+    result: { failureCode: "recording_failed", status: "failed" },
+  });
+
+  await assert.rejects(action, (error) => {
+    assert.equal(error.code, "recording_failed");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      cleanupIncomplete: true,
+      directory: "/private/action-cleanup",
+    });
+    assert.doesNotMatch(JSON.stringify(error), /private action failure/);
+    return true;
+  });
+  assert.deepEqual((await handle.stop()).paths, {
+    cleanupDirectory: "/private/action-cleanup",
+  });
+});
+
+test("maps an action-time Browser approval denial to cancellation", async () => {
+  const harness = createHarness({ autoStop: false });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  const action = handle.runAction({
+    perform() {
+      throw new Error(
+        "Browser Use rejected this action due to browser security policy. Reason: The user has requested that Chrome should not be used on this site",
+      );
+    },
+    requiresPointerEvidence: false,
+  });
+  void action.catch(() => {});
+  await settleWorkflow();
+  assert.equal(
+    harness.rawFinalizationOptions.failureCode,
+    "recording_cancelled",
+  );
+
+  harness.stopDeferred.resolve({
+    paths: {},
+    result: { failureCode: "recording_cancelled", status: "failed" },
+  });
+  await assert.rejects(action, { code: "cancelled" });
+  assertPublicStatus(handle, "cancelled");
+});
+
+test("fails closed when an action contradicts the session pointer policy", async () => {
+  const harness = createHarness({ autoStop: false });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    requirePointerEvents: false,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  const action = handle.runAction({
+    perform() {
+      assert.fail("a contradictory action must not run");
+    },
+    requiresPointerEvidence: true,
+  });
+  void action.catch(() => {});
+  await settleWorkflow();
+  assert.equal(
+    harness.rawFinalizationOptions.failureCode,
+    "invalid_configuration",
+  );
+
+  harness.stopDeferred.resolve({
+    paths: {},
+    result: { failureCode: "invalid_configuration", status: "failed" },
+  });
+  await assert.rejects(action, { code: "invalid_configuration" });
+  assert.deepEqual((await handle.stop()).paths, {});
+});
+
+test("cannot publish when stop races an in-flight action", async () => {
+  const harness = createHarness({ autoStop: false });
+  const performDeferred = deferred();
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  const action = handle.runAction({
+    perform: () => performDeferred.promise,
+    requiresPointerEvidence: false,
+  });
+  void action.catch(() => {});
+  await settleWorkflow();
+  const stopping = handle.stop();
+  await settleWorkflow();
+  assert.equal(
+    harness.rawFinalizationOptions.failureCode,
+    "integration_failed",
+  );
+
+  harness.stopDeferred.resolve({
+    paths: {},
+    result: { failureCode: "integration_failed", status: "failed" },
+  });
+  const output = await stopping;
+  assert.deepEqual(output.paths, {});
+  await assert.rejects(action, { code: "integration_failed" });
+
+  performDeferred.resolve("late success");
+  await settleWorkflow();
+  assertPublicStatus(handle, "failed");
+});
+
+test("cannot publish when capture completion races an in-flight action", async () => {
+  const harness = createHarness({ autoStop: false });
+  const performDeferred = deferred();
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  const action = handle.runAction({
+    perform: () => performDeferred.promise,
+    requiresPointerEvidence: false,
+  });
+  void action.catch(() => {});
+  await settleWorkflow();
+  harness.completionDeferred.resolve({ error: null });
+  await settleWorkflow();
+  assert.equal(
+    harness.rawFinalizationOptions.failureCode,
+    "integration_failed",
+  );
+
+  harness.stopDeferred.resolve({
+    paths: {},
+    result: { failureCode: "integration_failed", status: "failed" },
+  });
+  assert.deepEqual((await handle.stop()).paths, {});
+  await assert.rejects(action, { code: "integration_failed" });
+
+  performDeferred.resolve("late success");
+  await settleWorkflow();
+  assertPublicStatus(handle, "failed");
+});
+
+test("preserves a capture failure that interrupts an in-flight action", async () => {
+  const harness = createHarness({ autoStop: false });
+  const performDeferred = deferred();
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  const action = handle.runAction({
+    perform: () => performDeferred.promise,
+    requiresPointerEvidence: false,
+  });
+  void action.catch(() => {});
+  await settleWorkflow();
+  harness.completionDeferred.resolve({
+    error: { code: "origin_changed_during_recording" },
+  });
+  await settleWorkflow();
+  assert.equal(
+    harness.rawFinalizationOptions.failureCode,
+    "origin_changed_during_recording",
+  );
+
+  harness.stopDeferred.resolve({
+    paths: {},
+    result: {
+      failureCode: "origin_changed_during_recording",
+      status: "failed",
+    },
+  });
+  await assert.rejects(action, { code: "origin_changed_during_recording" });
+  assert.deepEqual((await handle.stop()).paths, {});
+
+  performDeferred.resolve("late success");
+  await settleWorkflow();
+  assertPublicStatus(handle, "failed");
+});
+
+test("rejects overlapping actions as one failed session", async () => {
+  const harness = createHarness({ autoStop: false });
+  const firstPerform = deferred();
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  const firstAction = handle.runAction({
+    perform: () => firstPerform.promise,
+    requiresPointerEvidence: false,
+  });
+  void firstAction.catch(() => {});
+  await settleWorkflow();
+  let secondPerformed = false;
+  const secondAction = handle.runAction({
+    perform() {
+      secondPerformed = true;
+    },
+    requiresPointerEvidence: false,
+  });
+  void secondAction.catch(() => {});
+  await settleWorkflow();
+
+  assert.equal(secondPerformed, false);
+  assert.equal(
+    harness.rawFinalizationOptions.failureCode,
+    "integration_failed",
+  );
+  harness.stopDeferred.resolve({
+    paths: {},
+    result: { failureCode: "integration_failed", status: "failed" },
+  });
+  await assert.rejects(firstAction, { code: "integration_failed" });
+  await assert.rejects(secondAction, { code: "integration_failed" });
+
+  firstPerform.resolve("late success");
+  await settleWorkflow();
+  assert.deepEqual((await handle.stop()).paths, {});
+});
+
 test("rejects a malformed caller signal without retaining the singleton", async () => {
   const malformed = validOptions({ signal: {} });
   const handle = createRecording(malformed.options);
 
-  assert.deepEqual(Object.keys(handle).sort(), ["ready", "status", "stop"]);
+  assert.deepEqual(Object.keys(handle).sort(), [
+    "ready",
+    "runAction",
+    "status",
+    "stop",
+  ]);
   assertPublicStatus(handle, "failed");
   await assert.rejects(handle.ready, (error) => {
     assert.equal(error.code, "invalid_configuration");
@@ -374,7 +792,12 @@ for (const property of ["addEventListener", "removeEventListener", "aborted"]) {
     const configured = validOptions({ signal: controller.signal });
 
     const handle = createRecording(configured.options);
-    assert.deepEqual(Object.keys(handle).sort(), ["ready", "status", "stop"]);
+    assert.deepEqual(Object.keys(handle).sort(), [
+      "ready",
+      "runAction",
+      "status",
+      "stop",
+    ]);
     await handle.ready;
     await handle.stop();
     assertPublicStatus(handle, "completed");
@@ -393,7 +816,12 @@ test("sanitizes a throwing signal accessor without retaining the singleton", asy
   });
 
   const handle = createRecording(options);
-  assert.deepEqual(Object.keys(handle).sort(), ["ready", "status", "stop"]);
+  assert.deepEqual(Object.keys(handle).sort(), [
+    "ready",
+    "runAction",
+    "status",
+    "stop",
+  ]);
   assertPublicStatus(handle, "failed");
   await assert.rejects(handle.ready, (error) => {
     assert.equal(error.code, "invalid_configuration");
@@ -817,7 +1245,7 @@ test("a timed-out finalization cannot publish after its capture resolves late", 
   assert.equal(published, false);
 });
 
-test("an action-evidence abort cannot publish after earlier pointer evidence", async () => {
+test("an external abort cannot publish after earlier pointer evidence", async () => {
   const harness = createHarness({
     autoStop: false,
     capture: {

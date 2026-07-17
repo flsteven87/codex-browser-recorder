@@ -443,6 +443,7 @@ test("returns the public handle before first-frame readiness resolves", async ()
 
   assert.deepEqual(Object.keys(handle).sort(), [
     "ready",
+    "runAction",
     "status",
     "stop",
   ]);
@@ -872,13 +873,14 @@ test("reports a stable failure when a screencast frame cannot be acknowledged", 
   assert.deepEqual(stopCalls, [{ discard: true }]);
 });
 
-test("stop returns the finalized output through the sole public lifecycle", async () => {
+test("stop returns the finalized output through the Recording Session lifecycle", async () => {
   const harness = createHarness();
   const handle = await createHandle(harness);
   await handle.ready;
 
   assert.deepEqual(Object.keys(handle).sort(), [
     "ready",
+    "runAction",
     "status",
     "stop",
   ]);
