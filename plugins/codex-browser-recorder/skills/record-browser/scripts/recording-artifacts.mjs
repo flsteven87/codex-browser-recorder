@@ -87,6 +87,19 @@ function timestampForFilename(now) {
   ].join("");
 }
 
+function normalizeDate(value) {
+  let timestamp;
+  try {
+    timestamp = Date.prototype.getTime.call(value);
+  } catch {
+    throw sanitizeRecordingFailure({ code: "invalid_configuration" });
+  }
+  if (!Number.isFinite(timestamp)) {
+    throw sanitizeRecordingFailure({ code: "invalid_configuration" });
+  }
+  return new Date(timestamp);
+}
+
 function cleanRecordingName(recordingName) {
   if (typeof recordingName !== "string") {
     throw sanitizeRecordingFailure({ code: "invalid_configuration" });
@@ -115,9 +128,7 @@ export function planSavedRecording({
   now = new Date(),
   recordingName,
 } = {}) {
-  if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
-    throw sanitizeRecordingFailure({ code: "invalid_configuration" });
-  }
+  const normalizedDate = normalizeDate(now);
   const resolvedDestination =
     destinationDirectory ??
     join(homeDirectory, "Downloads", "Codex Browser Recordings");
@@ -129,7 +140,7 @@ export function planSavedRecording({
   }
   const stem =
     recordingName === undefined
-      ? `browser-recording-${timestampForFilename(now)}`
+      ? `browser-recording-${timestampForFilename(normalizedDate)}`
       : cleanRecordingName(recordingName);
   return {
     destinationDirectory: resolvedDestination,

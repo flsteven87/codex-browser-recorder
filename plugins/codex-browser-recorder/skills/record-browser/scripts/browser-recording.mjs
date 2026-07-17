@@ -553,6 +553,9 @@ export async function startBrowserRecording({
     let pumpError = null;
     let renderedCursor = null;
 
+    const pumpStop = pump.stop();
+    void pumpStop.catch(() => {});
+
     try {
       await cdp.send("Page.stopScreencast");
     } catch (error) {
@@ -560,7 +563,7 @@ export async function startBrowserRecording({
     }
 
     try {
-      await pump.stop();
+      await pumpStop;
     } catch (error) {
       pumpError = error;
     }

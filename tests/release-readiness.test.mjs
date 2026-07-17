@@ -20,7 +20,6 @@ import {
 
 const sourceRoot = fileURLToPath(new URL("../", import.meta.url));
 const manifestPath = "plugins/codex-browser-recorder/.codex-plugin/plugin.json";
-const releaseVersion = "0.2.2";
 const fixturePaths = [
   ".github/CODEOWNERS",
   ".github/ISSUE_TEMPLATE/bug_report.yml",
@@ -42,6 +41,9 @@ const fixturePaths = [
   manifestPath,
   "plugins/codex-browser-recorder/assets",
 ];
+const releaseVersion = JSON.parse(
+  await readFile(join(sourceRoot, manifestPath), "utf8"),
+).version.split("+", 1)[0];
 const temporaryRoots = [];
 
 test.after(async () => {
@@ -66,7 +68,10 @@ async function createFixture() {
   await replaceText(
     repositoryRoot,
     "CHANGELOG.md",
-    /^## \[0[.]2[.]2\] - .+$/mu,
+    new RegExp(
+      `^## \\[${releaseVersion.replaceAll(".", "[.]")}\\] - .+$`,
+      "mu",
+    ),
     `## [${releaseVersion}] - Unreleased`,
   );
   execFileSync("git", ["init", "--quiet"], { cwd: repositoryRoot });
@@ -144,6 +149,11 @@ async function finalizeReleaseFixture(repositoryRoot) {
   );
 }
 
+function nextPatchVersion(version) {
+  const [major, minor, patch] = version.split(".").map(Number);
+  return `${major}.${minor}.${patch + 1}`;
+}
+
 test("accepts the complete release candidate fixture", async () => {
   const repositoryRoot = await createFixture();
 
@@ -156,7 +166,11 @@ test("accepts the complete release candidate fixture", async () => {
 });
 
 test("candidate accepts semantic versions with at most one Codex cachebuster", async () => {
-  for (const version of ["0.2.2+other.1", "0.2.2+codex.a.b", "v0.2.2"]) {
+  for (const version of [
+    `${releaseVersion}+other.1`,
+    `${releaseVersion}+codex.a.b`,
+    `v${releaseVersion}`,
+  ]) {
     const repositoryRoot = await createFixture();
     await mutateJson(repositoryRoot, manifestPath, (manifest) => {
       manifest.version = version;
@@ -170,7 +184,11 @@ test("candidate accepts semantic versions with at most one Codex cachebuster", a
 });
 
 test("candidate accepts future canonical versions without validator edits", async () => {
-  for (const version of ["0.2.2", "1.0.0", "1.0.0+codex.fixture"]) {
+  for (const version of [
+    releaseVersion,
+    "1.0.0",
+    "1.0.0+codex.fixture",
+  ]) {
     const repositoryRoot = await createFixture();
     await mutateJson(repositoryRoot, manifestPath, (manifest) => {
       manifest.version = version;
@@ -191,7 +209,7 @@ test("candidate accepts future canonical versions without validator edits", asyn
 test("candidate rejects a changelog version that differs from the manifest", async () => {
   const repositoryRoot = await createFixture();
   await mutateJson(repositoryRoot, manifestPath, (manifest) => {
-    manifest.version = "0.2.3";
+    manifest.version = nextPatchVersion(releaseVersion);
   });
 
   await assertOnlyFailure(
@@ -261,7 +279,7 @@ test("release rejects a changelog version that differs from the manifest", async
   const repositoryRoot = await createFixture();
   await finalizeReleaseFixture(repositoryRoot);
   await mutateJson(repositoryRoot, manifestPath, (manifest) => {
-    manifest.version = "0.2.3";
+    manifest.version = nextPatchVersion(releaseVersion);
   });
 
   await assertOnlyFailure(

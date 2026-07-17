@@ -230,6 +230,8 @@ export function startFramePump({
         timeoutMs: readTimeoutMs,
       });
 
+      if (stopped) break;
+
       validateEventBatch(batch, cursor);
 
       if (batch.truncated) {

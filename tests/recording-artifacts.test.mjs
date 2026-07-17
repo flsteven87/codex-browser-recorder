@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 
 import {
   createRecordingArtifactTransaction,
@@ -216,6 +217,33 @@ test("plans a privacy-safe Saved Recording in Downloads by default", () => {
       outputFilename: "browser-recording-2026-07-16-143122.mp4",
     },
   );
+});
+
+test("accepts a valid Date created in the Browser Node runtime realm", () => {
+  const browserRuntimeDate = runInNewContext(
+    "new Date(2026, 6, 16, 14, 31, 22)",
+  );
+
+  assert.deepEqual(
+    planSavedRecording({
+      homeDirectory: "/Users/example",
+      now: browserRuntimeDate,
+    }),
+    {
+      destinationDirectory:
+        "/Users/example/Downloads/Codex Browser Recordings",
+      outputFilename: "browser-recording-2026-07-16-143122.mp4",
+    },
+  );
+});
+
+test("rejects invalid and spoofed recording timestamps", () => {
+  for (const now of [new Date(Number.NaN), { getTime: () => 0 }]) {
+    assert.throws(
+      () => planSavedRecording({ now }),
+      (error) => error.code === "invalid_configuration",
+    );
+  }
 });
 
 test("cleans an explicitly requested Saved Recording name without page data", () => {

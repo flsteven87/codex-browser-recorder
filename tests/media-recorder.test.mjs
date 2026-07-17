@@ -1123,6 +1123,86 @@ test("starts from a captured cursor and finalizes every recorder component", asy
   assert.equal(sinkFactoryOptions.maxOutputBytes, 500 * 1024 * 1024);
 });
 
+test("does not acknowledge buffered frames after shutdown begins", async () => {
+  const bufferedFrame = deferred();
+  const bufferedReadStarted = deferred();
+  const operations = [];
+  let reads = 0;
+  let screencastStopped = false;
+  const cdp = {
+    async send(method, params) {
+      operations.push([method, params]);
+      if (method === "Page.getFrameTree") {
+        return {
+          frameTree: {
+            frame: { id: "main-frame", url: "https://example.com/start" },
+          },
+        };
+      }
+      if (method === "Page.captureScreenshot") {
+        return { data: jpeg.toString("base64") };
+      }
+      if (method === "Page.stopScreencast") {
+        screencastStopped = true;
+      }
+      if (method === "Page.screencastFrameAck" && screencastStopped) {
+        throw new Error("Cannot acknowledge a stopped screencast");
+      }
+    },
+    async readEvents() {
+      reads += 1;
+      if (reads === 1) {
+        return { cursor: 41, events: [], hasMore: false, truncated: false };
+      }
+      if (reads === 2) {
+        return {
+          cursor: 42,
+          events: [frameEvent()],
+          hasMore: false,
+          truncated: false,
+        };
+      }
+      if (reads === 3) {
+        bufferedReadStarted.resolve();
+        await bufferedFrame.promise;
+        return {
+          cursor: 43,
+          events: [frameEvent({ sessionId: 8 })],
+          hasMore: false,
+          truncated: false,
+        };
+      }
+      return { cursor: 43, events: [], hasMore: false, truncated: false };
+    },
+  };
+  const sink = createMemorySink(operations);
+
+  const session = await startBrowserRecording({
+    approvedOrigin: "https://example.com",
+    cdp,
+    ffmpegPath: "/unused/ffmpeg",
+    fps: 10,
+    maxDecodedBytes: 1024,
+    outputPath: "/tmp/unused.mp4",
+    readTimeoutMs: 1,
+    sinkFactory: () => sink,
+  });
+
+  await session.ready;
+  await bufferedReadStarted.promise;
+  const stopped = session.stop();
+  bufferedFrame.resolve();
+  const result = await stopped;
+
+  assert.equal(result.framesReceived, 1);
+  assert.equal(result.framesAcknowledged, 1);
+  assert.equal(
+    operations.filter(([method]) => method === "Page.screencastFrameAck")
+      .length,
+    1,
+  );
+});
+
 test("keeps recording after same-origin top-frame navigation", async () => {
   const harness = createNavigationSessionHarness({
     approvedOrigin: "https://example.com",
