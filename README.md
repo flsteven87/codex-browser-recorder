@@ -33,6 +33,9 @@ mode, install packages, change policy, or bypass site or CDP approval. Node.js
 
 ## Install
 
+The published `v0.2.2` listing is available in the
+[OpenAI Plugin Directory](https://chatgpt.com/plugins/plugins_6a58f693814c8191b576ffaed4af2e78).
+
 For local development, add the repository as a marketplace and install the
 plugin:
 
