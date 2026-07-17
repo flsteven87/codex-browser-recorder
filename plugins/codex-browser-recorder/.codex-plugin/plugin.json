@@ -1,6 +1,6 @@
 {
   "name": "codex-browser-recorder",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Save one approved Codex Browser test flow as a local H.264 MP4 with a visible cursor.",
   "author": {
     "name": "Steven Wu",

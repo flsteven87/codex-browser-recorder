@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.3] - Unreleased
 
 ### Changed
 
@@ -15,6 +15,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Replaced caller-side lifecycle polling and public capture status with the
   Recording Session's passive `finished` promise while preserving `stop()` as
   the idempotent immediate-finalization command.
+
+### Fixed
+
+- Accepted valid recording timestamps created in Codex's Browser Node runtime
+  instead of rejecting cross-realm `Date` values as invalid configuration.
+- Closed the frame pump before stopping the CDP screencast so buffered frames
+  cannot produce a late `frame_ack_failed` during normal finalization.
 
 ## [0.2.2] - 2026-07-16
 
