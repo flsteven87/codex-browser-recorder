@@ -12,6 +12,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   skill supplies only the concrete action and its pointer-evidence requirement;
   state checks, evidence timing, failure sanitation, cancellation, and
   no-publication cleanup now share the recording transaction boundary.
+- Replaced caller-side lifecycle polling and public capture status with the
+  Recording Session's passive `finished` promise while preserving `stop()` as
+  the idempotent immediate-finalization command.
 
 ## [0.2.2] - 2026-07-16
 

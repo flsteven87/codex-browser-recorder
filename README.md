@@ -131,7 +131,7 @@ Browser selection, concrete approved actions, and user-facing reporting. It
 delegates the recording transaction and per-action evidence boundary to
 `createRecording()`: destination preflight, fresh-tab capture, continuous origin
 enforcement, cursor composition, media validation, durable publication, and
-cleanup. Its public handle exposes `ready`, `runAction()`, diagnostic `status()`,
+cleanup. Its public handle exposes `ready`, `runAction()`, passive `finished`,
 and idempotent `stop()`.
 
 ## Development

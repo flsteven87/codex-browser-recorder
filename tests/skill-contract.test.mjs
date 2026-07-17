@@ -248,6 +248,8 @@ test("README documents the public recording contract", () => {
   );
   assert.doesNotMatch(readme, /fresh Codex in-app Browser tab/i);
   assert.doesNotMatch(readme, /cursor-complete/i);
+  assert.match(readme, /passive `finished`/i);
+  assert.doesNotMatch(readme, /diagnostic `status[(][)]`/i);
   assert.match(
     readme,
     /attempts to close the fresh tab\s+on every path[^.]*reports bounded manual cleanup instructions/i,
@@ -371,7 +373,9 @@ test("skill validates before Browser activity and delegates recording to product
   assert.match(skill, /requirePointerEvents/);
   assert.match(skill, /createRecording/);
   assert.match(skill, /freshTab = await handle[.]ready/);
-  assert.match(skill, /handle[.]status[(][)]/);
+  assert.match(skill, /recordingResult = await handle[.]finished/);
+  assert.doesNotMatch(skill, /handle[.]status[(][)]/);
+  assert.doesNotMatch(skill, /pollDeadline|terminalStates/);
   assert.match(skill, /await handle[.]runAction[(][{]/);
   assert.match(skill, /perform: [(][)] => freshTab[.]/);
   assert.doesNotMatch(skill, /cursorEventsCaptured|cursorLastEventEpochMs/);
@@ -401,6 +405,8 @@ test("skill delegates the deterministic Browser transaction to createRecording",
   );
   assert.match(runSection, /handle = createRecording[(][{][\s\S]*browser: selectedBrowser,/);
   assert.match(runSection, /freshTab = await handle[.]ready;/);
+  assert.match(runSection, /recordingResult = await handle[.]finished;/);
+  assert.doesNotMatch(runSection, /Date[.]now|setTimeout|while [(]/);
   assert.doesNotMatch(runSection, /browser[.]tabs[.]new[(]/);
   assert.doesNotMatch(runSection, /capabilities[.]get[(]"cdp"[)]/);
   assert.doesNotMatch(runSection, /doctor[(][{]/);

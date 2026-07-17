@@ -295,9 +295,9 @@ function failedHandle(code) {
   const failure = Promise.reject(error);
   void failure.catch(() => {});
   return {
+    finished: failure,
     ready: failure,
     runAction: () => failure,
-    status: () => ({ capture: null, state: "failed" }),
     stop: () => failure,
   };
 }
@@ -369,15 +369,13 @@ async function startRecordingTransaction({
   return {
     completion: session.completion,
     ready,
-    status() {
-      return {
-        capture: sanitizeCaptureStatus({
-          ...session.stats?.cursor,
-          ...session.stats?.framePump,
-          ...session.stats?.resources,
-          ...session.stats?.sink,
-        }),
-      };
+    captureSnapshot() {
+      return sanitizeCaptureStatus({
+        ...session.stats?.cursor,
+        ...session.stats?.framePump,
+        ...session.stats?.resources,
+        ...session.stats?.sink,
+      });
     },
     stop() {
       finalizationPromise ??= (async () => {
@@ -439,9 +437,11 @@ export function createRecording(options) {
   let forcedFailureCode;
   let recordingDeadlineMs;
   let sessionRequiresPointerEvidence;
-  let stopPromise;
+  let finalizationPromise;
   let terminal = false;
   let ownsFreshTab = false;
+  let rejectFinished;
+  let resolveFinished;
   const reservation = {};
   const cancellation = new AbortController();
   const cancelFromCaller = () => cancellation.abort();
@@ -461,6 +461,12 @@ export function createRecording(options) {
     }
     return failedHandle("invalid_configuration");
   }
+
+  const finished = new Promise((resolve, reject) => {
+    rejectFinished = reject;
+    resolveFinished = resolve;
+  });
+  void finished.catch(() => {});
 
   let handle;
   let ready;
@@ -490,6 +496,7 @@ export function createRecording(options) {
         ? "completed"
         : stateForFailureCode(output?.result?.failureCode);
     release();
+    resolveFinished(output);
   }
 
   function setTerminalFailure(error) {
@@ -498,10 +505,7 @@ export function createRecording(options) {
     terminal = true;
     state = stateForFailureCode(error?.code);
     release();
-  }
-
-  function status() {
-    return { capture: inner?.status().capture ?? null, state };
+    rejectFinished(error);
   }
 
   function latchActionFailure(error) {
@@ -554,7 +558,7 @@ export function createRecording(options) {
         hasPointerEvidenceAfterActionBoundary({
           actionStartedAtEpochMs,
           beforeEvents,
-          capture: inner.status().capture,
+          capture: inner.captureSnapshot(),
         })
       ) {
         return;
@@ -590,7 +594,7 @@ export function createRecording(options) {
 
     actionInFlight = true;
     try {
-      const beforeEvents = inner.status().capture?.cursorEventsCaptured;
+      const beforeEvents = inner.captureSnapshot()?.cursorEventsCaptured;
       const actionStartedAtEpochMs = clockNow(dependencies.clock);
       const result = await awaitAbortable(
         Promise.resolve().then(perform),
@@ -637,7 +641,7 @@ export function createRecording(options) {
       cancellation.abort();
     }
     if (state === "recording") state = "stopping";
-    stopPromise ??= ready
+    finalizationPromise ??= ready
       .then(async () => {
         dependencies.clock.clearTimeout(durationTimer);
         if (!TERMINAL_STATES.has(state)) state = "stopping";
@@ -692,8 +696,8 @@ export function createRecording(options) {
         }
       })
       .finally(release);
-    void stopPromise.catch(() => {});
-    return stopPromise;
+    void finalizationPromise.catch(() => {});
+    return finished;
   }
 
   function stop() {
@@ -804,7 +808,7 @@ export function createRecording(options) {
       state = "recording";
       recordingDeadlineMs = clockNow(dependencies.clock) + request.durationMs;
       durationTimer = dependencies.clock.setTimeout(() => {
-        void stop().catch(() => {});
+        void finish({ cancelPending: false }).catch(() => {});
       }, request.durationMs);
       return freshTab;
     })
@@ -863,7 +867,7 @@ export function createRecording(options) {
     });
   void ready.catch(() => {});
 
-  handle = { ready, runAction, status, stop };
+  handle = { finished, ready, runAction, stop };
   globalThis[ACTIVE_RECORDING_KEY] = handle;
   return handle;
 }

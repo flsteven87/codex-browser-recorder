@@ -139,7 +139,7 @@ try {
 
 Call `createRecording()` once with `selectedBrowser` after consent. The coordinator owns creation, navigation, full-CDP preflight, environment doctor, capture startup, finalization, fresh-tab closure, and rollback for exactly one fresh blank Browser tab. Its `ready` promise returns only that fresh tab for the approved Browser actions. A denied site or CDP approval returns `cancelled`; never retry or bypass it.
 
-Keep top-level navigation within `request.approvedOrigin`; stop if the page leaves that approved origin. Route every concrete approved Browser call through `handle.runAction()` and mark each click, hover, drag, or pointer-positioned scroll with `requiresPointerEvidence: true`. Every pointer action requires a new observed pointer event whose captured page timestamp is at or after the current action boundary; a delayed event from an earlier action never satisfies a later pointer action. This is an observation boundary, not source authentication. The Recording Session owns the action state checks, evidence snapshot and boundary, bounded wait, failure sanitation, cancellation, and no-publication cleanup. Stop performing Browser actions immediately when `handle.runAction()` rejects. After the approved actions, poll only the Session lifecycle at most every 250 milliseconds and never beyond the requested duration plus 10 seconds. `handle.stop()` then returns the same memoized finalization result.
+Keep top-level navigation within `request.approvedOrigin`; stop if the page leaves that approved origin. Route every concrete approved Browser call through `handle.runAction()` and mark each click, hover, drag, or pointer-positioned scroll with `requiresPointerEvidence: true`. Every pointer action requires a new observed pointer event whose captured page timestamp is at or after the current action boundary; a delayed event from an earlier action never satisfies a later pointer action. This is an observation boundary, not source authentication. The Recording Session owns the action state checks, evidence snapshot and boundary, bounded wait, failure sanitation, cancellation, and no-publication cleanup. Stop performing Browser actions immediately when `handle.runAction()` rejects. After the approved actions, await `handle.finished`; it passively observes the Session-owned duration and lower capture lifecycle without ending the recording early. `handle.stop()` remains the idempotent command for immediate finalization and returns that same terminal result.
 
 Do not inject clocks, animations, test text, or diagnostic interactions such as an unapproved scroll. Do not enable Developer mode, change policy, install packages, retry denied approval, broaden the origin, switch browsers, use an existing tab, or expose Browser/CDP objects.
 
@@ -164,19 +164,12 @@ try {
   });
   freshTab = await handle.ready;
 
-  const pollDeadline = Date.now() + request.durationMs + 10_000;
-  const terminalStates = new Set(["cancelled", "completed", "failed"]);
   // Repeat this shape for each concrete approved Browser call:
   // await handle.runAction({
   //   perform: () => freshTab.<approved Browser call>,
   //   requiresPointerEvidence: <true for a pointer action; otherwise false>,
   // });
-  while (Date.now() < pollDeadline) {
-    const current = handle.status();
-    if (terminalStates.has(current.state)) break;
-    await new Promise((resolvePoll) => setTimeout(resolvePoll, 250));
-  }
-  recordingResult = await handle.stop();
+  recordingResult = await handle.finished;
   if (recordingResult.result.status === "passed") {
     // Continue to the bounded success report below.
   } else if (recordingResult.result.status === "failed") {

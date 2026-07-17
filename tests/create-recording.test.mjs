@@ -192,19 +192,13 @@ function validOptions(overrides = {}) {
   };
 }
 
-function assertPublicStatus(handle, expectedState) {
-  const status = handle.status();
-  assert.deepEqual(Object.keys(status).sort(), ["capture", "state"]);
-  assert.equal(status.state, expectedState);
-  return status;
-}
-
 async function assertSingletonReleased() {
   const next = validOptions();
   const handle = createRecording(next.options);
   await handle.ready;
-  await handle.stop();
-  assertPublicStatus(handle, "completed");
+  const stopped = handle.stop();
+  assert.equal(stopped, handle.finished);
+  await stopped;
 }
 
 test.afterEach(() => {
@@ -225,15 +219,12 @@ test("returns a preparing handle and validates before allocating Browser resourc
   });
 
   assert.deepEqual(Object.keys(handle).sort(), [
+    "finished",
     "ready",
     "runAction",
-    "status",
     "stop",
   ]);
-  assert.deepEqual(assertPublicStatus(handle, "preparing"), {
-    capture: null,
-    state: "preparing",
-  });
+  assert.equal(typeof handle.finished?.then, "function");
   assert.equal(harness.calls.startRecording, 0);
 
   await handle.ready;
@@ -248,7 +239,6 @@ test("returns a preparing handle and validates before allocating Browser resourc
   await handle.stop();
   assert.equal("maxWidth" in harness.rawFinalizationOptions, false);
   assert.equal(harness.rawFinalizationOptions.capture.framesReceived, 12);
-  assertPublicStatus(handle, "completed");
 });
 
 test("owns fresh-tab preflight and returns only the approved tab at readiness", async () => {
@@ -467,7 +457,6 @@ test("rejects delayed old pointer evidence without publishing", async () => {
   const output = await handle.stop();
   assert.deepEqual(output.paths, {});
   assert.equal(output.result.failureCode, "cursor_recording_failed");
-  assertPublicStatus(handle, "failed");
 });
 
 test("sanitizes an action failure before cleanup and publication", async () => {
@@ -566,7 +555,7 @@ test("maps an action-time Browser approval denial to cancellation", async () => 
     result: { failureCode: "recording_cancelled", status: "failed" },
   });
   await assert.rejects(action, { code: "cancelled" });
-  assertPublicStatus(handle, "cancelled");
+  assert.equal((await handle.finished).result.failureCode, "recording_cancelled");
 });
 
 test("fails closed when an action contradicts the session pointer policy", async () => {
@@ -633,7 +622,7 @@ test("cannot publish when stop races an in-flight action", async () => {
 
   performDeferred.resolve("late success");
   await settleWorkflow();
-  assertPublicStatus(handle, "failed");
+  assert.equal((await handle.finished).result.failureCode, "integration_failed");
 });
 
 test("cannot publish when capture completion races an in-flight action", async () => {
@@ -668,7 +657,7 @@ test("cannot publish when capture completion races an in-flight action", async (
 
   performDeferred.resolve("late success");
   await settleWorkflow();
-  assertPublicStatus(handle, "failed");
+  assert.equal((await handle.finished).result.failureCode, "integration_failed");
 });
 
 test("preserves a capture failure that interrupts an in-flight action", async () => {
@@ -708,7 +697,10 @@ test("preserves a capture failure that interrupts an in-flight action", async ()
 
   performDeferred.resolve("late success");
   await settleWorkflow();
-  assertPublicStatus(handle, "failed");
+  assert.equal(
+    (await handle.finished).result.failureCode,
+    "origin_changed_during_recording",
+  );
 });
 
 test("rejects overlapping actions as one failed session", async () => {
@@ -759,12 +751,12 @@ test("rejects a malformed caller signal without retaining the singleton", async 
   const handle = createRecording(malformed.options);
 
   assert.deepEqual(Object.keys(handle).sort(), [
+    "finished",
     "ready",
     "runAction",
-    "status",
     "stop",
   ]);
-  assertPublicStatus(handle, "failed");
+  assert.equal(handle.finished, handle.stop());
   await assert.rejects(handle.ready, (error) => {
     assert.equal(error.code, "invalid_configuration");
     assert.equal(
@@ -793,14 +785,13 @@ for (const property of ["addEventListener", "removeEventListener", "aborted"]) {
 
     const handle = createRecording(configured.options);
     assert.deepEqual(Object.keys(handle).sort(), [
+      "finished",
       "ready",
       "runAction",
-      "status",
       "stop",
     ]);
     await handle.ready;
     await handle.stop();
-    assertPublicStatus(handle, "completed");
 
     await assertSingletonReleased();
   });
@@ -817,12 +808,12 @@ test("sanitizes a throwing signal accessor without retaining the singleton", asy
 
   const handle = createRecording(options);
   assert.deepEqual(Object.keys(handle).sort(), [
+    "finished",
     "ready",
     "runAction",
-    "status",
     "stop",
   ]);
-  assertPublicStatus(handle, "failed");
+  assert.equal(handle.finished, handle.stop());
   await assert.rejects(handle.ready, (error) => {
     assert.equal(error.code, "invalid_configuration");
     assert.equal(
@@ -855,7 +846,6 @@ test("immediate stop cancels preparation and releases the singleton", async () =
     (error) => error.code === "recording_cancelled",
   );
   assert.equal(harness.calls.startRecording, 0);
-  assertPublicStatus(handle, "cancelled");
   await assertSingletonReleased();
 });
 
@@ -943,7 +933,6 @@ test("rejects invalid targets before lower-level allocation", async () => {
     return true;
   });
   assert.equal(harness.calls.startRecording, 0);
-  assertPublicStatus(handle, "failed");
   const firstStop = handle.stop();
   assert.equal(firstStop, handle.stop());
   await assert.rejects(firstStop, (error) => error === readyError);
@@ -964,7 +953,6 @@ test("rejects caller-provided tabs instead of recording an existing tab", async 
   );
   assert.equal(harness.calls.startRecording, 0);
   assert.equal(harness.calls.tabNew, 0);
-  assertPublicStatus(handle, "failed");
   await assertSingletonReleased();
 });
 
@@ -996,7 +984,6 @@ test("reports bounded Browser cleanup state when fresh-tab close fails", async (
     assert.doesNotMatch(JSON.stringify(error), /private tab identifier/);
     return true;
   });
-  assertPublicStatus(handle, "failed");
   await assertSingletonReleased();
 });
 
@@ -1031,7 +1018,6 @@ test("reports bounded cleanup when cancellation races with fresh-tab creation", 
     return true;
   });
   await assert.rejects(handle.ready, (error) => error.code === "recording_cancelled");
-  assertPublicStatus(handle, "cancelled");
   await assertSingletonReleased();
 });
 
@@ -1058,7 +1044,6 @@ test("bounds cancellation when fresh-tab creation never settles", async () => {
     });
     return true;
   });
-  assertPublicStatus(handle, "cancelled");
   await assertSingletonReleased();
 });
 
@@ -1086,7 +1071,6 @@ test("bounds cancellation and cleanup when artifact preparation never settles", 
     return true;
   });
   assert.equal(harness.calls.tabClose, 0);
-  assertPublicStatus(handle, "cancelled");
   await assertSingletonReleased();
 });
 
@@ -1280,7 +1264,7 @@ test("an external abort cannot publish after earlier pointer evidence", async ()
   assert.deepEqual(output.paths, {});
   assert.equal(output.result.status, "failed");
   assert.equal(output.result.failureCode, "recording_cancelled");
-  assertPublicStatus(handle, "cancelled");
+  assert.equal(output, await handle.finished);
 });
 
 test("bounds readiness cleanup when lower-level stop never settles", async () => {
@@ -1370,7 +1354,6 @@ test("preserves a failed capture outcome when Browser cleanup also fails", async
     assert.doesNotMatch(JSON.stringify(error), /private close failure/);
     return true;
   });
-  assertPublicStatus(handle, "failed");
   await assertSingletonReleased();
 });
 
@@ -1419,21 +1402,30 @@ test("stops cleanly at the requested duration and memoizes finalization", async 
 
   assert.equal(harness.clock.pending, 0);
   await handle.ready;
-  assertPublicStatus(handle, "recording");
   assert.equal(harness.rawRecordingOptions.signal.aborted, false);
   assert.equal(harness.clock.pending, 1);
-  harness.clock.advance(5_000);
+  const naturallyFinished = handle.finished;
+  let finished = false;
+  void naturallyFinished.then(() => {
+    finished = true;
+  });
+  harness.clock.advance(4_999);
+  await settleWorkflow();
+  assert.equal(finished, false);
+  assert.equal(harness.calls.stop, 0);
+  harness.clock.advance(1);
+  const naturalOutput = await naturallyFinished;
   const first = handle.stop();
   const second = handle.stop();
   assert.equal(first, second);
-  await first;
+  assert.equal(first, naturallyFinished);
+  assert.deepEqual(await first, naturalOutput);
   assert.equal(harness.rawRecordingOptions.signal.aborted, false);
   assert.equal(harness.calls.stop, 1);
   assert.equal(harness.clock.pending, 0);
-  assertPublicStatus(handle, "completed");
 });
 
-test("reports awaiting-frame and stopping transitions with exact status shape", async () => {
+test("finished stays pending through readiness and finalization", async () => {
   const harness = createHarness({ autoReady: false, autoStop: false });
   const handle = createRecording({
     _dependencies: harness.dependencies,
@@ -1441,19 +1433,32 @@ test("reports awaiting-frame and stopping transitions with exact status shape", 
     browser: harness.browser,
   });
 
+  let finished = false;
+  void handle.finished.then(
+    () => {
+      finished = true;
+    },
+    () => {
+      finished = true;
+    },
+  );
   await settleWorkflow();
-  assertPublicStatus(handle, "awaiting_frame");
+  assert.equal(finished, false);
   harness.readyDeferred.resolve(true);
   await handle.ready;
   const stopped = handle.stop();
+  assert.equal(stopped, handle.finished);
   await settleWorkflow();
-  assertPublicStatus(handle, "stopping");
+  assert.equal(finished, false);
   harness.stopDeferred.resolve({
     paths: {},
     result: { failureCode: null, status: "passed" },
   });
-  await stopped;
-  assertPublicStatus(handle, "completed");
+  assert.deepEqual(await stopped, {
+    paths: {},
+    result: { failureCode: null, status: "passed" },
+  });
+  assert.equal(finished, true);
 });
 
 test("reserves and releases the singleton across every terminal path", async () => {
@@ -1464,23 +1469,25 @@ test("reserves and releases the singleton across every terminal path", async () 
     concurrent.ready,
     (error) => error.code === "recording_already_active",
   );
-  assertPublicStatus(concurrent, "failed");
+  await assert.rejects(
+    concurrent.finished,
+    (error) => error.code === "recording_already_active",
+  );
 
   await first.ready;
-  await first.stop();
-  assertPublicStatus(first, "completed");
+  assert.equal(first.stop(), first.finished);
+  await first.finished;
 
   const nextOptions = validOptions();
   const next = createRecording(nextOptions.options);
   await next.ready;
-  await next.stop();
-  assertPublicStatus(next, "completed");
+  assert.equal(next.stop(), next.finished);
+  await next.finished;
 });
 
 const terminalCases = [
   {
     expectedCode: "frame_stream_unavailable",
-    expectedState: "failed",
     name: "readiness failure waits for cleanup and stays terminal",
     async run() {
       const harness = createHarness({ autoReady: false, autoStop: false });
@@ -1518,7 +1525,7 @@ const terminalCases = [
     },
   },
   {
-    expectedState: "failed",
+    expectedFailureCode: "frame_stream_stalled",
     name: "lower-level terminal failure finalizes before release",
     async run() {
       const harness = createHarness({
@@ -1545,7 +1552,7 @@ const terminalCases = [
     },
   },
   {
-    expectedState: "completed",
+    expectedFailureCode: null,
     name: "lower-level completion racing readiness cannot resurrect recording",
     async run() {
       const harness = createHarness({ autoReady: false });
@@ -1561,18 +1568,22 @@ const terminalCases = [
       });
       await harness.completionDeferred.promise;
       await settleWorkflow();
-      assertPublicStatus(handle, "awaiting_frame");
+      let finished = false;
+      void handle.finished.then(() => {
+        finished = true;
+      });
+      await settleWorkflow();
+      assert.equal(finished, false);
       harness.readyDeferred.resolve(true);
       assert.equal(await handle.ready, harness.freshTab);
-      await handle.stop();
-      assertPublicStatus(handle, "completed");
+      await handle.finished;
+      assert.equal(finished, true);
       assert.equal(harness.clock.pending, 0);
       return { handle, harness };
     },
   },
   {
     expectedCode: "recording_cancelled",
-    expectedState: "cancelled",
     name: "abort during readiness cleans up before cancellation",
     async run() {
       const harness = createHarness({ autoReady: false, autoStop: false });
@@ -1607,7 +1618,6 @@ const terminalCases = [
   },
   {
     expectedCode: "artifact_persistence_failed",
-    expectedState: "failed",
     name: "rejected finalization is sanitized and memoized",
     async run() {
       const harness = createHarness({ autoStop: false });
@@ -1619,8 +1629,8 @@ const terminalCases = [
       await handle.ready;
       const firstStop = handle.stop();
       assert.equal(firstStop, handle.stop());
+      assert.equal(firstStop, handle.finished);
       await settleWorkflow();
-      assertPublicStatus(handle, "stopping");
       harness.stopDeferred.reject(
         Object.assign(new Error("private filesystem path"), {
           code: "artifact_persistence_failed",
@@ -1635,7 +1645,7 @@ const terminalCases = [
     },
   },
   {
-    expectedState: "cancelled",
+    expectedFailureCode: "recording_cancelled",
     name: "lower-level cancellation rejection maps to cancelled",
     async run() {
       const harness = createHarness({
@@ -1661,23 +1671,28 @@ const terminalCases = [
   },
 ];
 
-test("keeps terminal states monotonic and releases every terminal reservation", async (t) => {
+test("keeps terminal outcomes stable and releases every terminal reservation", async (t) => {
   for (const scenario of terminalCases) {
     await t.test(scenario.name, async () => {
       const { handle, harness } = await scenario.run();
-      const status = assertPublicStatus(handle, scenario.expectedState);
-      assert.equal(status.capture.framesReceived, 12);
       if (scenario.expectedCode !== undefined) {
-        const stopped = handle.stop();
         await assert.rejects(
-          stopped,
+          handle.finished,
           (error) => error.code === scenario.expectedCode,
         );
-        assert.equal(stopped, handle.stop());
+      } else {
+        const output = await handle.finished;
+        assert.equal(
+          output.result.status,
+          scenario.expectedFailureCode == null ? "passed" : "failed",
+        );
+        assert.equal(output.result.failureCode, scenario.expectedFailureCode);
       }
+      assert.equal(handle.finished, handle.stop());
+      assert.equal(harness.rawFinalizationOptions.capture.framesReceived, 12);
       harness.readyDeferred.resolve(true);
       await settleWorkflow();
-      assertPublicStatus(handle, scenario.expectedState);
+      assert.equal(handle.finished, handle.stop());
       await assertSingletonReleased();
     });
   }
