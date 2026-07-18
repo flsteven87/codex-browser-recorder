@@ -60,7 +60,7 @@ For a reproducible installation, use an immutable release tag rather than the
 mutable `main` branch:
 
 ```sh
-git clone --branch v0.2.3 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
+git clone --branch v0.3.0 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
 codex plugin marketplace add /absolute/path/to/codex-browser-recorder
 codex plugin add codex-browser-recorder@codex-browser-recorder
 ```
