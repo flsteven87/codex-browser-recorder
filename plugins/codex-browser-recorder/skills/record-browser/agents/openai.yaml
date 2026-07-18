@@ -1,6 +1,6 @@
 interface:
   display_name: "Record Browser"
-  short_description: "Preflight or save a Browser MP4 with visible cursor"
-  default_prompt: "Use $record-browser to preflight or record an approved Browser test flow."
+  short_description: "Preflight or save a Chrome MP4 with pointer feedback"
+  default_prompt: "Use $record-browser to preflight or record an approved, non-sensitive Chrome Browser flow."
 policy:
   allow_implicit_invocation: false

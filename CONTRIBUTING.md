@@ -50,21 +50,29 @@ Browser end-to-end coverage. Before a release, a maintainer must manually:
 
 1. install the release candidate in a clean Codex desktop task;
 2. run the local preflight and resolve every blocker;
-3. record the same approved pointer-driven flow on the public, no-login W3C
-   Pointer Events fixture in the in-app **Browser** and in **Chrome**, using a
-   separate clean task for each surface;
-4. record the Codex desktop, Browser or Chrome, and extension versions used for
-   each smoke without retaining the recording or sensitive diagnostics;
-5. verify each run reports `Recording completed`, produces a playable H.264 MP4
-   capped at 720p and encoded at 10 frames per second with no audio, shows the
-   cursor and click feedback, terminates after the approved actions, and leaves
-   no fresh tab behind;
-6. recheck the current official Plugins, Browser, Chrome, and Build plugins
+3. run `runChromeFrameContractGate()` from
+   `scripts/browser-frame-contract-gate.mjs` in the persistent Browser Node
+   runtime. Require its machine-readable `status: "passed"`, one received and
+   acknowledged frame, and a closed fresh tab. This gate creates no media file;
+4. run `runExampleRecordingReleaseGate()` from
+   `scripts/example-recording-release-gate.mjs` against the same selected
+   Chrome surface. It must complete two full recordings strictly in sequence
+   with distinct output paths;
+5. record the tested candidate SHA, plugin version, Codex desktop version,
+   Chrome plugin/extension version, Chrome version, and both machine-readable
+   gate results locally. Do not commit the attestation or recordings;
+6. verify both full runs report `Recording completed`, produce playable H.264
+   MP4 files capped at 720p and encoded at 10 frames per second with no audio,
+   terminate at the requested end condition, and leave no fresh tab, partial
+   file, or Working Recording behind. Delete the generated files after review;
+7. separately run one approved pointer-driven flow on the public, no-login W3C
+   Pointer Events fixture and verify its cursor and click feedback;
+8. recheck the current official Plugins, Browser, Chrome, and Build plugins
    documentation linked from the README, plus the version-specific GitHub
    release commit and archive digest recorded there. Treat embedded-frame
    support as deterministic-fixture coverage unless the release notes identify
    a separate real-browser public iframe smoke and its tested versions; and
-7. run `npm run check:release` only after setting the canonical manifest
+9. run `npm run check:release` only after setting the canonical manifest
    version, replacing the generic Unreleased changelog section with the matching
    versioned and dated release entry, and synchronizing all public version
    references.
@@ -73,5 +81,7 @@ Browser end-to-end coverage. Before a release, a maintainer must manually:
 during development. `npm run check:release` is deliberately stricter and is
 reserved for a versioned, dated release state.
 
-Record the pass/fail result and tested commit in the release notes. Never commit,
-upload, or attach the generated recording or Browser/CDP diagnostics.
+The Codex in-app Browser is unsupported by this release and must fail during
+preparation with `browser_surface_unsupported`; it is not a release-smoke
+surface. Record the pass/fail result and tested commit in the release notes.
+Never commit, upload, or attach generated recordings or Browser/CDP diagnostics.

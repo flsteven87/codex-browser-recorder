@@ -68,7 +68,6 @@ const SCREENCAST_EVENT_METHODS = [
 function validateFramePumpConfiguration({
   cdp,
   initialCursor,
-  mainFrameId,
   maxDecodedBytes,
   onFrame,
   onTopFrameNavigation,
@@ -79,8 +78,6 @@ function validateFramePumpConfiguration({
     typeof cdp?.send !== "function" ||
     (initialCursor !== undefined &&
       (!Number.isInteger(initialCursor) || initialCursor < 0)) ||
-    typeof mainFrameId !== "string" ||
-    mainFrameId.length === 0 ||
     !Number.isInteger(maxDecodedBytes) ||
     maxDecodedBytes <= 0 ||
     typeof onFrame !== "function" ||
@@ -114,7 +111,6 @@ function validateEventBatch(batch, currentCursor) {
 export function startFramePump({
   cdp,
   initialCursor,
-  mainFrameId,
   onFrame,
   onTopFrameNavigation,
   maxDecodedBytes,
@@ -123,7 +119,6 @@ export function startFramePump({
   validateFramePumpConfiguration({
     cdp,
     initialCursor,
-    mainFrameId,
     maxDecodedBytes,
     onFrame,
     onTopFrameNavigation,
@@ -161,7 +156,8 @@ export function startFramePump({
     if (event?.method === "Page.frameNavigated") {
       const frame = event.params?.frame;
       if (
-        frame?.id === mainFrameId &&
+        frame != null &&
+        typeof frame === "object" &&
         !Object.hasOwn(frame, "parentId") &&
         typeof frame.url === "string"
       ) {
@@ -230,8 +226,6 @@ export function startFramePump({
         timeoutMs: readTimeoutMs,
       });
 
-      if (stopped) break;
-
       validateEventBatch(batch, cursor);
 
       if (batch.truncated) {
@@ -245,8 +239,10 @@ export function startFramePump({
       stats.cursor = cursor;
 
       for (const event of batch.events) {
+        if (stopped && event?.method === "Page.screencastFrame") continue;
         await handleEvent(event);
       }
+      if (stopped) break;
     }
   })().catch((error) => {
     loopError = error;
@@ -379,16 +375,18 @@ export function createFfmpegSink({
       return;
     }
 
+    writeLatestFrame();
+  }, 1000 / fps);
+
+  function writeLatestFrame() {
     if (backpressured) {
       stats.backpressureDrops += 1;
-      return;
+      return false;
     }
-
     stats.outputSamples += 1;
-    if (!child.stdin.write(latestFrame)) {
-      backpressured = true;
-    }
-  }, 1000 / fps);
+    if (!child.stdin.write(latestFrame)) backpressured = true;
+    return true;
+  }
 
   return {
     accept(jpeg) {
@@ -396,6 +394,7 @@ export function createFfmpegSink({
         return false;
       }
       latestFrame = Buffer.from(jpeg);
+      if (stats.outputSamples === 0) writeLatestFrame();
       return true;
     },
     completion: exited,

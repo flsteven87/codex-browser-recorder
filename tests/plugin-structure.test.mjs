@@ -24,6 +24,7 @@ const requiredScripts = [
   "cursor-recording.mjs",
   "doctor.mjs",
   "media-recorder.mjs",
+  "record-browser-flow.mjs",
   "recording-artifacts.mjs",
   "recording-outcome.mjs",
   "recording-policy.mjs",
@@ -96,11 +97,11 @@ test("plugin manifest and repository marketplace stay aligned", () => {
   assert.match(plugin.version, strictSemver);
   assert.equal(
     plugin.description,
-    "Preflight local requirements or save one approved Codex Browser test flow as a local H.264 MP4 with a visible cursor.",
+    "Preflight local requirements or save one approved Chrome Browser test flow as a local H.264 MP4 with pointer feedback when applicable.",
   );
   assert.equal(
     plugin.interface.shortDescription,
-    "Preflight or save a Browser flow as MP4.",
+    "Preflight or save a Chrome flow as MP4.",
   );
   assert.doesNotMatch(
     JSON.stringify(plugin.interface),
@@ -191,7 +192,10 @@ test("record-browser is an explicit skill with one canonical script tree", () =>
   );
 
   assert.equal(frontmatter.name, "record-browser");
-  assert.equal(frontmatter.license, "MIT");
+  assert.deepEqual(Object.keys(frontmatter).toSorted(), [
+    "description",
+    "name",
+  ]);
   assert.match(
     frontmatter.description,
     /user explicitly invokes \$record-browser/,
@@ -203,11 +207,11 @@ test("record-browser is an explicit skill with one canonical script tree", () =>
   assert.match(agentManifest, /^policy:\n(?: {2}.+\n)* {2}allow_implicit_invocation: false$/m);
   assert.match(
     agentManifest,
-    /short_description: "Preflight or save a Browser MP4 with visible cursor"/,
+    /short_description: "Preflight or save a Chrome MP4 with pointer feedback"/,
   );
   assert.match(
     agentManifest,
-    /default_prompt: "Use \$record-browser to preflight or record an approved Browser test flow[.]"/,
+    /default_prompt: "Use \$record-browser to preflight or record an approved, non-sensitive Chrome Browser flow[.]"/,
   );
   assert.doesNotMatch(agentManifest, /integration gate|example[.]com/i);
   for (const script of requiredScripts) {

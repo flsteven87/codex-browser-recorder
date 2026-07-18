@@ -8,16 +8,15 @@ $record-browser Check whether my local recording environment is ready.
 ```
 
 A passing result begins with `Local recording preflight passed`. Preflight does
-not confirm that the Browser plugin is installed, that a site is approved, or
-that full CDP access will be granted.
+not confirm that the Chrome plugin and extension are installed, that a site is
+approved, or that full CDP access will be granted.
 
 ## Installation and discovery
 
 If `$record-browser` is missing:
 
 1. In the ChatGPT desktop app, select Codex and open **Plugins**.
-2. Confirm that **Codex Browser Recorder** and the selected browser plugin are
-   installed: **Browser** for the in-app Browser, or **Chrome** for Chrome.
+2. Confirm that **Codex Browser Recorder** and **Chrome** are installed.
 3. For Chrome, finish the Chrome extension setup and confirm its side chat
    loads in the active Chrome profile.
 4. For a local checkout, confirm that its marketplace appears in
@@ -47,11 +46,10 @@ recording.
 ## Browser or CDP unavailable
 
 `browser_plugin_unavailable`, `cdp_unavailable`, and
-`plugin_module_unavailable` mean the required Browser recording capability could
+`plugin_module_unavailable` mean the required Chrome recording capability could
 not be loaded or approved.
 
-1. Install or enable the selected browser plugin: **Browser** for the in-app
-   Browser, or **Chrome** plus its extension for Chrome.
+1. Install or enable **Chrome** plus its extension.
 2. Open **Settings > Browser** and enable **Developer mode > Enable full CDP
    access**. Workspace policy can prevent this setting from being enabled.
 3. Start a new task after changing plugin installation state.
@@ -61,6 +59,10 @@ not be loaded or approved.
 Approval denial returns `cancelled`; cancellation after a Recording Session has
 started can return `recording_cancelled`. The recorder does not retry or bypass
 either result.
+
+`browser_surface_unsupported` means the request selected the Codex in-app
+Browser. This release supports Chrome only and stops before consent or Browser
+activity; choose Chrome rather than retrying or expecting an automatic switch.
 
 ## Request rejected
 
@@ -86,7 +88,8 @@ failures as `capture_failed`.
 | Failure group | Recognized public codes | What to do |
 | --- | --- | --- |
 | Origin changed | `origin_not_allowed`, `origin_verification_failed`, `origin_changed_during_recording` | Start again and keep top-level navigation within the approved origin. |
-| Frame stream failed | `event_stream_invalid`, `frame_ack_failed`, `frame_stream_stalled`, `frame_stream_unavailable`, `frame_too_large`, `invalid_frame` | Keep the tab visible, confirm full CDP approval, and retry a shorter flow. |
+| Browser surface unsupported | `browser_surface_unsupported` | Use Chrome; the Codex in-app Browser is not supported by this release. |
+| Frame stream failed | `event_stream_invalid`, `frame_ack_failed`, `frame_stream_stalled`, `frame_stream_unavailable`, `frame_too_large`, `invalid_frame` | Use the supported Chrome surface, keep the tab visible, confirm full CDP approval, and retry a shorter flow. |
 | Pointer evidence failed | `cursor_recording_failed` | Keep every participating frame available and retry each pointer action visibly. |
 | Safety limit reached | `recording_duration_limit`, `recording_output_limit`, `output_monitor_failed` | Shorten the flow or reduce visual activity. |
 | Encoder failed | `encoder_failed`, `encoder_finalize_failed`, `encoder_shutdown_timeout` | Rerun preflight and verify local H.264 MP4 support. |

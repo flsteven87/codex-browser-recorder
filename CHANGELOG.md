@@ -4,15 +4,34 @@ All notable changes to this project will be documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-07-19
+
+This is the finalized OpenAI resubmission candidate. The original GitHub
+`v0.3.0` tag and archive were published on 2026-07-18; the README records that
+archive's commit and digest separately from this later candidate.
+
+### Added
+
+- Added a user-visible, no-Browser local preflight that reports all detected
+  platform, media-tool, codec, container, and destination blockers.
 
 ### Changed
 
+- Replaced the skill-facing four-operation recording handle with the two-phase
+  `prepareRecording()` and `recordApproved()` flow. Prepared plans are opaque,
+  immutable, single-use, derive pointer policy from action modality, and return
+  one `completed`, `failed`, or `cancelled` outcome.
+- Restricted this release's recording support to Chrome and made explicit
+  in-app Browser requests fail before consent with
+  `browser_surface_unsupported`; runtime failure never triggers a silent
+  surface switch.
+- Added a no-output Chrome frame contract gate and moved the two-sequential-run
+  full MP4 release gate onto the same production Recording Flow.
 - Reworked installation guidance around the current Plugins Directory and local
   marketplace flows, removed the obsolete direct directory listing URL,
   documented Directory and local removal paths, added tag-specific archive
-  checksum verification, and documented explicit in-app Browser versus Chrome
-  selection.
+  checksum verification, and documented the explicit Chrome-only support
+  boundary.
 - Added architecture and troubleshooting guides grounded in the recording
   modules, stable failure taxonomy, and current official Codex documentation.
 - Clarified browser-version-sensitive embedded-frame coverage and distinguished
@@ -25,25 +44,32 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   complete public failure-code catalog.
 - Distinguished deterministic embedded-frame fixtures from real-browser
   compatibility evidence and expanded the release smoke checklist to cover both
-  the in-app Browser and Chrome.
-
-## [0.3.0] - 2026-07-18
-
-### Added
-
-- Added a user-visible, no-Browser local preflight that reports all detected
-  platform, media-tool, codec, container, and destination blockers.
-
-### Changed
-
-- Action-driven recordings now finalize when approved actions finish while
-  retaining a 15-second hard cap; passive flows require an explicit duration.
+  frame transport and two sequential full Chrome recordings.
+- Action-driven recordings now finalize when approved actions and any bounded
+  pointer visual tail finish while retaining a 15-second hard cap; passive flows
+  require an explicit duration.
 - Consent and public policies now disclose visible embedded frames and reuse of
-  the selected Browser's existing session.
+  Chrome's existing session.
 - Documented the fixed 720p, 10-frames-per-second verification profile and the
-  manual real-Browser release smoke test.
+  manual real-browser release smoke test.
 - Added synchronized public-version checks and a dedicated cursor-module
   coverage floor to release and CI verification.
+
+### Fixed
+
+- Encoded the JPEG delivered by each `Page.screencastFrame` event directly
+  instead of issuing an additional `Page.captureScreenshot` request for every
+  event. This removes the redundant CDP dependency that caused Chrome recordings
+  to fail despite a healthy screencast transport.
+- Kept ownership of the exact fresh tab until close succeeds, memoized concurrent
+  close requests, bounded timeouts, and retried one immediate transient close
+  rejection without losing primary failure metadata.
+- Drained in-flight top-level navigation policy events during shutdown,
+  recognized replacement main-frame IDs, and reverified the approved origin
+  before successful publication.
+- Wrote the first accepted frame to FFmpeg eagerly and kept a bounded 200 ms
+  visual tail after action-driven pointer flows, preventing zero-sample media
+  and missing final click feedback.
 
 ## [0.2.3] - 2026-07-18
 

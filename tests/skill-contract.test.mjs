@@ -18,23 +18,17 @@ const skillRoot = join(
 );
 const skill = readFileSync(join(skillRoot, "SKILL.md"), "utf8");
 const agent = readFileSync(join(skillRoot, "agents", "openai.yaml"), "utf8");
-const frontmatterMatch = skill.match(/^---\n([\s\S]*?)\n---(?:\n|$)/);
+const frontmatterMatch = skill.match(/^---\n([\s\S]*?)\n---(?:\n|$)/u);
 assert.ok(frontmatterMatch, "skill must have frontmatter");
 const frontmatter = frontmatterMatch[1];
-const javascriptBlocks = [...skill.matchAll(/```js\n([\s\S]*?)\n```/g)].map(
-  ([, source]) => source,
-);
-const publicWorkflowSections = [
-  "## Collect The Request",
-  "## Validate The Request Locally",
-  "## Confirm Once Before Browser Activity",
-  "## Resolve Installed Modules",
-  "## Run The Recording",
-  "## Clean Up",
-  "## Report The Result",
+const workflowHeadings = [
+  "## Build A Local Plan",
+  "## Obtain One Consent",
+  "## Record The Approved Plan",
+  "## Report The Terminal Outcome",
 ];
 const forbiddenReportFields = [
-  "full URLs",
+  "URLs",
   "page text",
   "raw frames",
   "CDP payloads",
@@ -43,191 +37,64 @@ const forbiddenReportFields = [
   "internal plugin paths",
 ];
 
-function indexesOf(source, marker) {
-  const indexes = [];
-  let index = source.indexOf(marker);
-  while (index !== -1) {
-    indexes.push(index);
-    index = source.indexOf(marker, index + marker.length);
-  }
-  return indexes;
-}
-
-function assertPublicWorkflowOrdering(source) {
-  const sectionIndexes = publicWorkflowSections.map((heading) => {
+function assertWorkflowContract(source) {
+  const indexes = workflowHeadings.map((heading) => {
     const index = source.indexOf(heading);
-    assert.notEqual(index, -1, `missing public workflow section: ${heading}`);
+    assert.notEqual(index, -1, `missing workflow section: ${heading}`);
     return index;
   });
   assert.deepEqual(
-    sectionIndexes,
-    sectionIndexes.toSorted((left, right) => left - right),
-    "public workflow sections must remain in their required order",
+    indexes,
+    indexes.toSorted((left, right) => left - right),
+    "workflow sections must remain ordered",
   );
 
-  const validationIndex = sectionIndexes[1];
-  const consentIndex = sectionIndexes[2];
-  const runIndex = sectionIndexes[4];
-  const cleanupIndex = sectionIndexes[5];
-  for (const marker of [
-    "scripts/recording-policy.mjs",
-    "scripts/recording-outcome.mjs",
-    "scripts/doctor.mjs",
-    "validateRecordingRequest",
-    "inspectLocalRecordingEnvironment",
-    "describeRecordingFailure(error.code)",
-  ]) {
-    const markerIndexes = indexesOf(source, marker);
-    assert.ok(markerIndexes.length > 0, `missing local instruction: ${marker}`);
-    assert.ok(
-      markerIndexes.every(
-        (index) => index >= validationIndex && index < consentIndex,
-      ),
-      `${marker} must run locally before consent`,
-    );
-  }
+  const [planIndex, consentIndex, recordIndex, reportIndex] = indexes;
+  const plan = source.slice(planIndex, consentIndex);
+  const consent = source.slice(consentIndex, recordIndex);
+  const record = source.slice(recordIndex, reportIndex);
 
-  const runSection = source.slice(runIndex, cleanupIndex);
-  for (const [label, marker] of [
-    ["recording transaction", "handle = createRecording({"],
-    ["fresh-tab ownership", "exactly one fresh blank Browser tab"],
-    ["CDP activity", "full-CDP preflight"],
-  ]) {
-    const markerIndexes = indexesOf(source, marker);
-    assert.ok(markerIndexes.length > 0, `missing ${label} instruction`);
-    assert.ok(
-      markerIndexes.every(
-        (index) => index >= runIndex && index < cleanupIndex,
-      ),
-      `${label} must occur only in the post-consent Run section`,
-    );
-    assert.ok(runSection.includes(marker));
-  }
+  assert.match(plan, /prepareRecording[(][{]/u);
+  assert.match(plan, /without Browser activity/iu);
+  assert.match(plan, /opaque/iu);
+  assert.doesNotMatch(plan, /agent[.]browsers[.]/u);
+  assert.match(consent, /before any Browser activity/iu);
+  assert.match(consent, /explicit confirmation/iu);
+  assert.match(record, /agent[.]browsers[.]get[(]"extension"[)]/u);
+  assert.match(record, /recordApproved[(]preparation,/u);
+  assert.match(record, /consumes the preparation exactly once/iu);
+  assert.doesNotMatch(record, /browser[.]tabs[.]new|capabilities[.]get/iu);
 }
 
 function reportingSentencesWithoutProhibitions(source) {
   return source
-    .split(/(?<=[.!?])\s+/)
+    .split(/(?<=[.!?])\s+/u)
     .map((sentence) => sentence.trim())
-    .filter((sentence) => !/^(?:Never|Do not)\b/i.test(sentence))
+    .filter((sentence) => !/^(?:Never|Do not)\b/iu.test(sentence))
     .join("\n");
 }
 
 function assertPrivacyReportingContract(source) {
-  const reportIndex = source.indexOf("## Report The Result");
-  assert.notEqual(reportIndex, -1, "missing final reporting contract");
-  const reportSection = source.slice(reportIndex);
+  const reportIndex = source.indexOf("## Report The Terminal Outcome");
+  assert.notEqual(reportIndex, -1, "missing terminal reporting contract");
+  const report = source.slice(reportIndex);
   assert.match(
-    reportSection,
-    /On failure, report the stable failure code plus its allowlisted summary and remediation[.]/,
+    report,
+    /report only `outcome[.]failure[.]code`, `[.]summary`, and `[.]remediation`/iu,
   );
-
-  const positiveReporting = reportingSentencesWithoutProhibitions(reportSection);
+  const positiveReporting = reportingSentencesWithoutProhibitions(report);
   for (const field of forbiddenReportFields) {
     assert.match(
-      reportSection,
-      new RegExp(field, "i"),
+      report,
+      new RegExp(field, "iu"),
       `reporting contract must explicitly forbid ${field}`,
     );
     assert.doesNotMatch(
       positiveReporting,
-      new RegExp(field, "i"),
+      new RegExp(field, "iu"),
       `reporting contract must not positively report ${field}`,
     );
   }
-}
-
-function assertOfficialBrowserSelection(source) {
-  assert.match(
-    source,
-    /Set `requestedBrowser` to `"iab"` only when the user explicitly requests the Codex in-app Browser, to `"chrome"` only when the user explicitly requests Chrome, and to `null` otherwise[.]/,
-    "skill must preserve the user's explicit Browser choice",
-  );
-
-  const setup = javascriptBlocksFor(source).find((block) =>
-    block.includes("const browserPluginRoot ="),
-  );
-  assert.ok(setup, "missing installed Browser setup");
-  assert.match(
-    setup,
-    /requestedBrowser === "iab"[\s\S]*globalThis[.]iab == null[\s\S]*globalThis[.]iab = await agent[.]browsers[.]get[(]"iab"[)][\s\S]*selectedBrowser = globalThis[.]iab/,
-    "explicit in-app Browser requests must select the iab Browser",
-  );
-  assert.match(
-    setup,
-    /requestedBrowser === "chrome"[\s\S]*globalThis[.]chrome == null[\s\S]*globalThis[.]chrome = await agent[.]browsers[.]get[(]"extension"[)][\s\S]*selectedBrowser = globalThis[.]chrome/,
-    "explicit Chrome requests must select the extension Browser",
-  );
-  assert.match(
-    setup,
-    /else[\s\S]*globalThis[.]browser == null[\s\S]*globalThis[.]browser = await agent[.]browsers[.]getForUrl[(]request[.]targetUrl[)][\s\S]*selectedBrowser = globalThis[.]browser/,
-    "only unspecified Browser requests may use URL-based selection",
-  );
-  for (const binding of ["iab", "chrome", "browser"]) {
-    assert.equal(
-      indexesOf(setup, `nodeRepl.write(await ${binding}.documentation())`).length,
-      1,
-      `the ${binding} Browser's complete documentation must be emitted once when initialized`,
-    );
-  }
-}
-
-function javascriptBlocksFor(source) {
-  return [...source.matchAll(/```js\n([\s\S]*?)\n```/g)].map(
-    ([, block]) => block,
-  );
-}
-
-function assertDelegatedActionBoundary(source) {
-  const runSection = source.slice(
-    source.indexOf("## Run The Recording"),
-    source.indexOf("## Clean Up"),
-  );
-  assert.match(
-    runSection,
-    /await handle[.]runAction[(][{]/,
-    "every approved Browser action must cross the Recording Session seam",
-  );
-  for (const implementationDetail of [
-    "cursorEventsCaptured",
-    "cursorLastEventEpochMs",
-    "hasPointerEvidenceAfterActionBoundary",
-    "beforeEvents",
-    "evidenceDeadline",
-    "actionAbortController",
-    "isBrowserApprovalDenial",
-    "sanitizeActionFailure",
-  ]) {
-    assert.equal(
-      runSection.includes(implementationDetail),
-      false,
-      `the skill must not own ${implementationDetail}`,
-    );
-  }
-}
-
-function readBracedBlockAfter(source, marker, fromIndex = 0) {
-  const markerIndex = source.indexOf(marker, fromIndex);
-  assert.notEqual(markerIndex, -1, `missing ${marker} block`);
-  const start = source.indexOf("{", markerIndex + marker.length);
-  assert.notEqual(start, -1, `missing opening brace after ${marker}`);
-
-  let depth = 0;
-  for (let index = start; index < source.length; index += 1) {
-    if (source[index] === "{") depth += 1;
-    if (source[index] !== "}") continue;
-    depth -= 1;
-    if (depth === 0) {
-      return {
-        body: source.slice(start + 1, index),
-        end: index + 1,
-        markerIndex,
-        start,
-      };
-    }
-  }
-
-  assert.fail(`missing closing brace for ${marker} block`);
 }
 
 test("README documents the public recording contract", () => {
@@ -239,58 +106,44 @@ test("README documents the public recording contract", () => {
     "temporary",
     "no audio",
   ]) {
-    assert.match(readme, new RegExp(required.replaceAll("$", "\\$"), "i"));
+    assert.match(readme, new RegExp(required.replaceAll("$", "\\$"), "iu"));
   }
-  assert.doesNotMatch(
-    readme,
-    /(?:run|invoke|use|start)[^\n.]{0,80}integration gate/i,
-  );
+  assert.match(readme, /Chrome/iu);
   assert.match(
     readme,
-    /fresh tab in the browser selected\s+by the installed Browser plugin/i,
+    /Passive\s+or\s+wait-only\s+recordings\s+require\s+an\s+explicit\s+duration/iu,
   );
-  assert.doesNotMatch(readme, /fresh Codex in-app Browser tab/i);
-  assert.doesNotMatch(readme, /cursor-complete/i);
-  assert.match(readme, /passive `finished`/i);
-  assert.doesNotMatch(readme, /diagnostic `status[(][)]`/i);
-  assert.match(
-    readme,
-    /attempts to close the fresh tab\s+on every path[^.]*reports bounded manual cleanup instructions/i,
-  );
+  assert.doesNotMatch(readme, /cursor-complete/iu);
+  assert.doesNotMatch(readme, /diagnostic `status[(][)]`/iu);
 });
 
-test("public docs expose preflight and the complete visible recording boundary", () => {
-  assert.match(readme, /Local recording preflight passed/i);
-  assert.match(readme, /does not verify\s+Browser or CDP approval/i);
-  assert.match(readme, /10 frames per second/i);
-  assert.match(readme, /720p/i);
-  assert.match(
-    readme,
-    /fresh tab may reuse the selected Browser's existing session/i,
-  );
-  assert.match(readme, /all visible embedded frames/i);
-  assert.match(privacy, /all\s+visible embedded frames/i);
-  assert.match(privacy, /existing session state can affect rendered\s+content/i);
-  assert.match(support, /Local recording preflight passed/i);
+test("public docs expose preflight and the complete visible boundary", () => {
+  assert.match(readme, /Local recording preflight passed/iu);
+  assert.match(readme, /does not verify\s+Browser or CDP approval/iu);
+  assert.match(readme, /10 frames per second/iu);
+  assert.match(readme, /720p/iu);
+  assert.match(readme, /all visible embedded frames/iu);
+  assert.match(privacy, /all\s+visible embedded frames/iu);
+  assert.match(privacy, /existing session state can affect rendered\s+content/iu);
+  assert.match(support, /Local recording preflight passed/iu);
 });
 
-test("public copy states the observable cursor boundary without claiming event provenance", () => {
-  for (const [label, source] of [
-    ["README", readme],
-    ["changelog", changelog],
-    ["skill", skill],
-    ["agent metadata", agent],
+test("public copy describes an observable cursor without provenance claims", () => {
+  for (const [label, source, cursorPattern] of [
+    ["README", readme, /Pointer flows?[^.]*visible project cursor/iu],
+    ["changelog", changelog, /visible cursor/iu],
+    ["skill", skill, /pointer flows?[^.]*visible cursor/iu],
+    ["agent metadata", agent, /pointer feedback/iu],
   ]) {
-    assert.match(source, /visible cursor/i, `${label} must describe the visible cursor`);
+    assert.match(source, cursorPattern, `${label} must describe pointer feedback`);
     assert.doesNotMatch(
       source,
-      /cursor-complete/i,
-      `${label} must not claim unprovable cursor completeness`,
+      /cursor-complete/iu,
+      `${label} must not claim cursor completeness`,
     );
   }
-  assert.match(privacy, /page-scripted synthetic events may also be observed/i);
-  assert.match(privacy, /does not authenticate the source of an observed event/i);
-  assert.doesNotMatch(privacy, /synthetic events are ignored/i);
+  assert.match(privacy, /page-scripted synthetic events may also be observed/iu);
+  assert.match(privacy, /does not authenticate the source of an observed event/iu);
 });
 
 test("public docs disclose failure-specific local media retention", () => {
@@ -300,293 +153,152 @@ test("public docs disclose failure-specific local media retention", () => {
   ]) {
     assert.match(
       source,
-      /Capture,\s+cancellation,\s+cross-origin,\s+and\s+validation\s+failures\s+do\s+not\s+publish\s+a\s+Saved\s+Recording/i,
+      /Capture,\s+cancellation,\s+cross-origin,\s+and\s+validation\s+failures\s+do\s+not\s+publish\s+a\s+Saved\s+Recording/iu,
       `${label} must disclose non-publication cases`,
     );
     assert.match(
       source,
-      /transaction\s+discards\s+their\s+Working\s+Recording[.]/i,
-      `${label} must disclose failed-media discard`,
-    );
-    assert.match(
-      source,
-      /automatic\s+cleanup\s+fails[^.]*reports\s+the\s+local\s+path\s+for\s+deletion[.]/i,
+      /automatic\s+cleanup\s+fails[^.]*reports\s+the\s+local\s+path\s+for\s+deletion/iu,
       `${label} must disclose cleanup failure handling`,
     );
     assert.match(
       source,
-      /durable\s+publication\s+fails[^.]*reports[^.]*Working\s+Recording\s+recovery\s+directory[^.]*copy\s+it\s+to\s+a\s+durable\s+folder/i,
+      /durable\s+publication\s+fails[^.]*Working\s+Recording\s+recovery\s+directory/iu,
       `${label} must disclose publication recovery`,
-    );
-    assert.match(
-      source,
-      /does\s+not\s+automatically[^.]{0,80}(?:open|play)[^.]{0,80}(?:upload|share)/i,
-      `${label} must disclose automatic-action boundaries`,
-    );
-    assert.doesNotMatch(
-      source,
-      /(?:Failed or cancelled runs|Failed and cancelled recording transactions)[^.]{0,100}(?:remove|delete)[^.]{0,60}(?:finalized|video output)/i,
-      `${label} must not claim blanket failed-output deletion`,
     );
   }
 });
 
-test("skill requires explicit user recording intent and one consolidated consent", () => {
-  assert.match(agent, /allow_implicit_invocation: false/);
-  assert.match(frontmatter, /explicitly invokes \$record-browser/);
-  assert.match(skill, /target URL/i);
-  assert.match(skill, /planned Browser actions/i);
-  assert.match(skill, /recording duration/i);
-  assert.match(skill, /one consolidated consent/i);
-  assert.match(skill, /before any Browser action/i);
-  assert.match(frontmatter, /^license: MIT$/m);
-  assert.doesNotMatch(frontmatter, /^compatibility:/m);
-  assert.match(
-    frontmatter,
-    /fresh approved tab in the browser selected by the installed Browser plugin/i,
+test("skill is explicit and keeps minimal frontmatter", () => {
+  assert.match(agent, /allow_implicit_invocation: false/u);
+  assert.match(frontmatter, /explicitly invokes \$record-browser/iu);
+  assert.match(frontmatter, /Chrome Browser/iu);
+  assert.match(frontmatter, /visible cursor/iu);
+  assert.deepEqual(
+    frontmatter
+      .split("\n")
+      .map((line) => line.slice(0, line.indexOf(":")))
+      .filter(Boolean),
+    ["name", "description"],
   );
-  assert.match(
-    skill,
-    /exactly one fresh blank Browser tab/,
+  assert.doesNotMatch(frontmatter, /^compatibility:/mu);
+});
+
+test("skill keeps preparation, consent, Browser activity, and reporting ordered", () => {
+  assertWorkflowContract(skill);
+});
+
+test("ordering guard rejects pre-consent Browser activity", () => {
+  const mutant = skill.replace(
+    "## Obtain One Consent",
+    'agent.browsers.get("extension")\n\n## Obtain One Consent',
   );
-});
-
-test("skill offers local preflight and discloses the visible Browser context", () => {
-  assert.match(frontmatter, /record or preflight/i);
-  assert.match(skill, /preflightOnly/);
-  assert.match(skill, /inspectLocalRecordingEnvironment/);
-  assert.match(skill, /report every blocker/i);
-  assert.match(skill, /does not verify Browser or CDP approval/i);
-  assert.match(skill, /may reuse the selected Browser's existing session/i);
-  assert.match(skill, /all visible embedded frames/i);
-});
-
-test("skill keeps local validation, consent, and Browser activity in exact order", () => {
-  assertPublicWorkflowOrdering(skill);
-});
-
-test("workflow ordering guard rejects reordered and pre-consent activity mutants", () => {
-  const reordered = skill
-    .replace("## Validate The Request Locally", "## TEMP")
-    .replace(
-      "## Confirm Once Before Browser Activity",
-      "## Validate The Request Locally",
-    )
-    .replace("## TEMP", "## Confirm Once Before Browser Activity");
   assert.throws(
-    () => assertPublicWorkflowOrdering(reordered),
-    /public workflow sections must remain in their required order/,
-  );
-
-  const freshTabDirective = "exactly one fresh blank Browser tab";
-  const preConsentActivity = skill
-    .replace(freshTabDirective, "")
-    .replace(
-      "## Confirm Once Before Browser Activity",
-      `${freshTabDirective}\n\n## Confirm Once Before Browser Activity`,
-    );
-  assert.throws(
-    () => assertPublicWorkflowOrdering(preConsentActivity),
-    /fresh-tab ownership must occur only in the post-consent Run section/,
+    () => assertWorkflowContract(mutant),
+    /does not match|agent[.]browsers/u,
   );
 });
 
-test("skill validates before Browser activity and delegates recording to production code", () => {
-  assert.match(skill, /pathToFileURL/);
-  assert.match(skill, /scripts\/recording-policy[.]mjs/);
-  assert.match(skill, /scripts\/recording-outcome[.]mjs/);
-  assert.match(skill, /scripts\/create-recording[.]mjs/);
-  assert.match(skill, /resolve\(installedSkillRoot, "scripts\/doctor[.]mjs"\)/);
-  assert.match(skill, /validateRecordingRequest/);
-  assert.match(skill, /requirePointerEvents/);
-  assert.match(skill, /createRecording/);
-  assert.match(skill, /freshTab = await handle[.]ready/);
-  assert.match(
-    skill,
-    /recordingResult = durationWasExplicit\s*\? await handle[.]finished\s*:\s*await handle[.]stop[(][)];/,
-  );
-  assert.doesNotMatch(skill, /handle[.]status[(][)]/);
-  assert.doesNotMatch(skill, /pollDeadline|terminalStates/);
-  assert.match(skill, /await handle[.]runAction[(][{]/);
-  assert.match(skill, /perform: [(][)] => freshTab[.]/);
-  assert.doesNotMatch(skill, /cursorEventsCaptured|cursorLastEventEpochMs/);
-  assert.doesNotMatch(skill, /hasPointerEvidenceAfterActionBoundary/);
-  assert.match(skill, /requiresPointerEvidence/);
-  assert.doesNotMatch(skill, /new AbortController[(][)]/);
-  assert.doesNotMatch(skill, /actionAbortController/);
-  assert.match(
-    skill,
-    /catch \(error\) \{\s*primaryFailure = sanitizeRecordingFailure\(error\);/,
-  );
-  assert.match(skill, /pointer action.{0,100}observed pointer event/is);
-  assert.match(skill, /handle[.]stop[(][)]/);
-  assert.match(skill, /stop performing Browser actions/i);
-  assert.doesNotMatch(skill, /example[.]com|integration gate|createExampleRecording/i);
-  assert.match(skill, /Do not inject clocks, animations, test text/i);
-  assert.doesNotMatch(
-    skill,
-    /(?:add|receive).{0,60}(?:disposable clock|CSS animation|DOM state change)/i,
-  );
+test("skill delegates the full transaction to the deep Recording Flow", () => {
+  assert.match(skill, /scripts[/]record-browser-flow[.]mjs/u);
+  assert.match(skill, /pathToFileURL/u);
+  assert.match(skill, /prepareRecording[(][{]/u);
+  assert.match(skill, /recordApproved[(]preparation,/u);
+  assert.match(skill, /exact opaque preparation/iu);
+  assert.match(skill, /one terminal outcome/iu);
+  assert.doesNotMatch(skill, /createRecording|handle[.]ready|handle[.]stop/u);
+  assert.doesNotMatch(skill, /cursorEventsCaptured|cursorLastEventEpochMs/u);
+  assert.doesNotMatch(skill, /Date[.]now|setTimeout|while [(]/u);
 });
 
-test("skill delegates the deterministic Browser transaction to createRecording", () => {
-  const runSection = skill.slice(
-    skill.indexOf("## Run The Recording"),
-    skill.indexOf("## Clean Up"),
-  );
-  assert.match(runSection, /handle = createRecording[(][{][\s\S]*browser: selectedBrowser,/);
-  assert.match(runSection, /freshTab = await handle[.]ready;/);
-  assert.match(
-    runSection,
-    /recordingResult = durationWasExplicit\s*\? await handle[.]finished\s*:\s*await handle[.]stop[(][)];/,
-  );
-  assert.doesNotMatch(runSection, /Date[.]now|setTimeout|while [(]/);
-  assert.doesNotMatch(runSection, /browser[.]tabs[.]new[(]/);
-  assert.doesNotMatch(runSection, /capabilities[.]get[(]"cdp"[)]/);
-  assert.doesNotMatch(runSection, /doctor[(][{]/);
-  assert.doesNotMatch(runSection, /freshTab[?]?[.]close[(]/);
+test("skill derives pointer policy from semantic actions", () => {
+  assert.match(skill, /`pointer`, `keyboard`, or `programmatic`/u);
+  assert.match(skill, /Pointer includes click, hover, drag/iu);
+  assert.match(skill, /perform[(][{] tab [}][)]/u);
+  assert.match(skill, /per-action pointer evidence/iu);
+  assert.doesNotMatch(skill, /requirePointerEvents\s*=/u);
 });
 
-test("skill defines the Browser binding, action guard, and result workflow", () => {
-  assertOfficialBrowserSelection(skill);
-  assertDelegatedActionBoundary(skill);
-  assert.match(skill, /recordingResult[.]result[.]status === "passed"/);
-  assert.match(skill, /recordingResult[.]result[.]status === "failed"/);
+test("skill supports Chrome and fails closed on IAB", () => {
+  assert.match(skill, /browserSurface.*`iab`/iu);
+  assert.match(skill, /fails closed on IAB/iu);
+  assert.match(skill, /agent[.]browsers[.]get[(]"extension"[)]/u);
+  assert.match(skill, /do not use IAB, `getForUrl`/iu);
+  assert.match(skill, /Never switch surfaces automatically/iu);
+  assert.doesNotMatch(skill, /agent[.]browsers[.]get[(]"iab"[)]/u);
 });
 
-test("official Browser selection guard rejects implicit overrides", () => {
+test("Browser selection guard rejects implicit or IAB selection mutants", () => {
   assert.throws(
     () =>
-      assertOfficialBrowserSelection(
-        skill.replace('agent.browsers.get("iab")', "agent.browsers.getForUrl(request.targetUrl)"),
-      ),
-    /explicit in-app Browser requests must select the iab Browser/,
-  );
-  assert.throws(
-    () =>
-      assertOfficialBrowserSelection(
+      assertWorkflowContract(
         skill.replace(
           'agent.browsers.get("extension")',
-          "agent.browsers.getForUrl(request.targetUrl)",
+          "agent.browsers.getForUrl(targetUrl)",
         ),
       ),
-    /explicit Chrome requests must select the extension Browser/,
-  );
-});
-
-test("approved-action contract rejects leaked Session implementation mutants", () => {
-  assert.throws(
-    () =>
-      assertDelegatedActionBoundary(
-        skill.replaceAll("handle.runAction", "performDirectBrowserAction"),
-      ),
-    /must cross the Recording Session seam/,
+    /did not match|does not match/iu,
   );
   assert.throws(
     () =>
-      assertDelegatedActionBoundary(
+      assertWorkflowContract(
         skill.replace(
-          "let recordingResult;",
-          "let recordingResult;\nconst cursorEventsCaptured = 0;",
+          'agent.browsers.get("extension")',
+          'agent.browsers.get("iab")',
         ),
       ),
-    /must not own cursorEventsCaptured/,
-  );
-  assert.throws(
-    () =>
-      assertDelegatedActionBoundary(
-        skill.replace(
-          "let recordingResult;",
-          "let recordingResult;\nconst actionAbortController = new AbortController();",
-        ),
-      ),
-    /must not own actionAbortController/,
+    /did not match|does not match/iu,
   );
 });
 
-test("skill keeps one outer-scoped handle through deterministic cleanup", () => {
-  const lifecycle = javascriptBlocks.find(
-    (source) => source.includes("createRecording") && source.includes("finally"),
-  );
-  assert.ok(lifecycle, "skill must show the complete recording lifecycle");
-  const recordingTryIndex = lifecycle.indexOf(
-    "try {\n  handle = createRecording({",
-  );
-  assert.notEqual(recordingTryIndex, -1, "missing outer recording try block");
-  const outerTry = readBracedBlockAfter(lifecycle, "try", recordingTryIndex);
-  const cleanup = readBracedBlockAfter(lifecycle, "finally", outerTry.end);
-
-  assert.match(lifecycle, /let handle\s*;/);
-  assert.doesNotMatch(lifecycle, /const handle\s*=/);
-  assert.match(
-    outerTry.body.trimStart(),
-    /^handle = createRecording[(][{]/,
-  );
-  assert.match(
-    outerTry.body,
-    /handle\s*=\s*createRecording[(][\s\S]*freshTab = await handle[.]ready/,
-  );
-  assert.match(
-    lifecycle.slice(outerTry.end, cleanup.markerIndex),
-    /catch [(]error[)]\s*{\s*primaryFailure\s*=\s*sanitizeRecordingFailure[(]error[)];\s*throw primaryFailure;\s*}/,
-  );
-  assert.match(cleanup.body, /^\s*let cleanupFailure;/);
-  assert.match(
-    cleanup.body,
-    /try\s*{\s*await handle[?][.]stop[(][)];\s*}\s*catch [(]error[)]\s*{\s*cleanupFailure [?][?]= error;\s*incompleteCleanup [?][?]= getRecordingCleanupDetails[(]error[)];\s*}/,
-  );
-  assert.doesNotMatch(cleanup.body, /closeFreshTab|freshTab[?]?[.]close/);
-  assert.match(
-    cleanup.body,
-    /if [(]primaryFailure == null && cleanupFailure != null[)]\s*{\s*primaryFailure = cleanupFailure;\s*throw cleanupFailure;\s*}/,
-  );
+test("skill enforces consent, privacy, and same-origin boundaries", () => {
+  assert.match(skill, /explicit confirmation/iu);
+  assert.match(skill, /Denial performs no Browser action/iu);
+  assert.match(skill, /never retry|do not.*retry approval/iu);
+  for (const term of [
+    "authenticated",
+    "credential",
+    "payment",
+    "passkey",
+    "recovery",
+    "health",
+    "confidential",
+  ]) {
+    assert.match(skill, new RegExp(term, "iu"));
+  }
+  assert.match(skill, /approved origin/iu);
+  assert.match(skill, /broaden the origin/iu);
+  assert.match(skill, /fresh tab/iu);
 });
 
-test("skill enforces cancellation, sensitive-flow, and same-origin boundaries", () => {
-  assert.match(skill, /denial.{0,80}cancelled|denied.{0,80}cancelled/is);
-  assert.match(skill, /never retry|do not retry/i);
-  assert.match(skill, /credentials/);
-  assert.match(skill, /payment data/);
-  assert.match(skill, /passkeys/);
-  assert.match(skill, /recovery secrets/);
-  assert.match(skill, /health data/);
-  assert.match(skill, /confidential communications/);
-  assert.match(skill, /approved origin/);
-  assert.match(skill, /broaden the origin/i);
-  assert.match(skill, /one fresh blank Browser tab/i);
-});
-
-test("skill reports product results before bounded diagnostics", () => {
-  assert.match(skill, /Recording completed/);
-  assert.match(skill, /duration/i);
-  assert.match(skill, /H[.]264 MP4/i);
-  assert.match(skill, /no audio/i);
-  assert.match(skill, /Saved Recording/);
-  assert.match(skill, /Open in Finder/);
-  assert.match(skill, /diagnostics/i);
-  assert.match(skill, /summary/i);
-  assert.match(skill, /remediation/i);
-  assert.match(skill, /artifactCleanupIncomplete/);
-  assert.match(skill, /operating-system temporary directory/);
+test("skill reports one terminal product outcome before bounded diagnostics", () => {
+  assert.match(skill, /Recording completed/u);
+  assert.match(skill, /duration/iu);
+  assert.match(skill, /H[.]264 MP4/iu);
+  assert.match(skill, /no audio/iu);
+  assert.match(skill, /Saved Recording/u);
+  assert.match(skill, /Open in Finder/u);
+  assert.match(skill, /diagnostics/iu);
+  assert.match(skill, /summary/iu);
+  assert.match(skill, /remediation/iu);
+  assert.match(skill, /artifactCleanupIncomplete/u);
+  assert.match(skill, /operating-system temporary directory/iu);
   assertPrivacyReportingContract(skill);
 });
 
 test("privacy guard rejects a synthetic positive reporting directive", () => {
-  const positiveReporting = `${skill}\n\nReport full URLs for debugging.\n`;
+  const positiveReporting = `${skill}\n\nReport URLs for debugging.\n`;
   assert.throws(
     () => assertPrivacyReportingContract(positiveReporting),
-    /must not positively report full URLs/,
+    /must not positively report URLs/u,
   );
 });
 
-test("skill has no source-checkout or hard-coded cache fallback", () => {
-  assert.doesNotMatch(skill, /\/Users\//);
-  assert.doesNotMatch(skill, /[.]codex\/plugins\/cache/);
-  assert.doesNotMatch(skill, /~\/[.]codex/);
-  assert.doesNotMatch(skill, /(?:^|[/'"])[.]?[.]?\/poc\//m);
-  assert.doesNotMatch(skill, /all tabs|every tab|wildcard capture/i);
-  assert.doesNotMatch(
-    skill,
-    /(?:may|can|should) (?:retry (?:a )?denied|bypass (?:the )?approval)/i,
-  );
+test("skill has no checkout, cache, or broad-capture fallback", () => {
+  assert.doesNotMatch(skill, /[/]Users[/]/u);
+  assert.doesNotMatch(skill, /[.]codex[/]plugins[/]cache/u);
+  assert.doesNotMatch(skill, /~[/][.]codex/u);
+  assert.doesNotMatch(skill, /(?:^|[/'"])[.]?[.]?[/]poc[/]/mu);
+  assert.doesNotMatch(skill, /all tabs|every tab|wildcard capture/iu);
+  assert.doesNotMatch(skill, /bypass (?:the )?approval/iu);
 });

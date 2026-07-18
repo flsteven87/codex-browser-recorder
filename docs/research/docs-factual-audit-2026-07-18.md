@@ -1,5 +1,14 @@
 # 文件事實查核與過時資訊盤點
 
+> 2026-07-19 runtime 補充：後續實機測試已取代下方的 browser support
+> 結論。在 ChatGPT desktop 與 Browser plugin build `26.715.31925` 中，in-app
+> Browser 沒有產生第一個 screencast frame，單獨執行
+> `Page.captureScreenshot` 也逾時；Chrome 則能直接產生並確認 screencast
+> frame。舊版完整錄影仍失敗，是因為它丟棄該 frame 後又多做一次 screenshot
+> request。目前 source 已改為直接使用串流 JPEG、只支援 Chrome、在 consent
+> 前拒絕 IAB，且提交前必須通過無輸出 contract gate 與連續兩次完整 Chrome
+> MP4 smoke。下方內容描述較早的 `v0.3.0` 查核基準，不得視為目前的支援矩陣。
+
 查核日期：2026-07-18（Asia/Taipei）
 
 ## 查核範圍與基準
@@ -20,8 +29,8 @@
 | --- | --- | --- | --- | --- |
 | P0 | 本輪已修正 | `docs/architecture.md` 一度把 acquire CDP／doctor 放在 navigate 前；實作是建立 tab → navigate → acquire CDP → doctor → start capture。最終編號 lifecycle 與 Mermaid 已同步。 | [`create-recording.mjs` L738–L791](https://github.com/flsteven87/codex-browser-recorder/blob/32bfdf995465122075ff18b712dc3e91605b9051/plugins/codex-browser-recorder/skills/record-browser/scripts/create-recording.mjs#L738-L791)、[`docs/architecture.md`](../architecture.md#lifecycle-and-invariants) | 後續維持 architecture source-of-truth map，任何 coordinator 時序變更都一起改文件與測試。 |
 | P0 | 本輪已修正 | `SUPPORT.md` 原寫「cross-origin recording」不支援，會與 README／實作支援的 cross-origin／OOPIF embedded frames 衝突；真正不支援的是 cross-origin **top-level navigation**。 | [`README.md` 的 supported scope](../../README.md#requirements-and-supported-scope)、[`cursor-recording.mjs`](https://github.com/flsteven87/codex-browser-recorder/blob/32bfdf995465122075ff18b712dc3e91605b9051/plugins/codex-browser-recorder/skills/record-browser/scripts/cursor-recording.mjs)、[`SUPPORT.md`](../../SUPPORT.md#unsupported-flows) | 維持「cross-origin top-level navigation」用語，勿再縮寫為範圍過大的 cross-origin recording。 |
-| P1 | 本輪已修正 | README 一度用「installed Browser plugin」泛稱 browser selection；現在官方產品把 **Browser** 與 **Chrome** 視為不同 plugin，Chrome 另需 extension setup。最終 README 已定義泛稱並在選擇與安裝段落明確區分兩條路徑。 | [Browser 官方文件](https://learn.chatgpt.com/docs/browser)、[Chrome extension 官方文件](https://learn.chatgpt.com/docs/chrome-extension)、[Plugins 官方文件](https://learn.chatgpt.com/docs/plugins) | 後續只有指官方 **Browser** plugin 時才把 Browser 當產品名；泛稱使用 selected browser-control plugin／selected browser。 |
-| P1 | 本輪已揭露 | README 承諾 cross-origin／OOPIF 支援，但底層 `Page.startScreencast` 在 CDP 規格仍標示 Experimental；release smoke notes 只記錄 top-level W3C pointer flow，沒有公開的真實 Browser OOPIF smoke 證據。最終 README 已明說 version-sensitive、由 deterministic CDP fixtures 覆蓋，並明確排除 v0.3.0 的 Chrome／OOPIF 實機認證；後續 release checklist 要求 Browser 與 Chrome 各跑一次 top-level smoke。 | [CDP `Page.startScreencast`](https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-startScreencast)、[`v0.3.0` release](https://github.com/flsteven87/codex-browser-recorder/releases/tag/v0.3.0)、[OOPIF 單元測試](https://github.com/flsteven87/codex-browser-recorder/blob/32bfdf995465122075ff18b712dc3e91605b9051/tests/cursor-recording.test.mjs#L523) | 現在的宣告與證據層級一致；只有 release notes 記錄真實 public iframe smoke 與版本時，才提升相容性保證。 |
+| P1 | 本輪已修正 | README 一度用「installed Browser plugin」泛稱 browser selection；官方產品把 **Browser** 與 **Chrome** 視為不同 plugin，Chrome 另需 extension setup。2026-07-19 的 runtime 證據進一步確認本 release 只支援 Chrome，因此目前 recording requirements 與 remediation 都直接指向 Chrome，IAB 則明確 fail closed。 | [Browser 官方文件](https://learn.chatgpt.com/docs/browser)、[Chrome extension 官方文件](https://learn.chatgpt.com/docs/chrome-extension)、[Plugins 官方文件](https://learn.chatgpt.com/docs/plugins) | 只有指官方 **Browser** plugin 時才把 Browser 當產品名；本 recorder 的 supported surface 必須精確寫成 Chrome。 |
+| P1 | 本輪已揭露 | README 承諾 cross-origin／OOPIF fixture coverage，但底層 `Page.startScreencast` 在 CDP 規格仍標示 Experimental；目前的 real-browser smoke 只驗證 Chrome top-level W3C pointer flow，尚無公開的真實 Chrome OOPIF smoke 證據。README 已明說 version-sensitive、由 deterministic CDP fixtures 覆蓋，release checklist 也只要求已支援的 Chrome surface。 | [CDP `Page.startScreencast`](https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-startScreencast)、[`v0.3.0` release](https://github.com/flsteven87/codex-browser-recorder/releases/tag/v0.3.0)、[OOPIF 單元測試](https://github.com/flsteven87/codex-browser-recorder/blob/32bfdf995465122075ff18b712dc3e91605b9051/tests/cursor-recording.test.mjs#L523) | 只有 release notes 記錄真實 public Chrome iframe smoke 與版本時，才提升相容性保證。 |
 | P1 | 本輪已修正 | troubleshooting 一度只列 Typical codes，漏掉 7 個 public code，且未揭露 `frame_too_large`／`invalid_frame` 在目前 coordinator 會正規化成 `capture_failed`。最終 guide 已可搜尋全部 54 個 allowlisted code，並說明正規化邊界。 | [`recording-outcome.mjs` L55–L203](https://github.com/flsteven87/codex-browser-recorder/blob/32bfdf995465122075ff18b712dc3e91605b9051/plugins/codex-browser-recorder/skills/record-browser/scripts/recording-outcome.mjs#L55-L203)、[`docs/troubleshooting.md`](../troubleshooting.md#recording-stopped-safely) | 新測試直接比對實作匯出的完整 allowlist 與文件 code index，新增、移除或拼錯 code 都會失敗。 |
 | P2 | 本輪已修正 | 「local processing／不新增 upload」可能被讀成頁面沒有網路流量；實際上目標頁與 embedded frames 仍會照正常頁面行為發出網路請求。最終 README 與 Privacy 已明確區分兩者。 | [`PRIVACY.md` local processing](../../PRIVACY.md#local-processing) 與瀏覽器一般載入語義 | 維持「recorder 不新增上傳／telemetry」與「被錄製頁面仍有自己的網路活動」兩層揭露。 |
 | P2 | 本輪已修正 | 新增的 architecture／troubleshooting 一開始沒被 release-readiness 納入，後續又發現公開文件清單散落四處。最終已加入 required public files、相對連結／anchor 與完整 failure-code 測試，並由單一 `release-materials.mjs` 匯出 public text／Markdown 路徑。 | [`release-materials.mjs`](../../scripts/release-materials.mjs)、[`validate-release-readiness.mjs`](../../scripts/validate-release-readiness.mjs)、[`documentation-links.test.mjs`](../../tests/documentation-links.test.mjs) | 新增或移除公開文件只需更新 canonical 清單；validator、structure、fixture 與 link scan 由同一來源派生。 |
@@ -48,7 +57,7 @@ README 也已把維護流程分成 Plugins Directory 與 local marketplace：前
 
 ### 3. Browser 與 Chrome 是不同安裝路徑
 
-OpenAI 現行 Browser 文件要求在 ChatGPT desktop app 安裝 **Browser** plugin，並於 `Settings > Browser > Developer mode > Enable full CDP access` 啟用完整 CDP；Browser 不在 CLI／IDE surface 提供。Chrome 則使用 **Chrome** plugin 與 Chrome extension。現在 README 的 requirements 與 installation 已把兩者拆開，並已把其他泛稱統一為 browser-control plugin／selected browser。
+OpenAI 現行 Browser 文件要求在 ChatGPT desktop app 安裝 **Browser** plugin，並於 `Settings > Browser > Developer mode > Enable full CDP access` 啟用完整 CDP；Browser 不在 CLI／IDE surface 提供。Chrome 則使用 **Chrome** plugin 與 Chrome extension。README 仍精確區分這兩項官方產品，但目前 recorder 的 requirements、installation 與 remediation 只把 Chrome 列為 supported surface，IAB 明確不支援。
 
 來源：[Browser](https://learn.chatgpt.com/docs/browser)、[Chrome extension](https://learn.chatgpt.com/docs/chrome-extension)、[Plugins](https://learn.chatgpt.com/docs/plugins)。
 
@@ -60,7 +69,7 @@ OpenAI 現行 Browser 文件要求在 ChatGPT desktop app 安裝 **Browser** plu
 
 ## 已確認仍為現行資訊
 
-- GitHub latest release 在查核時是 `v0.3.0`，release commit 是 `32bfdf995465122075ff18b712dc3e91605b9051`；manifest、README clone example、`SECURITY.md` 與 `SUPPORT.md` 的公開版本參照一致。
+- GitHub latest release 在查核時是 `v0.3.0`，release commit 是 `32bfdf995465122075ff18b712dc3e91605b9051`；該原始 tag／archive 不含 2026-07-19 的 OpenAI resubmission runtime 修復，README 與 SUPPORT 已明確區分兩者。
 - Node.js 24 仍在官方 LTS release line；repo 的 `>=24` development requirement 不過時。Node 只屬 repo 開發／驗證需求，並非終端錄影使用者額外安裝的 runtime。[Node.js release schedule](https://nodejs.org/en/about/previous-releases)
 - Homebrew 的現行公式仍是 `brew install ffmpeg`，且包含 x264 dependency；實作另外以 preflight 檢查 `ffmpeg`、`ffprobe`、`libx264`、MP4 muxer 與 ffprobe JSON，不依賴安裝來源的假設。[Homebrew FFmpeg formula](https://formulae.brew.sh/formula/ffmpeg)、[`doctor.mjs` L52–L73](https://github.com/flsteven87/codex-browser-recorder/blob/32bfdf995465122075ff18b712dc3e91605b9051/plugins/codex-browser-recorder/skills/record-browser/scripts/doctor.mjs#L52-L73)
 - URL／duration policy 與文件一致：HTTPS、無 URL credentials；HTTP 只允許 `localhost`、`127.0.0.1`、`[::1]`；明示時長 5–60 秒，未明示時 15 秒。[`recording-policy.mjs` L1–L66](https://github.com/flsteven87/codex-browser-recorder/blob/32bfdf995465122075ff18b712dc3e91605b9051/plugins/codex-browser-recorder/skills/record-browser/scripts/recording-policy.mjs#L1-L66)
@@ -76,12 +85,13 @@ OpenAI 現行 Browser 文件要求在 ChatGPT desktop app 安裝 **Browser** plu
 後續 release 仍須保留兩項人工查核：
 
 1. 每次 Codex plugin release 前重新查核官方 Browser、Chrome、Plugins 與 Build plugins 文件；這已寫入 release checklist，但仍不能由離線 validator 取代。
-2. 若要把 cross-origin／OOPIF 從 version-sensitive fixture coverage 提升成實機相容性保證，加入真實 Browser／Chrome embedded-frame smoke、版本與被測 commit。
+2. 若要把 cross-origin／OOPIF 從 version-sensitive fixture coverage 提升成實機相容性保證，加入真實 Chrome embedded-frame smoke、版本與被測 commit。
 
 ## 驗證紀錄
 
 - OpenAI、CDP、GitHub、Homebrew 與 Node.js 上述來源於 2026-07-18 均可正常回應。
 - 本機確認 `codex-cli 0.144.4` 的 plugin marketplace／add／remove help 與目前命令範例相符。
 - GitHub Releases API 回傳 `v0.3.0`、`immutable: false` 與 release asset digest；`git ls-remote --tags` 確認 annotated tag 與解參照 commit。
-- 本輪最終工作樹的 `npm run check` 共 254 項測試通過。
-- 本輪最終工作樹通過 `npm run check:release-candidate`、`git diff --check`，且 11 份主要 Markdown 的本機相對連結目標皆存在；外部連結逐一 follow redirect 後均回應 HTTP 200。
+- 2026-07-18 文件查核工作樹的 `npm run check` 共 254 項測試通過。
+- 2026-07-19 resubmission candidate 的 `npm run check` 共 276 項測試通過，並通過 `npm run check:release-candidate`、`npm run check:release`、無輸出 Chrome frame contract、連續兩次完整 Chrome MP4 與 pointer/click 視覺 smoke。
+- 11 份主要 Markdown 的本機相對連結目標皆存在；2026-07-18 查核時，外部連結逐一 follow redirect 後均回應 HTTP 200。

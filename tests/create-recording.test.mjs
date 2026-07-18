@@ -356,7 +356,7 @@ test("runs a pointer action only after fresh evidence crosses its boundary", asy
   await handle.ready;
 
   let actionsPerformed = 0;
-  const result = await handle.runAction({
+  const action = handle.runAction({
     perform() {
       actionsPerformed += 1;
       capture.cursorEventsCaptured = 1;
@@ -365,6 +365,9 @@ test("runs a pointer action only after fresh evidence crosses its boundary", asy
     },
     requiresPointerEvidence: true,
   });
+  await settleWorkflow();
+  harness.clock.advance(200);
+  const result = await action;
 
   assert.equal(result, "clicked");
   assert.equal(actionsPerformed, 1);
@@ -396,9 +399,57 @@ test("waits for fresh pointer evidence within the bounded grace period", async (
   harness.clock.advance(50);
   capture.cursorEventsCaptured = 1;
   capture.cursorLastEventEpochMs = harness.clock.now();
+  await settleWorkflow();
+  harness.clock.advance(250);
 
   assert.equal(await action, "clicked");
   await handle.stop();
+});
+
+test("fails closed when the recording deadline cuts off the pointer tail", async () => {
+  const capture = {
+    cursorEventsCaptured: 0,
+    cursorFramesObserved: 1,
+    cursorLastEventEpochMs: null,
+    framesReceived: 12,
+  };
+  const harness = createHarness({ autoStop: false, capture });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    durationMs: 5_000,
+    requirePointerEvents: true,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+  harness.clock.advance(4_900);
+
+  const action = handle.runAction({
+    perform() {
+      capture.cursorEventsCaptured = 1;
+      capture.cursorLastEventEpochMs = harness.clock.now();
+      return "clicked";
+    },
+    requiresPointerEvidence: true,
+  });
+  void action.catch(() => {});
+  await settleWorkflow();
+  harness.clock.advance(100);
+  await settleWorkflow();
+
+  assert.equal(
+    harness.rawFinalizationOptions.failureCode,
+    "cursor_recording_failed",
+  );
+  harness.stopDeferred.resolve({
+    paths: {},
+    result: { failureCode: "cursor_recording_failed", status: "failed" },
+  });
+  await assert.rejects(action, { code: "cursor_recording_failed" });
+  assert.equal(
+    (await handle.finished).result.failureCode,
+    "cursor_recording_failed",
+  );
 });
 
 test("rejects delayed old pointer evidence without publishing", async () => {
@@ -956,7 +1007,7 @@ test("rejects caller-provided tabs instead of recording an existing tab", async 
   await assertSingletonReleased();
 });
 
-test("reports bounded Browser cleanup state when fresh-tab close fails", async () => {
+test("preserves a Saved Recording when fresh-tab close fails", async () => {
   const harness = createHarness();
   harness.browser.tabs.new = async () => ({
     capabilities: {
@@ -976,14 +1027,36 @@ test("reports bounded Browser cleanup state when fresh-tab close fails", async (
   });
 
   await handle.ready;
-  await assert.rejects(handle.stop(), (error) => {
-    assert.equal(error.code, "integration_failed");
-    assert.deepEqual(getRecordingCleanupDetails(error), {
-      browserTabCleanupIncomplete: true,
-    });
-    assert.doesNotMatch(JSON.stringify(error), /private tab identifier/);
-    return true;
+  const output = await handle.stop();
+  assert.deepEqual(output, {
+    cleanup: { browserTabCleanupIncomplete: true },
+    paths: { outputPath: "/Users/example/Downloads/recording.mp4" },
+    result: { failureCode: null, status: "passed" },
   });
+  assert.doesNotMatch(JSON.stringify(output), /private tab identifier/);
+  await assertSingletonReleased();
+});
+
+test("recovers from one transient close failure for the exact owned tab", async () => {
+  const harness = createHarness();
+  harness.freshTab.close = async () => {
+    harness.calls.tabClose += 1;
+    if (harness.calls.tabClose === 1) {
+      throw new Error("transient Browser close failure");
+    }
+  };
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+
+  await handle.ready;
+  const output = await handle.stop();
+
+  assert.equal(output.result.status, "passed");
+  assert.equal(harness.calls.tabClose, 2);
+  assert.equal(output, await handle.finished);
   await assertSingletonReleased();
 });
 
@@ -1074,7 +1147,7 @@ test("bounds cancellation and cleanup when artifact preparation never settles", 
   await assertSingletonReleased();
 });
 
-test("bounds a hanging fresh-tab close during normal teardown", async () => {
+test("bounds a hanging fresh-tab close without downgrading saved media", async () => {
   const harness = createHarness();
   harness.freshTab.close = () => new Promise(() => {});
   const handle = createRecording({
@@ -1087,12 +1160,10 @@ test("bounds a hanging fresh-tab close during normal teardown", async () => {
   const stopped = handle.stop();
   await settleWorkflow();
   harness.clock.advance(5_000);
-  await assert.rejects(stopped, (error) => {
-    assert.equal(error.code, "integration_failed");
-    assert.deepEqual(getRecordingCleanupDetails(error), {
-      browserTabCleanupIncomplete: true,
-    });
-    return true;
+  assert.deepEqual(await stopped, {
+    cleanup: { browserTabCleanupIncomplete: true },
+    paths: { outputPath: "/Users/example/Downloads/recording.mp4" },
+    result: { failureCode: null, status: "passed" },
   });
   await assertSingletonReleased();
 });
@@ -1346,14 +1417,13 @@ test("preserves a failed capture outcome when Browser cleanup also fails", async
   });
 
   await handle.ready;
-  await assert.rejects(handle.stop(), (error) => {
-    assert.equal(error.code, "frame_ack_failed");
-    assert.deepEqual(getRecordingCleanupDetails(error), {
-      browserTabCleanupIncomplete: true,
-    });
-    assert.doesNotMatch(JSON.stringify(error), /private close failure/);
-    return true;
+  const output = await handle.stop();
+  assert.deepEqual(output, {
+    cleanup: { browserTabCleanupIncomplete: true },
+    paths: {},
+    result: { failureCode: "frame_ack_failed", status: "failed" },
   });
+  assert.doesNotMatch(JSON.stringify(output), /private close failure/);
   await assertSingletonReleased();
 });
 
