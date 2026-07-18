@@ -199,6 +199,9 @@ const USER_MESSAGES = new Map(
     codes.map((code) => [code, Object.freeze({ remediation, summary })]),
   ),
 );
+export const RECORDING_FAILURE_CODES = Object.freeze(
+  [...USER_MESSAGES.keys()].toSorted(),
+);
 const RECORDING_CLEANUP_DETAILS = new WeakMap();
 
 export function getRecordingCleanupDetails(error) {

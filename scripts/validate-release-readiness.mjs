@@ -5,6 +5,8 @@ import { dirname, posix, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { PUBLIC_TEXT_PATHS } from "./release-materials.mjs";
+
 const execFileAsync = promisify(execFile);
 const manifestPath = "plugins/codex-browser-recorder/.codex-plugin/plugin.json";
 const evalPath = "evals/plugin-submission-cases.json";
@@ -12,22 +14,6 @@ const ciPath = ".github/workflows/ci.yml";
 const canonicalCiSha256 =
   "c85c35d394f0a32f64a20d6ea71a9338c99b1cd2d67e8c5c2e0fc7c719b52553";
 const workflowPaths = [ciPath, ".github/workflows/codeql.yml"];
-const publicTextPaths = [
-  "README.md",
-  "PRIVACY.md",
-  "TERMS.md",
-  "SUPPORT.md",
-  "SECURITY.md",
-  "CONTRIBUTING.md",
-  "CODE_OF_CONDUCT.md",
-  "CHANGELOG.md",
-  ".github/CODEOWNERS",
-  ".github/dependabot.yml",
-  ".github/pull_request_template.md",
-  ".github/ISSUE_TEMPLATE/bug_report.yml",
-  ".github/ISSUE_TEMPLATE/feature_request.yml",
-  ".github/ISSUE_TEMPLATE/config.yml",
-];
 const assetPaths = [
   "plugins/codex-browser-recorder/assets/icon.png",
   "plugins/codex-browser-recorder/assets/source/icon.svg",
@@ -35,7 +21,7 @@ const assetPaths = [
 const requiredPaths = [
   manifestPath,
   evalPath,
-  ...publicTextPaths,
+  ...PUBLIC_TEXT_PATHS,
   ...assetPaths,
   ...workflowPaths,
 ].toSorted();
@@ -49,6 +35,19 @@ const publicVersionReferences = [
   {
     path: "README.md",
     pattern: /git clone --branch v([0-9]+[.][0-9]+[.][0-9]+) --depth 1/gu,
+  },
+  {
+    path: "README.md",
+    pattern:
+      /https:\/\/github[.]com\/flsteven87\/codex-browser-recorder\/releases\/tag\/v([0-9]+[.][0-9]+[.][0-9]+)/gu,
+  },
+  {
+    path: "README.md",
+    pattern: /\[v([0-9]+[.][0-9]+[.][0-9]+) release page\]/gu,
+  },
+  {
+    path: "README.md",
+    pattern: /recorder_release=v([0-9]+[.][0-9]+[.][0-9]+)/gu,
   },
   {
     path: "SECURITY.md",
@@ -213,7 +212,7 @@ function validateEvalCorpus(corpus, failures) {
 }
 
 async function validatePublicText(repositoryRoot, existing, failures) {
-  for (const relativePath of publicTextPaths) {
+  for (const relativePath of PUBLIC_TEXT_PATHS) {
     if (!existing.has(relativePath)) continue;
     const source = await readFile(
       repositoryPath(repositoryRoot, relativePath),

@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Reworked installation guidance around the current Plugins Directory and local
+  marketplace flows, removed the obsolete direct directory listing URL,
+  documented Directory and local removal paths, added tag-specific archive
+  checksum verification, and documented explicit in-app Browser versus Chrome
+  selection.
+- Added architecture and troubleshooting guides grounded in the recording
+  modules, stable failure taxonomy, and current official Codex documentation.
+- Clarified browser-version-sensitive embedded-frame coverage and distinguished
+  local recorder processing from the target page's normal network activity.
+- Updated issue and pull-request guidance for the released plugin, user-relevant
+  environment details, documentation-only contributions, and the
+  release-candidate documentation gate.
+- Centralized release-required public document paths and added regression tests
+  for local Markdown links, anchors, synchronized release references, and the
+  complete public failure-code catalog.
+- Distinguished deterministic embedded-frame fixtures from real-browser
+  compatibility evidence and expanded the release smoke checklist to cover both
+  the in-app Browser and Chrome.
+
 ## [0.3.0] - 2026-07-18
 
 ### Added
