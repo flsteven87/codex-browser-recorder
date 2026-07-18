@@ -11,6 +11,11 @@ duration. Do not use the plugin for credentials, payment data, passkeys,
 account-recovery secrets, health data, confidential communications, or other
 sensitive or authenticated flows.
 
+The fresh tab may reuse the selected Browser's existing session, and the video
+contains all visible embedded frames. You must use a logged-out Browser context
+and verify that neither the top-level page nor an embedded frame contains
+sensitive or personalized content.
+
 You are responsible for choosing an appropriate test target, complying with
 applicable law and site rules, protecting local recordings, and deleting them
 when they are no longer needed. The plugin does not add an upload or sharing

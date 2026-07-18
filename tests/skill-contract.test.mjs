@@ -8,6 +8,7 @@ const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const changelog = readFileSync(join(repositoryRoot, "CHANGELOG.md"), "utf8");
 const privacy = readFileSync(join(repositoryRoot, "PRIVACY.md"), "utf8");
 const readme = readFileSync(join(repositoryRoot, "README.md"), "utf8");
+const support = readFileSync(join(repositoryRoot, "SUPPORT.md"), "utf8");
 const skillRoot = join(
   repositoryRoot,
   "plugins",
@@ -71,7 +72,9 @@ function assertPublicWorkflowOrdering(source) {
   for (const marker of [
     "scripts/recording-policy.mjs",
     "scripts/recording-outcome.mjs",
+    "scripts/doctor.mjs",
     "validateRecordingRequest",
+    "inspectLocalRecordingEnvironment",
     "describeRecordingFailure(error.code)",
   ]) {
     const markerIndexes = indexesOf(source, marker);
@@ -256,6 +259,21 @@ test("README documents the public recording contract", () => {
   );
 });
 
+test("public docs expose preflight and the complete visible recording boundary", () => {
+  assert.match(readme, /Local recording preflight passed/i);
+  assert.match(readme, /does not verify\s+Browser or CDP approval/i);
+  assert.match(readme, /10 frames per second/i);
+  assert.match(readme, /720p/i);
+  assert.match(
+    readme,
+    /fresh tab may reuse the selected Browser's existing session/i,
+  );
+  assert.match(readme, /all visible embedded frames/i);
+  assert.match(privacy, /all\s+visible embedded frames/i);
+  assert.match(privacy, /existing session state can affect rendered\s+content/i);
+  assert.match(support, /Local recording preflight passed/i);
+});
+
 test("public copy states the observable cursor boundary without claiming event provenance", () => {
   for (const [label, source] of [
     ["README", readme],
@@ -333,6 +351,16 @@ test("skill requires explicit user recording intent and one consolidated consent
   );
 });
 
+test("skill offers local preflight and discloses the visible Browser context", () => {
+  assert.match(frontmatter, /record or preflight/i);
+  assert.match(skill, /preflightOnly/);
+  assert.match(skill, /inspectLocalRecordingEnvironment/);
+  assert.match(skill, /report every blocker/i);
+  assert.match(skill, /does not verify Browser or CDP approval/i);
+  assert.match(skill, /may reuse the selected Browser's existing session/i);
+  assert.match(skill, /all visible embedded frames/i);
+});
+
 test("skill keeps local validation, consent, and Browser activity in exact order", () => {
   assertPublicWorkflowOrdering(skill);
 });
@@ -368,12 +396,15 @@ test("skill validates before Browser activity and delegates recording to product
   assert.match(skill, /scripts\/recording-policy[.]mjs/);
   assert.match(skill, /scripts\/recording-outcome[.]mjs/);
   assert.match(skill, /scripts\/create-recording[.]mjs/);
-  assert.doesNotMatch(skill, /resolve\(installedSkillRoot, "scripts\/doctor[.]mjs"\)/);
+  assert.match(skill, /resolve\(installedSkillRoot, "scripts\/doctor[.]mjs"\)/);
   assert.match(skill, /validateRecordingRequest/);
   assert.match(skill, /requirePointerEvents/);
   assert.match(skill, /createRecording/);
   assert.match(skill, /freshTab = await handle[.]ready/);
-  assert.match(skill, /recordingResult = await handle[.]finished/);
+  assert.match(
+    skill,
+    /recordingResult = durationWasExplicit\s*\? await handle[.]finished\s*:\s*await handle[.]stop[(][)];/,
+  );
   assert.doesNotMatch(skill, /handle[.]status[(][)]/);
   assert.doesNotMatch(skill, /pollDeadline|terminalStates/);
   assert.match(skill, /await handle[.]runAction[(][{]/);
@@ -405,7 +436,10 @@ test("skill delegates the deterministic Browser transaction to createRecording",
   );
   assert.match(runSection, /handle = createRecording[(][{][\s\S]*browser: selectedBrowser,/);
   assert.match(runSection, /freshTab = await handle[.]ready;/);
-  assert.match(runSection, /recordingResult = await handle[.]finished;/);
+  assert.match(
+    runSection,
+    /recordingResult = durationWasExplicit\s*\? await handle[.]finished\s*:\s*await handle[.]stop[(][)];/,
+  );
   assert.doesNotMatch(runSection, /Date[.]now|setTimeout|while [(]/);
   assert.doesNotMatch(runSection, /browser[.]tabs[.]new[(]/);
   assert.doesNotMatch(runSection, /capabilities[.]get[(]"cdp"[)]/);

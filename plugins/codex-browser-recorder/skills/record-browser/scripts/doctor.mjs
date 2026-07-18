@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { platform as hostPlatform } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -113,8 +113,28 @@ async function findExecutable(name, pathValue, resolveExecutableByName) {
   return null;
 }
 
-export async function doctor({
+async function outputDirectoryIsWritable(outputDirectory, { allowPlanned }) {
+  let candidate = outputDirectory;
+  while (typeof candidate === "string" && candidate.length > 0) {
+    try {
+      const candidateStat = await stat(candidate);
+      if (!candidateStat.isDirectory()) return false;
+      await access(candidate, constants.W_OK);
+      return true;
+    } catch (error) {
+      if (!allowPlanned || error?.code !== "ENOENT") return false;
+      const parent = dirname(candidate);
+      if (parent === candidate) return false;
+      candidate = parent;
+    }
+  }
+  return false;
+}
+
+async function inspectEnvironment({
+  allowPlannedOutputDirectory,
   cdpAvailable,
+  includeCdp,
   outputDirectory,
   pathValue,
   platform = hostPlatform(),
@@ -133,22 +153,16 @@ export async function doctor({
   const ffprobeUsable =
     ffprobePath !== null && capabilities.ffprobeUsable === true;
 
-  let outputDirectoryWritable = true;
-  try {
-    const outputStat = await stat(outputDirectory);
-    if (!outputStat.isDirectory()) {
-      throw new Error("Output path is not a directory");
-    }
-    await access(outputDirectory, constants.W_OK);
-  } catch {
-    outputDirectoryWritable = false;
-  }
+  const outputDirectoryWritable = await outputDirectoryIsWritable(
+    outputDirectory,
+    { allowPlanned: allowPlannedOutputDirectory },
+  );
 
   const blockingReasons = [];
   if (platform !== "darwin") {
     blockingReasons.push("unsupported_platform");
   }
-  if (!cdpAvailable) {
+  if (includeCdp && !cdpAvailable) {
     blockingReasons.push("cdp_unavailable");
   }
   if (ffmpegPath === null) {
@@ -172,7 +186,7 @@ export async function doctor({
 
   return {
     blockingReasons,
-    cdpAvailable,
+    ...(includeCdp ? { cdpAvailable } : {}),
     ffmpegPath,
     ffmpegH264Available,
     ffmpegMp4Available,
@@ -182,4 +196,20 @@ export async function doctor({
     platform,
     supported: blockingReasons.length === 0,
   };
+}
+
+export function inspectLocalRecordingEnvironment(options) {
+  return inspectEnvironment({
+    ...options,
+    allowPlannedOutputDirectory: true,
+    includeCdp: false,
+  });
+}
+
+export function doctor(options) {
+  return inspectEnvironment({
+    ...options,
+    allowPlannedOutputDirectory: false,
+    includeCdp: true,
+  });
 }

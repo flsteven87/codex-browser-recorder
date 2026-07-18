@@ -12,6 +12,7 @@
     "check:syntax": "for file in plugins/codex-browser-recorder/skills/record-browser/scripts/*.mjs tests/*.mjs; do node --check \"$file\"; done",
     "test": "node --test tests/*.test.mjs",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=80 tests/*.test.mjs",
+    "test:coverage:cursor": "node --test --experimental-test-coverage --test-coverage-include='plugins/codex-browser-recorder/skills/record-browser/scripts/cursor-recording.mjs' --test-coverage-lines=88 --test-coverage-branches=69 --test-coverage-functions=82 tests/cursor-recording.test.mjs",
     "test:plugin-install": "node --test tests/plugin-installation.integration.mjs",
     "test:submission-evals": "node --test tests/submission-evals.test.mjs"
   }

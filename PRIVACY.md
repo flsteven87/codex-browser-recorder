@@ -9,6 +9,12 @@ explicitly approved non-sensitive Browser test flow.
   are not placed in model context by the skill.
 - The plugin does not automatically upload, share, retain remotely, or send
   telemetry.
+- The recording contains the complete visible page viewport, including all
+  visible embedded frames. Browser chrome and other tabs are excluded.
+- A fresh tab may reuse the selected Browser's existing session. The plugin does
+  not inspect cookies or storage, but existing session state can affect rendered
+  content. Use a logged-out Browser context without sensitive or personalized
+  content.
 - Raw frames, page text, full URLs, CDP payloads, subprocess output,
   credentials, and internal plugin paths are excluded from result JSON and
   skill diagnostics.
@@ -55,9 +61,11 @@ absolute output path.
 Obtain informed consent from everyone whose information may appear. Do not
 record passwords, payment data, passkeys, account-recovery secrets, health
 data, confidential communications, or other sensitive authenticated flows.
-The user is responsible for choosing an appropriate target, limiting approved
-actions, protecting the local output, and deleting it when it is no longer
-needed.
+Before consent, confirm that the selected Browser is logged out of the target
+and that no visible top-level or embedded-frame content is sensitive or
+personalized. The user is responsible for choosing an appropriate target,
+limiting approved actions, protecting the local output, and deleting it when it
+is no longer needed.
 
 Any future upload or sharing feature must be a separate, explicit,
 user-authorized action. It is not part of this plugin.
