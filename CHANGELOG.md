@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added a user-visible, no-Browser local preflight that reports all detected
+  platform, media-tool, codec, container, and destination blockers.
+
+### Changed
+
+- Action-driven recordings now finalize when approved actions finish while
+  retaining a 15-second hard cap; passive flows require an explicit duration.
+- Consent and public policies now disclose visible embedded frames and reuse of
+  the selected Browser's existing session.
+- Documented the fixed 720p, 10-frames-per-second verification profile and the
+  manual real-Browser release smoke test.
+- Added synchronized public-version checks and a dedicated cursor-module
+  coverage floor to release and CI verification.
+
 ## [0.2.3] - 2026-07-18
 
 ### Changed

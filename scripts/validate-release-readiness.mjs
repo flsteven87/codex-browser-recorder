@@ -10,7 +10,7 @@ const manifestPath = "plugins/codex-browser-recorder/.codex-plugin/plugin.json";
 const evalPath = "evals/plugin-submission-cases.json";
 const ciPath = ".github/workflows/ci.yml";
 const canonicalCiSha256 =
-  "c5b7284877525757aaa5eb9be5640d9a213bfadeb01582f99f82d4cd0346257c";
+  "c85c35d394f0a32f64a20d6ea71a9338c99b1cd2d67e8c5c2e0fc7c719b52553";
 const workflowPaths = [ciPath, ".github/workflows/codeql.yml"];
 const publicTextPaths = [
   "README.md",
@@ -45,10 +45,28 @@ const candidateVersionPattern =
 const fullShaPattern = /^[0-9a-f]{40}$/u;
 const recordingArtifactPattern =
   /(?:^|\/)(?:[^/]+[.](?:webm|mp4|mov|mkv|part)|result[.]json|recording-[^/]+\/)/iu;
+const publicVersionReferences = [
+  {
+    path: "README.md",
+    pattern: /git clone --branch v([0-9]+[.][0-9]+[.][0-9]+) --depth 1/gu,
+  },
+  {
+    path: "SECURITY.md",
+    pattern: /Version `([0-9]+[.][0-9]+[.][0-9]+)` is the latest supported release/gu,
+  },
+  {
+    path: "SUPPORT.md",
+    pattern: /Browser Recorder for Codex `v([0-9]+[.][0-9]+[.][0-9]+)`/gu,
+  },
+];
 const requiredCiSteps = [
   {
     name: "Install pinned Codex CLI",
     commands: ["run: npm install --global @openai/codex@0.144.4"],
+  },
+  {
+    name: "Enforce cursor coverage floor",
+    commands: ["run: npm run test:coverage:cursor"],
   },
   {
     name: "Run official plugin validator",
@@ -207,6 +225,27 @@ async function validatePublicText(repositoryRoot, existing, failures) {
   }
 }
 
+async function validatePublicVersionReferences(
+  repositoryRoot,
+  existing,
+  versionInfo,
+  failures,
+) {
+  if (versionInfo === null) return;
+  for (const { path, pattern } of publicVersionReferences) {
+    if (!existing.has(path)) continue;
+    const source = await readFile(repositoryPath(repositoryRoot, path), "utf8");
+    if (placeholderPattern.test(source)) continue;
+    const versions = [...source.matchAll(pattern)].map((match) => match[1]);
+    if (
+      versions.length !== 1 ||
+      versions[0] !== versionInfo.canonicalVersion
+    ) {
+      addFailure(failures, "PUBLIC_VERSION_MISMATCH", path);
+    }
+  }
+}
+
 async function validateChangelogVersion(
   repositoryRoot,
   existing,
@@ -233,7 +272,12 @@ async function validateChangelogVersion(
       : versionInfo.cachebusted
         ? headingStatus === "Unreleased"
         : dated || headingStatus === "Unreleased";
-  if (releaseHeadings.length !== 1 || !statusValid) {
+  const genericUnreleasedPresent = /^## \[Unreleased\]$/mu.test(changelog);
+  if (
+    releaseHeadings.length !== 1 ||
+    !statusValid ||
+    (mode === "release" && genericUnreleasedPresent)
+  ) {
     addFailure(failures, "CHANGELOG_RELEASE_INCOMPLETE", "CHANGELOG.md");
   }
 }
@@ -336,6 +380,7 @@ async function validateCi(repositoryRoot, existing, failures) {
     "command -v ffmpeg >/dev/null || brew install ffmpeg",
     "npm run check",
     "npm run test:coverage",
+    "npm run test:coverage:cursor",
     "npm run check:release-candidate",
     "git show --check --format= HEAD",
     "RECORDING_ARTIFACT_PATTERN",
@@ -392,6 +437,12 @@ export async function validateReleaseReadiness({ mode, repositoryRoot }) {
     if (corpus != null) validateEvalCorpus(corpus, failures);
   }
   await validatePublicText(repositoryRoot, existing, failures);
+  await validatePublicVersionReferences(
+    repositoryRoot,
+    existing,
+    versionInfo,
+    failures,
+  );
   await validateChangelogVersion(
     repositoryRoot,
     existing,

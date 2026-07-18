@@ -19,8 +19,9 @@ server.
 2. Write a failing test that demonstrates the intended behavior, and confirm
    that it fails for the expected reason.
 3. Implement the smallest change that passes the test.
-4. Run `npm run check`, `npm run test:coverage`, and any focused integration or
-   validator command affected by the change.
+4. Run `npm run check`, `npm run test:coverage`,
+   `npm run test:coverage:cursor`, and any focused integration or validator
+   command affected by the change.
 5. Run `git diff --check` and review the complete diff before opening a pull
    request.
 
@@ -34,3 +35,23 @@ Use concise conventional commit messages. Keep pull requests narrowly scoped,
 explain the privacy and security impact, identify the RED and GREEN commands,
 and list every validation command run. All contributions must follow the
 [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Release verification
+
+Automated checks do not control a real Browser and must not be described as
+Browser end-to-end coverage. Before a release, a maintainer must manually:
+
+1. install the release candidate in a clean Codex desktop task;
+2. run the local preflight and resolve every blocker;
+3. record one approved pointer-driven flow on the public, no-login W3C Pointer
+   Events fixture using the supported Browser plugin;
+4. verify `Recording completed`, a playable H.264 MP4 capped at 720p and encoded
+   at 10 frames per second, no audio, visible cursor and click feedback, correct
+   action-driven termination, and no remaining fresh tab; and
+5. run `npm run check:release` only after setting the canonical manifest
+   version, replacing the generic Unreleased changelog section with the matching
+   versioned and dated release entry, and synchronizing all public version
+   references.
+
+Record the pass/fail result and tested commit in the release notes. Never commit,
+upload, or attach the generated recording or Browser/CDP diagnostics.

@@ -7,7 +7,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Use only synthetic or fully redacted evidence. Do not attach recordings, raw frames, full URLs, page content, credentials, tokens, private paths, or Browser/CDP diagnostics.
+        Use only synthetic or fully redacted evidence. A public, no-login fixture URL is allowed when required for reproduction. Do not attach recordings, raw frames, private or authenticated URLs, page content, credentials, tokens, private paths, or Browser/CDP diagnostics.
   - type: input
     id: revision
     attributes:
@@ -40,7 +40,7 @@ body:
     id: reproduction
     attributes:
       label: Synthetic reproduction
-      description: Give minimal steps using a disposable public test page or loopback fixture, without a full URL.
+      description: Give minimal steps using a disposable public no-login test page or loopback fixture. Never include a private, authenticated, tokenized, or signed URL.
     validations:
       required: true
   - type: checkboxes
@@ -50,7 +50,7 @@ body:
       options:
         - label: The affected flow is non-sensitive and all participants approved recording.
           required: true
-        - label: I removed recordings, frames, URLs, credentials, page content, private paths, and Browser diagnostics.
+        - label: I removed recordings, frames, private or authenticated URLs, credentials, page content, private paths, and Browser diagnostics.
           required: true
         - label: This report does not disclose a vulnerability; security reports use GitHub private vulnerability reporting.
           required: true

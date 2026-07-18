@@ -14,6 +14,7 @@ const marketplacePath = join(
   "marketplace.json",
 );
 const pluginRoot = join(repositoryRoot, "plugins", "codex-browser-recorder");
+const packageManifest = readJson(join(repositoryRoot, "package.json"));
 const skillRoot = join(pluginRoot, "skills", "record-browser");
 const requiredScripts = [
   "browser-recording.mjs",
@@ -108,11 +109,11 @@ test("plugin manifest and repository marketplace stay aligned", () => {
   assert.match(plugin.version, strictSemver);
   assert.equal(
     plugin.description,
-    "Save one approved Codex Browser test flow as a local H.264 MP4 with a visible cursor.",
+    "Preflight local requirements or save one approved Codex Browser test flow as a local H.264 MP4 with a visible cursor.",
   );
   assert.equal(
     plugin.interface.shortDescription,
-    "Save a Browser flow as MP4 with a visible cursor.",
+    "Preflight or save a Browser flow as MP4.",
   );
   assert.doesNotMatch(
     JSON.stringify(plugin.interface),
@@ -146,6 +147,12 @@ test("public plugin metadata, listing assets, and community files are complete",
   for (const prompt of manifest.interface.defaultPrompt) {
     assert.ok(prompt.length <= 128, "starter prompts must be at most 128 characters");
   }
+  assert.ok(
+    manifest.interface.defaultPrompt.some((prompt) =>
+      /preflight.*without opening a Browser tab/i.test(prompt),
+    ),
+    "starter prompts must expose the no-Browser preflight",
+  );
   assert.equal(manifest.interface.composerIcon, "./assets/icon.png");
   assert.equal(manifest.interface.logo, "./assets/icon.png");
   assert.ok(
@@ -182,6 +189,13 @@ test("public plugin metadata, listing assets, and community files are complete",
   }
 });
 
+test("critical cursor coverage has a dedicated regression floor", () => {
+  assert.equal(
+    packageManifest.scripts["test:coverage:cursor"],
+    "node --test --experimental-test-coverage --test-coverage-include='plugins/codex-browser-recorder/skills/record-browser/scripts/cursor-recording.mjs' --test-coverage-lines=88 --test-coverage-branches=69 --test-coverage-functions=82 tests/cursor-recording.test.mjs",
+  );
+});
+
 test("record-browser is an explicit skill with one canonical script tree", () => {
   const frontmatter = readFrontmatter(join(skillRoot, "SKILL.md"));
   const agentManifest = readFileSync(
@@ -202,11 +216,11 @@ test("record-browser is an explicit skill with one canonical script tree", () =>
   assert.match(agentManifest, /^policy:\n(?: {2}.+\n)* {2}allow_implicit_invocation: false$/m);
   assert.match(
     agentManifest,
-    /short_description: "Save one Browser flow as MP4 with a visible cursor"/,
+    /short_description: "Preflight or save a Browser MP4 with visible cursor"/,
   );
   assert.match(
     agentManifest,
-    /default_prompt: "Use \$record-browser to record an approved Browser test flow[.]"/,
+    /default_prompt: "Use \$record-browser to preflight or record an approved Browser test flow[.]"/,
   );
   assert.doesNotMatch(agentManifest, /integration gate|example[.]com/i);
   for (const script of requiredScripts) {

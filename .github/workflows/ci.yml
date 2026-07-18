@@ -45,6 +45,9 @@ jobs:
       - name: Collect test coverage
         run: npm run test:coverage
 
+      - name: Enforce cursor coverage floor
+        run: npm run test:coverage:cursor
+
       - name: Run official plugin validator
         run: |
           curl --fail --location --silent --show-error "https://raw.githubusercontent.com/openai/codex/08924bca0058eeaf179d2291af2c485123dbf2a2/codex-rs/skills/src/assets/samples/plugin-creator/scripts/validate_plugin.py" --output "$RUNNER_TEMP/validate_plugin.py"

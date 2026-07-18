@@ -99,6 +99,29 @@ async function replaceText(repositoryRoot, relativePath, pattern, replacement) {
   await writeFile(path, source.replace(pattern, replacement));
 }
 
+async function syncPublicVersionReferences(repositoryRoot, version) {
+  const canonicalVersion = version.split("+", 1)[0];
+  for (const [relativePath, pattern, replacement] of [
+    [
+      "README.md",
+      /git clone --branch v[0-9]+[.][0-9]+[.][0-9]+ --depth 1/u,
+      `git clone --branch v${canonicalVersion} --depth 1`,
+    ],
+    [
+      "SECURITY.md",
+      /Version `[0-9]+[.][0-9]+[.][0-9]+` is the latest supported release/u,
+      `Version \`${canonicalVersion}\` is the latest supported release`,
+    ],
+    [
+      "SUPPORT.md",
+      /Browser Recorder for Codex `v[0-9]+[.][0-9]+[.][0-9]+`/u,
+      `Browser Recorder for Codex \`v${canonicalVersion}\``,
+    ],
+  ]) {
+    await replaceText(repositoryRoot, relativePath, pattern, replacement);
+  }
+}
+
 async function mutateWorkflowStep(repositoryRoot, name, mutate) {
   const path = join(repositoryRoot, ".github/workflows/ci.yml");
   const source = await readFile(path, "utf8");
@@ -138,6 +161,12 @@ async function assertSemanticAndHashFailures(repositoryRoot, code) {
 }
 
 async function finalizeReleaseFixture(repositoryRoot) {
+  await replaceText(
+    repositoryRoot,
+    "CHANGELOG.md",
+    /^## \[Unreleased\]\n[\s\S]*?(?=^## \[)/mu,
+    "",
+  );
   await mutateJson(repositoryRoot, manifestPath, (manifest) => {
     manifest.version = releaseVersion;
   });
@@ -175,6 +204,7 @@ test("candidate accepts semantic versions with at most one Codex cachebuster", a
     await mutateJson(repositoryRoot, manifestPath, (manifest) => {
       manifest.version = version;
     });
+    await syncPublicVersionReferences(repositoryRoot, version);
     await assertOnlyFailure(
       repositoryRoot,
       "VERSION_INVALID",
@@ -193,6 +223,7 @@ test("candidate accepts future canonical versions without validator edits", asyn
     await mutateJson(repositoryRoot, manifestPath, (manifest) => {
       manifest.version = version;
     });
+    await syncPublicVersionReferences(repositoryRoot, version);
     await replaceText(
       repositoryRoot,
       "CHANGELOG.md",
@@ -211,12 +242,50 @@ test("candidate rejects a changelog version that differs from the manifest", asy
   await mutateJson(repositoryRoot, manifestPath, (manifest) => {
     manifest.version = nextPatchVersion(releaseVersion);
   });
+  await syncPublicVersionReferences(
+    repositoryRoot,
+    nextPatchVersion(releaseVersion),
+  );
 
   await assertOnlyFailure(
     repositoryRoot,
     "CHANGELOG_RELEASE_INCOMPLETE",
     "CHANGELOG.md",
   );
+});
+
+test("rejects stale public release version references", async () => {
+  const staleVersion = nextPatchVersion(releaseVersion);
+  for (const [relativePath, currentReference, staleReference] of [
+    [
+      "README.md",
+      /git clone --branch v[0-9]+[.][0-9]+[.][0-9]+/u,
+      `git clone --branch v${staleVersion}`,
+    ],
+    [
+      "SECURITY.md",
+      /Version `[0-9]+[.][0-9]+[.][0-9]+` is the latest supported release/u,
+      `Version \`${staleVersion}\` is the latest supported release`,
+    ],
+    [
+      "SUPPORT.md",
+      /Browser Recorder for Codex `v[0-9]+[.][0-9]+[.][0-9]+`/u,
+      `Browser Recorder for Codex \`v${staleVersion}\``,
+    ],
+  ]) {
+    const repositoryRoot = await createFixture();
+    await replaceText(
+      repositoryRoot,
+      relativePath,
+      currentReference,
+      staleReference,
+    );
+    await assertOnlyFailure(
+      repositoryRoot,
+      "PUBLIC_VERSION_MISMATCH",
+      relativePath,
+    );
+  }
 });
 
 test("cachebusted candidate requires an Unreleased changelog entry", async () => {
@@ -262,6 +331,7 @@ test("release derives the changelog version from the manifest", async () => {
   await mutateJson(repositoryRoot, manifestPath, (manifest) => {
     manifest.version = "1.0.0";
   });
+  await syncPublicVersionReferences(repositoryRoot, "1.0.0");
   await replaceText(
     repositoryRoot,
     "CHANGELOG.md",
@@ -281,6 +351,10 @@ test("release rejects a changelog version that differs from the manifest", async
   await mutateJson(repositoryRoot, manifestPath, (manifest) => {
     manifest.version = nextPatchVersion(releaseVersion);
   });
+  await syncPublicVersionReferences(
+    repositoryRoot,
+    nextPatchVersion(releaseVersion),
+  );
 
   await assertOnlyFailure(
     repositoryRoot,
@@ -308,6 +382,7 @@ test("release rejects duplicate or residual Unreleased release headings", async 
   for (const extraHeading of [
     `## [${releaseVersion}] - 2026-07-17`,
     `## [${releaseVersion}] - Unreleased`,
+    "## [Unreleased]\n\n### Changed\n\n- Pending work.",
   ]) {
     const repositoryRoot = await createFixture();
     await finalizeReleaseFixture(repositoryRoot);

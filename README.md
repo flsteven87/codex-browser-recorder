@@ -9,6 +9,10 @@ The plugin reuses the Browser plugin's permission-gated CDP session. It does not
 record Codex UI, browser chrome, other tabs, or an entire browser profile, and it
 does not add upload, sharing, or telemetry.
 
+The fresh tab may reuse the selected Browser's existing session. The recording
+contains the complete page viewport, including all visible embedded frames, so
+use a logged-out Browser context with no sensitive or personalized content.
+
 Authenticated or sensitive flows are out of scope. Record only non-sensitive
 test pages and actions that every affected person has agreed may be recorded.
 
@@ -20,7 +24,14 @@ test pages and actions that every affected person has agreed may be recorded.
 - `ffmpeg` and `ffprobe` on `PATH`, including `libx264` and MP4 support
 - `https:` targets without URL credentials, or explicit loopback development
   targets using `http:` with `localhost`, `127.0.0.1`, or `[::1]`
-- One fresh tab, one approved origin, and a duration from 5 to 60 seconds
+- One fresh tab and one approved top-level origin
+- An optional explicit duration from 5 to 60 seconds; action-driven recordings
+  stop when their approved actions finish, with a 15-second hard session cap
+  when duration is omitted
+
+On a Homebrew-managed Mac, `brew install ffmpeg` installs both required media
+tools. Other package sources are supported when `ffmpeg` and `ffprobe` resolve
+on `PATH` with the required capabilities.
 
 Supported embedded frames include cross-origin and out-of-process iframes that
 are observable through public CDP. Existing tabs, multiple tabs, non-loopback
@@ -33,8 +44,9 @@ mode, install packages, change policy, or bypass site or CDP approval. Node.js
 
 ## Install
 
-The published `v0.2.2` listing is available in the
-[OpenAI Plugin Directory](https://chatgpt.com/plugins/plugins_6a58f693814c8191b576ffaed4af2e78).
+The published listing is available in the
+[OpenAI directory](https://chatgpt.com/plugins/plugins_6a58f693814c8191b576ffaed4af2e78).
+The directory may require sign-in and can lag the latest GitHub release.
 
 For local development, add the repository as a marketplace and install the
 plugin:
@@ -48,7 +60,7 @@ For a reproducible installation, use an immutable release tag rather than the
 mutable `main` branch:
 
 ```sh
-git clone --branch v0.2.2 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
+git clone --branch v0.2.3 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
 codex plugin marketplace add /absolute/path/to/codex-browser-recorder
 codex plugin add codex-browser-recorder@codex-browser-recorder
 ```
@@ -57,19 +69,48 @@ Start a new Codex task after installation. If the skill does not appear, restart
 Codex and create another task. Do not copy files into the plugin cache or edit
 cache contents by hand.
 
+## Quick Start
+
+First, check the local dependencies and planned output location without opening
+a Browser tab:
+
+```text
+$record-browser Check whether my local recording environment is ready.
+```
+
+A successful report starts with `Local recording preflight passed`. The check
+reports all detected local blockers, including unsupported platform, missing
+FFmpeg or FFprobe, missing H.264 or MP4 support, and an unavailable destination.
+It is read-only apart from bounded media-tool subprocesses and does not verify
+Browser or CDP approval.
+
+Then request one concrete public, logged-out flow:
+
+```text
+$record-browser Open https://www.w3.org/TR/pointerevents/, click the 1. Introduction link in the table of contents, and save the approved flow as pointer-events-intro.
+```
+
+The skill shows one consent checklist before Browser activity. With no explicit
+recording duration, it stops and finalizes as soon as the approved actions
+finish; 15 seconds remains the hard session cap. Passive or wait-only recordings
+require an explicit duration.
+
 ## Record a Flow
 
 Explicitly invoke `$record-browser` and provide:
 
 - the target URL;
 - the Browser actions to perform;
-- an optional duration, absolute destination folder, and recording name.
+- an optional recording duration, absolute destination folder, and recording
+  name.
 
 Mentioning the skill does not approve an unknown target or scope. Before any
 Browser activity, it validates the request and presents one consolidated consent
 request containing the approved origin, actions, duration, destination,
 filename, H.264 MP4 with no audio, visible cursor and click feedback, and the
-sensitive-data exclusion.
+sensitive-data exclusion. It also discloses that all visible embedded frames are
+captured and that the fresh tab may reuse the selected Browser's existing
+session.
 
 After consent, the skill creates one fresh tab in the browser selected by the
 installed Browser plugin. It performs only approved actions and attempts to close the fresh tab
@@ -105,10 +146,12 @@ and default to a privacy-safe filename such as
 titles, hosts, URLs, or page text, and collisions never overwrite existing
 files.
 
-A successful output contains one H.264 `yuv420p` video stream in an MP4
-container with no audio. Cursor observation, coordinate mapping, composition,
-validation, and durable publication must all succeed before the result is
-reported as `Recording completed`.
+A successful output is a compatibility-oriented verification recording capped
+at 720p and encoded at 10 frames per second. It contains one H.264 `yuv420p`
+video stream in an MP4 container with no audio. Cursor observation, coordinate
+mapping, composition, validation, and durable publication must all succeed
+before the result is reported as `Recording completed`. This fixed profile is
+intended for concise test evidence, not high-motion product demos.
 
 Capture, cancellation, cross-origin, and validation failures do not publish a
 Saved Recording; the transaction discards their Working Recording. If that
@@ -143,13 +186,21 @@ profile or writing recording artifacts into the repository.
 ```sh
 npm run check
 npm run test:coverage
+npm run test:coverage:cursor
 npm run test:plugin-install
 npm run check:release-candidate
 ```
 
-The isolated installation test requires the `codex` CLI. Contribution and
-release requirements are documented in [CONTRIBUTING.md](CONTRIBUTING.md) and
-[CHANGELOG.md](CHANGELOG.md).
+These commands validate syntax, deterministic contracts, media fixtures,
+coverage, plugin installation, metadata, and release structure. They do not
+open the Browser plugin and are not a real Browser end-to-end test. The isolated
+installation test requires the `codex` CLI.
+
+Before release, a maintainer must also run the documented manual smoke flow in
+the supported Codex desktop Browser environment against a public, logged-out
+fixture and verify the Saved Recording. Do not commit or attach that recording.
+Contribution and release requirements are documented in
+[CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELOG.md).
 
 ## Update or Uninstall
 

@@ -1,6 +1,6 @@
 ---
 name: record-browser
-description: Use only when the user explicitly invokes $record-browser to save one test flow in a fresh approved tab in the browser selected by the installed Browser plugin as a local H.264 MP4 recording with a visible cursor.
+description: Use only when the user explicitly invokes $record-browser to record or preflight a non-sensitive flow in a fresh approved tab in the Browser selected by the installed Browser plugin, using local H.264 MP4 tooling.
 license: MIT
 ---
 
@@ -8,11 +8,13 @@ license: MIT
 
 ## Collect The Request
 
-Require a target URL and planned Browser actions. Use 15 seconds when the user does not provide a recording duration. Accept an optional absolute destination directory and optional recording name; otherwise use `~/Downloads/Codex Browser Recordings/` and a privacy-safe timestamp name. Set `requestedBrowser` to `"iab"` only when the user explicitly requests the Codex in-app Browser, to `"chrome"` only when the user explicitly requests Chrome, and to `null` otherwise. Classify the approved action list semantically and set `requirePointerEvents` to `true` when any action uses a pointer-driven click, hover, drag, or scroll; keep it `false` for keyboard-only, programmatic, or passive flows. Do not create or navigate a Browser tab yet.
+Set `preflightOnly` to `true` only when the user explicitly asks to check, diagnose, doctor, or preflight the local recording environment. A preflight accepts an optional absolute destination directory, requires no target or actions, performs no Browser activity, and stops after the local report.
+
+Otherwise set `preflightOnly` to `false` and require a target URL and planned Browser actions. Set `durationWasExplicit` to `true` only when the user supplies a recording duration. Use 15 seconds as the hard session duration when it was omitted, but finish an action-driven recording as soon as its approved actions complete. Require an explicit duration for passive or wait-only recording. Accept an optional absolute destination directory and optional recording name; otherwise use `~/Downloads/Codex Browser Recordings/` and a privacy-safe timestamp name. Set `requestedBrowser` to `"iab"` only when the user explicitly requests the Codex in-app Browser, to `"chrome"` only when the user explicitly requests Chrome, and to `null` otherwise. Classify the approved action list semantically and set `requirePointerEvents` to `true` when any action uses a pointer-driven click, hover, drag, or scroll; keep it `false` for keyboard-only, programmatic, or passive flows. Do not create or navigate a Browser tab yet.
 
 ## Validate The Request Locally
 
-Resolve this installed skill directory from the catalog entry that loaded this file. Use that exact absolute directory for `installedSkillRoot`; do not leave the placeholder below unchanged. The collected `targetUrl` and `durationMs` are the values supplied by the user, with 15 seconds converted to milliseconds when the duration was omitted. Convert the bundled modules with `pathToFileURL`, then validate by local computation only. This module resolution and pure computation are not Browser activity. On rejection, report only its code plus the summary and remediation returned by `describeRecordingFailure(error.code)`. Stop before creating, navigating, or acquiring any Browser tab or CDP capability.
+Resolve this installed skill directory from the catalog entry that loaded this file. Use that exact absolute directory for `installedSkillRoot`; do not leave the placeholder below unchanged. Convert the bundled modules with `pathToFileURL`. The collected `targetUrl` and `durationMs` are the values supplied by the user, with 15 seconds converted to milliseconds when the duration was omitted. Request validation is pure computation; local preflight uses only read-only filesystem metadata and bounded FFmpeg/FFprobe subprocess checks. Neither is Browser activity. On rejection, report only its code plus the summary and remediation returned by `describeRecordingFailure(error.code)`. Stop before creating, navigating, or acquiring any Browser tab or CDP capability.
 
 ```js
 import { tmpdir } from "node:os";
@@ -27,6 +29,7 @@ const moduleFailure = Object.freeze({
 });
 let describeRecordingFailure;
 let getRecordingCleanupDetails;
+let inspectLocalRecordingEnvironment;
 let planSavedRecording;
 let sanitizeRecordingFailure;
 let validateRecordingRequest;
@@ -49,8 +52,12 @@ try {
   const artifactsUrl = pathToFileURL(
     resolve(installedSkillRoot, "scripts/recording-artifacts.mjs"),
   ).href;
+  const doctorUrl = pathToFileURL(
+    resolve(installedSkillRoot, "scripts/doctor.mjs"),
+  ).href;
   ({ validateRecordingRequest } = await import(policyUrl));
   ({ planSavedRecording } = await import(artifactsUrl));
+  ({ inspectLocalRecordingEnvironment } = await import(doctorUrl));
   ({
     describeRecordingFailure,
     getRecordingCleanupDetails,
@@ -61,26 +68,43 @@ try {
 }
 let request;
 let savedRecording;
+let localEnvironment;
 const recordingTimestamp = new Date();
 try {
-  request = validateRecordingRequest({
-    durationMs,
-    requirePointerEvents,
-    targetUrl,
-  });
   savedRecording = planSavedRecording({
     destinationDirectory,
     now: recordingTimestamp,
     recordingName,
+  });
+  if (!preflightOnly) {
+    request = validateRecordingRequest({
+      durationMs,
+      requirePointerEvents,
+      targetUrl,
+    });
+  }
+  localEnvironment = await inspectLocalRecordingEnvironment({
+    outputDirectory: savedRecording.destinationDirectory,
   });
 } catch (error) {
   throw stableFailure(error?.code);
 }
 ```
 
+If `localEnvironment.blockingReasons` is not empty, report every blocker in its returned order using its stable code plus `describeRecordingFailure(code).summary` and `.remediation`, then stop before consent. Do not collapse multiple blockers into the first failure. If `preflightOnly` is `true` and no blockers exist, lead with `Local recording preflight passed`, report the planned destination plus the allowlisted platform and media capability booleans, state that this local preflight does not verify Browser or CDP approval, and stop before consent.
+
 ## Confirm Once Before Browser Activity
 
-Present one consolidated consent before any Browser action. Include the validated normalized approved origin, planned actions, duration, `savedRecording.destinationDirectory`, `savedRecording.outputFilename`, H.264 MP4 with no audio, the project-owned visible cursor and 200 ms click feedback, no browser chrome, no other tabs, and the sensitive-data exclusion. Explain that macOS may request file access and that an unavailable destination stops before Browser activity. Continue only after explicit confirmation; denial returns `cancelled` and performs no Browser action. Explain that a planned pointer action must produce an observable pointer event in the page or a supported embedded frame; otherwise the run fails closed without publishing the recording. Cursor observation does not authenticate event provenance, so page-scripted synthetic events may also be observed. A `$record-browser` mention selects the workflow but does not approve an unknown target or scope. Refuse credentials, payment data, passkeys, recovery secrets, health data, or confidential communications as out of scope for the first release.
+Present one consolidated consent before any Browser action, kept compact as a short checklist covering:
+
+- **Scope:** the normalized approved top-level origin, concrete planned actions, and whether the recording ends when actions complete or at the explicit duration;
+- **Output:** `savedRecording.destinationDirectory`, `savedRecording.outputFilename`, H.264 MP4 with no audio, the project-owned visible cursor, and 200 ms click feedback;
+- **Visible content:** the complete page viewport, including all visible embedded frames; browser chrome and other tabs are excluded;
+- **Browser session:** the fresh tab may reuse the selected Browser's existing session, so the user must confirm that the target is logged out and contains no sensitive or personalized content;
+- **Privacy:** credentials, payment data, passkeys, recovery secrets, health data, confidential communications, and other sensitive or authenticated content are excluded;
+- **Failure behavior:** unavailable destinations stop before Browser activity, missing pointer evidence prevents publication, and incomplete cleanup may require local deletion.
+
+Explain that macOS may request file access. Continue only after explicit confirmation; denial returns `cancelled` and performs no Browser action. Cursor observation does not authenticate event provenance, so page-scripted synthetic events may also be observed. A `$record-browser` mention selects the workflow but does not approve an unknown target or scope.
 
 ## Resolve Installed Modules
 
@@ -139,7 +163,9 @@ try {
 
 Call `createRecording()` once with `selectedBrowser` after consent. The coordinator owns creation, navigation, full-CDP preflight, environment doctor, capture startup, finalization, fresh-tab closure, and rollback for exactly one fresh blank Browser tab. Its `ready` promise returns only that fresh tab for the approved Browser actions. A denied site or CDP approval returns `cancelled`; never retry or bypass it.
 
-Keep top-level navigation within `request.approvedOrigin`; stop if the page leaves that approved origin. Route every concrete approved Browser call through `handle.runAction()` and mark each click, hover, drag, or pointer-positioned scroll with `requiresPointerEvidence: true`. Every pointer action requires a new observed pointer event whose captured page timestamp is at or after the current action boundary; a delayed event from an earlier action never satisfies a later pointer action. This is an observation boundary, not source authentication. The Recording Session owns the action state checks, evidence snapshot and boundary, bounded wait, failure sanitation, cancellation, and no-publication cleanup. Stop performing Browser actions immediately when `handle.runAction()` rejects. After the approved actions, await `handle.finished`; it passively observes the Session-owned duration and lower capture lifecycle without ending the recording early. `handle.stop()` remains the idempotent command for immediate finalization and returns that same terminal result.
+Keep top-level navigation within `request.approvedOrigin`; stop if the page leaves that approved origin. Route every concrete approved Browser call through `handle.runAction()` and mark each click, hover, drag, or pointer-positioned scroll with `requiresPointerEvidence: true`. Every pointer action requires a new observed pointer event whose captured page timestamp is at or after the current action boundary; a delayed event from an earlier action never satisfies a later pointer action. This is an observation boundary, not source authentication. The Recording Session owns the action state checks, evidence snapshot and boundary, bounded wait, failure sanitation, cancellation, and no-publication cleanup. Stop performing Browser actions immediately when `handle.runAction()` rejects.
+
+Briefly report that recording has started and state its end condition. When `durationWasExplicit` is `true`, await `handle.finished` after the approved actions so the explicit duration remains authoritative. Otherwise call `handle.stop()` immediately after the final approved action so an action-driven recording does not gain an idle tail. `handle.stop()` is idempotent and returns the same terminal result as `handle.finished`.
 
 Do not inject clocks, animations, test text, or diagnostic interactions such as an unapproved scroll. Do not enable Developer mode, change policy, install packages, retry denied approval, broaden the origin, switch browsers, use an existing tab, or expose Browser/CDP objects.
 
@@ -169,7 +195,9 @@ try {
   //   perform: () => freshTab.<approved Browser call>,
   //   requiresPointerEvidence: <true for a pointer action; otherwise false>,
   // });
-  recordingResult = await handle.finished;
+  recordingResult = durationWasExplicit
+    ? await handle.finished
+    : await handle.stop();
   if (recordingResult.result.status === "passed") {
     // Continue to the bounded success report below.
   } else if (recordingResult.result.status === "failed") {

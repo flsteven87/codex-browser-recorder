@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import test from "node:test";
 
-import { doctor } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/doctor.mjs";
+import {
+  doctor,
+  inspectLocalRecordingEnvironment,
+} from "../plugins/codex-browser-recorder/skills/record-browser/scripts/doctor.mjs";
 
 const directory = mkdtempSync(join(tmpdir(), "browser-recorder-doctor-"));
 const binDirectory = join(directory, "bin");
@@ -60,6 +63,39 @@ test("reports a supported environment with resolved executable paths", async () 
   assert.equal(result.ffprobeUsable, true);
   assert.equal(result.outputDirectoryWritable, true);
   assert.deepEqual(result.blockingReasons, []);
+});
+
+test("preflights a planned destination without claiming Browser readiness", async () => {
+  const result = await inspectLocalRecordingEnvironment({
+    outputDirectory: join(directory, "planned", "nested-output"),
+    pathValue: [emptyBinDirectory, binDirectory].join(delimiter),
+    platform: "darwin",
+  });
+
+  assert.equal(result.supported, true);
+  assert.equal(result.outputDirectoryWritable, true);
+  assert.equal(Object.hasOwn(result, "cdpAvailable"), false);
+  assert.deepEqual(result.blockingReasons, []);
+});
+
+test("local preflight returns every blocker without Browser activity", async () => {
+  const blockedOutputPath = join(directory, "blocked-output");
+  writeFileSync(blockedOutputPath, "not a directory\n");
+
+  const result = await inspectLocalRecordingEnvironment({
+    outputDirectory: blockedOutputPath,
+    pathValue: emptyBinDirectory,
+    platform: "linux",
+  });
+
+  assert.equal(result.supported, false);
+  assert.equal(Object.hasOwn(result, "cdpAvailable"), false);
+  assert.deepEqual(result.blockingReasons, [
+    "unsupported_platform",
+    "ffmpeg_missing",
+    "ffprobe_missing",
+    "output_directory_not_writable",
+  ]);
 });
 
 test("returns every deterministic blocking reason without changing the system", async () => {
