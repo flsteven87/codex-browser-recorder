@@ -161,11 +161,11 @@ async function assertSemanticAndHashFailures(repositoryRoot, code) {
 }
 
 async function finalizeReleaseFixture(repositoryRoot) {
-  await replaceText(
-    repositoryRoot,
-    "CHANGELOG.md",
-    /^## \[Unreleased\]\n[\s\S]*?(?=^## \[)/mu,
-    "",
+  const changelogPath = join(repositoryRoot, "CHANGELOG.md");
+  const changelog = await readFile(changelogPath, "utf8");
+  await writeFile(
+    changelogPath,
+    changelog.replace(/^## \[Unreleased\]\n[\s\S]*?(?=^## \[)/mu, ""),
   );
   await mutateJson(repositoryRoot, manifestPath, (manifest) => {
     manifest.version = releaseVersion;
