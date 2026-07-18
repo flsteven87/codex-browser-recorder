@@ -17,26 +17,14 @@ import { fileURLToPath } from "node:url";
 import {
   validateReleaseReadiness,
 } from "../scripts/validate-release-readiness.mjs";
+import { PUBLIC_TEXT_PATHS } from "../scripts/release-materials.mjs";
 
 const sourceRoot = fileURLToPath(new URL("../", import.meta.url));
 const manifestPath = "plugins/codex-browser-recorder/.codex-plugin/plugin.json";
 const fixturePaths = [
-  ".github/CODEOWNERS",
-  ".github/ISSUE_TEMPLATE/bug_report.yml",
-  ".github/ISSUE_TEMPLATE/config.yml",
-  ".github/ISSUE_TEMPLATE/feature_request.yml",
-  ".github/dependabot.yml",
-  ".github/pull_request_template.md",
+  ...PUBLIC_TEXT_PATHS,
   ".github/workflows/ci.yml",
   ".github/workflows/codeql.yml",
-  "CHANGELOG.md",
-  "CODE_OF_CONDUCT.md",
-  "CONTRIBUTING.md",
-  "PRIVACY.md",
-  "README.md",
-  "SECURITY.md",
-  "SUPPORT.md",
-  "TERMS.md",
   "evals/plugin-submission-cases.json",
   manifestPath,
   "plugins/codex-browser-recorder/assets",
@@ -106,6 +94,21 @@ async function syncPublicVersionReferences(repositoryRoot, version) {
       "README.md",
       /git clone --branch v[0-9]+[.][0-9]+[.][0-9]+ --depth 1/u,
       `git clone --branch v${canonicalVersion} --depth 1`,
+    ],
+    [
+      "README.md",
+      /releases\/tag\/v[0-9]+[.][0-9]+[.][0-9]+/u,
+      `releases/tag/v${canonicalVersion}`,
+    ],
+    [
+      "README.md",
+      /\[v[0-9]+[.][0-9]+[.][0-9]+ release page\]/u,
+      `[v${canonicalVersion} release page]`,
+    ],
+    [
+      "README.md",
+      /recorder_release=v[0-9]+[.][0-9]+[.][0-9]+/u,
+      `recorder_release=v${canonicalVersion}`,
     ],
     [
       "SECURITY.md",
@@ -261,6 +264,21 @@ test("rejects stale public release version references", async () => {
       "README.md",
       /git clone --branch v[0-9]+[.][0-9]+[.][0-9]+/u,
       `git clone --branch v${staleVersion}`,
+    ],
+    [
+      "README.md",
+      /releases\/tag\/v[0-9]+[.][0-9]+[.][0-9]+/u,
+      `releases/tag/v${staleVersion}`,
+    ],
+    [
+      "README.md",
+      /\[v[0-9]+[.][0-9]+[.][0-9]+ release page\]/u,
+      `[v${staleVersion} release page]`,
+    ],
+    [
+      "README.md",
+      /recorder_release=v[0-9]+[.][0-9]+[.][0-9]+/u,
+      `recorder_release=v${staleVersion}`,
     ],
     [
       "SECURITY.md",

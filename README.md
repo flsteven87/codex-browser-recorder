@@ -4,6 +4,8 @@ Browser Recorder is an experimental, community-developed Codex plugin that
 records one explicitly approved test flow in a fresh tab in the browser selected
 by the installed Browser plugin. It saves a local H.264 MP4 with a visible
 cursor and no audio to `~/Downloads/Codex Browser Recordings/` by default.
+In this documentation, “Browser plugin” means the selected browser-control
+surface: **Browser** for the in-app Browser or **Chrome** for Chrome.
 
 The plugin reuses the Browser plugin's permission-gated CDP session. It does not
 record Codex UI, browser chrome, other tabs, or an entire browser profile, and it
@@ -16,11 +18,26 @@ use a logged-out Browser context with no sensitive or personalized content.
 Authenticated or sensitive flows are out of scope. Record only non-sensitive
 test pages and actions that every affected person has agreed may be recorded.
 
-## Requirements and Scope
+## Documentation
+
+- [Quick Start](#quick-start) — preflight and record a first flow
+- [Supported Scope](#requirements-and-supported-scope) — platforms, browsers,
+  targets, and media limits
+- [Troubleshooting](docs/troubleshooting.md) — installation, preflight, CDP, and
+  recording failures
+- [Architecture](docs/architecture.md) — trust boundaries, lifecycle, public
+  handle, and source-of-truth map
+- [Contributing](CONTRIBUTING.md) — development and release verification
+
+## Requirements and Supported Scope
 
 - macOS with the Codex desktop app
-- The Codex Browser plugin installed and available
-- Browser Developer mode with full CDP access already enabled by the user
+- At least one supported browser control surface: the official [Browser
+  plugin](https://learn.chatgpt.com/docs/browser) for the Codex in-app Browser,
+  or the [Chrome plugin and
+  extension](https://learn.chatgpt.com/docs/chrome-extension) for Chrome
+- **Settings > Browser > Developer mode > Enable full CDP access** enabled by
+  the user; Codex still asks for site-specific approval before using it
 - `ffmpeg` and `ffprobe` on `PATH`, including `libx264` and MP4 support
 - `https:` targets without URL credentials, or explicit loopback development
   targets using `http:` with `localhost`, `127.0.0.1`, or `[::1]`
@@ -33,10 +50,19 @@ On a Homebrew-managed Mac, `brew install ffmpeg` installs both required media
 tools. Other package sources are supported when `ffmpeg` and `ffprobe` resolve
 on `PATH` with the required capabilities.
 
-Supported embedded frames include cross-origin and out-of-process iframes that
-are observable through public CDP. Existing tabs, multiple tabs, non-loopback
-`http:`, URL credentials, audio, authenticated or sensitive flows, and
-cross-origin top-frame navigation are unsupported.
+Embedded-frame pointer coverage is supported only when the selected browser
+exposes the frame through public CDP. This includes deterministic fixture
+coverage for cross-origin and out-of-process iframe targets, but remains
+browser-version-sensitive. The published v0.3.0 evidence includes a real
+top-level Browser smoke, not a real-browser Chrome or OOPIF compatibility
+certification. If a required frame cannot be observed, the recording fails
+closed instead of publishing incomplete pointer evidence. Existing tabs,
+multiple tabs, non-loopback `http:`, URL credentials, audio, authenticated or
+sensitive flows, and cross-origin top-frame navigation are unsupported.
+
+The recorder can use either the Codex in-app Browser or Chrome. Explicitly say
+`in Chrome` to force that choice. The recorder never switches browsers after
+consent.
 
 The recorder runs a read-only environment check. It does not enable Developer
 mode, install packages, change policy, or bypass site or CDP approval. Node.js
@@ -44,30 +70,65 @@ mode, install packages, change policy, or bypass site or CDP approval. Node.js
 
 ## Install
 
-The published listing is available in the
-[OpenAI directory](https://chatgpt.com/plugins/plugins_6a58f693814c8191b576ffaed4af2e78).
-The directory may require sign-in and can lag the latest GitHub release.
+### Plugins Directory
 
-For local development, add the repository as a marketplace and install the
-plugin:
+In the ChatGPT desktop app, select Codex, open **Plugins**, and search for
+**Codex Browser Recorder**. If it is available to your account and workspace,
+install it with the plus button; otherwise use the local marketplace flow below.
+Install **Browser** for the in-app Browser, or install **Chrome** and finish its
+extension setup for Chrome recording. Then start a new task. This is the current
+[official plugin installation flow](https://learn.chatgpt.com/docs/plugins).
+
+The published plugin can lag the [latest GitHub
+release](https://github.com/flsteven87/codex-browser-recorder/releases/latest).
+Check the installed plugin version before reporting a regression.
+
+### Local Marketplace
+
+For local development, add the repository as a marketplace source:
 
 ```sh
 codex plugin marketplace add /absolute/path/to/codex-browser-recorder
-codex plugin add codex-browser-recorder@codex-browser-recorder
 ```
 
-For a reproducible installation, use an immutable release tag rather than the
-mutable `main` branch:
+Then open **Plugins**, select the `codex-browser-recorder` marketplace, and
+install the plugin. In Codex CLI, use `/plugins` to browse the configured source
+and install it, then start a new session. See the official [local marketplace
+guide](https://learn.chatgpt.com/docs/build-plugins#build-your-own-curated-plugin-list).
+
+For a versioned checkout, use the release tag rather than the mutable `main`
+branch:
 
 ```sh
 git clone --branch v0.3.0 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
 codex plugin marketplace add /absolute/path/to/codex-browser-recorder
+```
+
+A Git tag is a version selector, not a cryptographic immutability guarantee. For
+strict reproducibility, pin the full release commit or compare the archive with
+a digest recorded independently of the mutable release assets. For the matching
+[v0.3.0 release page](https://github.com/flsteven87/codex-browser-recorder/releases/tag/v0.3.0),
+the release commit is `32bfdf995465122075ff18b712dc3e91605b9051` and the audited
+archive digest is:
+
+```sh
+recorder_release=v0.3.0
+recorder_archive="codex-browser-recorder-${recorder_release}.zip"
+recorder_sha256="2f603b01dcd40fea0483038f79093ac41fed93de59afb6e98131dc5a6e6442e1"
+curl --fail --location --remote-name \
+  "https://github.com/flsteven87/codex-browser-recorder/releases/download/${recorder_release}/${recorder_archive}"
+echo "${recorder_sha256}  ${recorder_archive}" | shasum -a 256 -c -
+```
+
+For non-interactive installation, the equivalent command is:
+
+```sh
 codex plugin add codex-browser-recorder@codex-browser-recorder
 ```
 
-Start a new Codex task after installation. If the skill does not appear, restart
-Codex and create another task. Do not copy files into the plugin cache or edit
-cache contents by hand.
+If the skill does not appear in a new task, restart the ChatGPT desktop app and
+create another task. Do not copy files into the plugin cache or edit cache
+contents by hand.
 
 ## Quick Start
 
@@ -89,6 +150,11 @@ Then request one concrete public, logged-out flow:
 ```text
 $record-browser Open https://www.w3.org/TR/pointerevents/, click the 1. Introduction link in the table of contents, and save the approved flow as pointer-events-intro.
 ```
+
+The installed browser-control plugin chooses the browser when the request does
+not. To make the choice explicit, say `in the Codex in-app Browser` or `in
+Chrome` in the same request. Browser choice, target, actions, and output are all
+included in the consent boundary.
 
 The skill shows one consent checklist before Browser activity. With no explicit
 recording duration, it stops and finalizes as soon as the approved actions
@@ -112,8 +178,8 @@ sensitive-data exclusion. It also discloses that all visible embedded frames are
 captured and that the fresh tab may reuse the selected Browser's existing
 session.
 
-After consent, the skill creates one fresh tab in the browser selected by the
-installed Browser plugin. It performs only approved actions and attempts to close the fresh tab
+After consent, the skill creates one fresh tab in the selected browser. It
+performs only approved actions and attempts to close the fresh tab
 on every path; it reports bounded manual cleanup instructions if closure fails.
 Approval denial returns `cancelled`; the plugin never retries or bypasses it.
 
@@ -177,6 +243,9 @@ enforcement, cursor composition, media validation, durable publication, and
 cleanup. Its public handle exposes `ready`, `runAction()`, passive `finished`,
 and idempotent `stop()`.
 
+See [Architecture](docs/architecture.md) for the lifecycle, module ownership,
+failure boundaries, and test map.
+
 ## Development
 
 The repository has no npm runtime dependencies and requires no development
@@ -204,7 +273,18 @@ Contribution and release requirements are documented in
 
 ## Update or Uninstall
 
-To reinstall from an updated marketplace checkout:
+### Plugins Directory
+
+Open **Plugins**, use the **Installed** row to open **Codex Browser Recorder**,
+and select **Uninstall plugin** when that action is available. Workspace-installed
+or default plugins may be controlled by an administrator instead. After an
+install, reinstall, or removal, start a new task so the plugin catalog is
+reloaded. Removing this recorder does not remove the separately installed
+**Browser** or **Chrome** plugin.
+
+### Local Marketplace
+
+To reinstall from an updated local marketplace checkout:
 
 ```sh
 codex plugin remove codex-browser-recorder@codex-browser-recorder
@@ -222,7 +302,9 @@ codex plugin marketplace remove codex-browser-recorder
 
 Frames are processed by the local Browser Node runtime and local FFmpeg; the
 skill does not place them in model context. The user controls retention and
-must delete recordings when they are no longer needed.
+must delete recordings when they are no longer needed. The target page and its
+embedded content can still make their normal network requests; the recorder
+does not make an offline copy of the site.
 
 See [PRIVACY.md](PRIVACY.md), [SECURITY.md](SECURITY.md), [TERMS.md](TERMS.md),
 [SUPPORT.md](SUPPORT.md), and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Report
@@ -233,7 +315,9 @@ not a public issue.
 ## Record & Replay
 
 Browser Recorder saves the visible page flow as a local video artifact. Codex
-Record & Replay instead turns a demonstrated workflow into a reusable skill.
+[Record & Replay](https://learn.chatgpt.com/docs/extend/record-and-replay)
+instead turns a demonstrated workflow into a reusable skill. It is a separate
+Codex feature with its own availability requirements.
 
 ## License
 

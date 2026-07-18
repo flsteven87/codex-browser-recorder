@@ -19,6 +19,7 @@ import {
 import {
   describeRecordingFailure,
   getRecordingCleanupDetails,
+  RECORDING_FAILURE_CODES,
   sanitizeRecordingFailure,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-outcome.mjs";
 
@@ -47,63 +48,6 @@ const expectedValidation = {
   sizeBytes: 512,
   width: 320,
 };
-
-const knownFailureCodes = [
-  "invalid_target",
-  "target_credentials_present",
-  "target_scheme_not_allowed",
-  "invalid_duration",
-  "browser_plugin_unavailable",
-  "cdp_unavailable",
-  "plugin_module_unavailable",
-  "unsupported_platform",
-  "ffmpeg_missing",
-  "ffmpeg_h264_unavailable",
-  "ffmpeg_mp4_unavailable",
-  "ffprobe_missing",
-  "ffprobe_unusable",
-  "output_directory_not_writable",
-  "saved_recording_unavailable",
-  "cancelled",
-  "recording_cancelled",
-  "cursor_recording_failed",
-  "origin_not_allowed",
-  "origin_verification_failed",
-  "origin_changed_during_recording",
-  "event_stream_invalid",
-  "frame_ack_failed",
-  "frame_stream_stalled",
-  "frame_stream_unavailable",
-  "frame_too_large",
-  "invalid_frame",
-  "output_monitor_failed",
-  "recording_duration_limit",
-  "recording_output_limit",
-  "encoder_failed",
-  "encoder_finalize_failed",
-  "encoder_shutdown_timeout",
-  "audio_stream_present",
-  "codec_invalid",
-  "container_invalid",
-  "dimensions_out_of_bounds",
-  "duration_invalid",
-  "duration_mismatch",
-  "ffprobe_failed",
-  "output_missing",
-  "output_too_small",
-  "pixel_format_invalid",
-  "video_stream_count_invalid",
-  "video_stream_missing",
-  "artifact_persistence_failed",
-  "saved_recording_persistence_failed",
-  "cleanup_failed",
-  "capture_failed",
-  "integration_failed",
-  "invalid_configuration",
-  "recording_already_active",
-  "recording_not_started",
-  "recording_failed",
-];
 
 test.after(() => {
   rmSync(temporaryRoot, { force: true, recursive: true });
@@ -168,7 +112,7 @@ async function createTransaction({
 test("describes and sanitizes every known recording failure deterministically", () => {
   const injectedDiagnostic = "private injected failure diagnostic";
 
-  for (const code of knownFailureCodes) {
+  for (const code of RECORDING_FAILURE_CODES) {
     const first = describeRecordingFailure(code);
     const second = describeRecordingFailure(code);
     const sanitized = sanitizeRecordingFailure(

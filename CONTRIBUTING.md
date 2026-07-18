@@ -13,11 +13,18 @@ boundaries are welcome.
 The project has no npm runtime dependencies and does not require a development
 server.
 
+Read [Architecture](docs/architecture.md) before changing session ownership,
+capture, cursor evidence, artifact publication, or public failure handling. The
+[official Codex plugin guide](https://learn.chatgpt.com/docs/build-plugins) is
+the source of truth for marketplace and manifest behavior.
+
 ## Workflow
 
 1. Open or reference an issue that describes the focused change.
 2. Write a failing test that demonstrates the intended behavior, and confirm
-   that it fails for the expected reason.
+   that it fails for the expected reason. For documentation-only changes,
+   capture the stale source or verified mismatch instead of manufacturing a
+   failing code test.
 3. Implement the smallest change that passes the test.
 4. Run `npm run check`, `npm run test:coverage`,
    `npm run test:coverage:cursor`, and any focused integration or validator
@@ -43,15 +50,28 @@ Browser end-to-end coverage. Before a release, a maintainer must manually:
 
 1. install the release candidate in a clean Codex desktop task;
 2. run the local preflight and resolve every blocker;
-3. record one approved pointer-driven flow on the public, no-login W3C Pointer
-   Events fixture using the supported Browser plugin;
-4. verify `Recording completed`, a playable H.264 MP4 capped at 720p and encoded
-   at 10 frames per second, no audio, visible cursor and click feedback, correct
-   action-driven termination, and no remaining fresh tab; and
-5. run `npm run check:release` only after setting the canonical manifest
+3. record the same approved pointer-driven flow on the public, no-login W3C
+   Pointer Events fixture in the in-app **Browser** and in **Chrome**, using a
+   separate clean task for each surface;
+4. record the Codex desktop, Browser or Chrome, and extension versions used for
+   each smoke without retaining the recording or sensitive diagnostics;
+5. verify each run reports `Recording completed`, produces a playable H.264 MP4
+   capped at 720p and encoded at 10 frames per second with no audio, shows the
+   cursor and click feedback, terminates after the approved actions, and leaves
+   no fresh tab behind;
+6. recheck the current official Plugins, Browser, Chrome, and Build plugins
+   documentation linked from the README, plus the version-specific GitHub
+   release commit and archive digest recorded there. Treat embedded-frame
+   support as deterministic-fixture coverage unless the release notes identify
+   a separate real-browser public iframe smoke and its tested versions; and
+7. run `npm run check:release` only after setting the canonical manifest
    version, replacing the generic Unreleased changelog section with the matching
    versioned and dated release entry, and synchronizing all public version
    references.
+
+`npm run check:release-candidate` is the normal documentation and metadata gate
+during development. `npm run check:release` is deliberately stricter and is
+reserved for a versioned, dated release state.
 
 Record the pass/fail result and tested commit in the release notes. Never commit,
 upload, or attach the generated recording or Browser/CDP diagnostics.

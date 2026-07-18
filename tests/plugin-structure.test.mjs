@@ -4,6 +4,8 @@ import { extname, join, relative, resolve, sep } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { PUBLIC_TEXT_PATHS } from "../scripts/release-materials.mjs";
+
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const strictSemver =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
@@ -30,21 +32,6 @@ const requiredScripts = [
 const requiredSkillAssets = [
   "codex-style-click-ring.xpm",
   "codex-style-cursor.xpm",
-];
-const requiredPublicFiles = [
-  "README.md",
-  "SECURITY.md",
-  "TERMS.md",
-  "SUPPORT.md",
-  "CONTRIBUTING.md",
-  "CODE_OF_CONDUCT.md",
-  "CHANGELOG.md",
-  ".github/CODEOWNERS",
-  ".github/dependabot.yml",
-  ".github/pull_request_template.md",
-  ".github/ISSUE_TEMPLATE/bug_report.yml",
-  ".github/ISSUE_TEMPLATE/feature_request.yml",
-  ".github/ISSUE_TEMPLATE/config.yml",
 ];
 const requiredAssetSources = ["icon.svg"];
 const expectedPngDimensions = new Map([
@@ -178,7 +165,7 @@ test("public plugin metadata, listing assets, and community files are complete",
     );
   }
 
-  for (const relativePath of requiredPublicFiles) {
+  for (const relativePath of PUBLIC_TEXT_PATHS) {
     const publicPath = join(repositoryRoot, relativePath);
     assert.ok(existsSync(publicPath), `${relativePath} must exist`);
     assert.doesNotMatch(

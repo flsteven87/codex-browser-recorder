@@ -9,6 +9,9 @@ explicitly approved non-sensitive Browser test flow.
   are not placed in model context by the skill.
 - The plugin does not automatically upload, share, retain remotely, or send
   telemetry.
+- Local recorder processing does not make the target page offline. The page and
+  its embedded content can still make their normal network requests while they
+  load and run; use only a public, logged-out, non-sensitive fixture.
 - The recording contains the complete visible page viewport, including all
   visible embedded frames. Browser chrome and other tabs are excluded.
 - A fresh tab may reuse the selected Browser's existing session. The plugin does

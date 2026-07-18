@@ -10,9 +10,12 @@ Describe the focused change and the approved issue or use case.
 
 ## Verification
 
-- [ ] I observed the new or changed test fail for the expected reason before implementation.
+- [ ] For behavior changes, I observed the new or changed test fail for the expected reason before implementation.
 - [ ] `npm run check`
+- [ ] `npm run check:release-candidate`
 - [ ] Relevant validators and focused integration tests
 - [ ] `git diff --check`
 
-List the RED and GREEN commands and any checks not run.
+For documentation-only changes, link the stale source or describe the verified
+mismatch instead of manufacturing a failing code test. List the RED and GREEN
+commands when applicable, plus every check not run.

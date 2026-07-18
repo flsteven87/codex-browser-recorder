@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible, non-sensitive defect in the pre-release plugin.
+description: Report a reproducible, non-sensitive defect in Browser Recorder.
 title: "bug: "
 labels:
   - bug
@@ -19,7 +19,7 @@ body:
     id: environment
     attributes:
       label: Redacted environment
-      description: Include macOS, Node, FFmpeg, and FFprobe versions only.
+      description: Include macOS and Codex desktop app versions, the selected Browser, and redacted FFmpeg/FFprobe versions. Include Node.js only for repository development failures.
     validations:
       required: true
   - type: textarea
