@@ -11,26 +11,26 @@ test("completes two isolated recordings strictly in sequence", async () => {
   const calls = [];
   let attempt = 0;
   const result = await runExampleRecordingReleaseGate({
-    _dependencies: {
-      createRecording(options) {
+    dependencies: {
+      async prepareRecording(options) {
         attempt += 1;
         const current = attempt;
-        calls.push(`create:${current}`);
-        assert.equal(options.browser, browser);
+        calls.push(`prepare:${current}`);
         assert.equal(options.destinationDirectory, "/private/tmp");
         assert.equal(options.targetUrl, EXAMPLE_PAGE_URL);
+        assert.equal(options.browserSurface, "chrome");
+        assert.equal(options.durationWasExplicit, true);
+        assert.deepEqual(options.actions, []);
+        return { id: current, status: "prepared" };
+      },
+      async recordApproved(prepared, options) {
+        calls.push(`record:${prepared.id}`);
+        assert.equal(options.browser, browser);
         return {
-          ready: Promise.resolve({ id: `tab-${current}` }),
-          status() {
-            return { capture: null, state: "recording" };
-          },
-          async stop() {
-            calls.push(`stop:${current}`);
-            return {
-              paths: { outputPath: `/private/recording-${current}.mp4` },
-              result: { failureCode: null, status: "passed" },
-            };
-          },
+          cleanup: {},
+          paths: { outputPath: `/private/recording-${prepared.id}.mp4` },
+          result: { failureCode: null, status: "passed" },
+          status: "completed",
         };
       },
     },
@@ -39,7 +39,12 @@ test("completes two isolated recordings strictly in sequence", async () => {
     temporaryRoot: "/private/tmp",
   });
 
-  assert.deepEqual(calls, ["create:1", "stop:1", "create:2", "stop:2"]);
+  assert.deepEqual(calls, [
+    "prepare:1",
+    "record:1",
+    "prepare:2",
+    "record:2",
+  ]);
   assert.deepEqual(result, {
     attempts: [
       {
@@ -49,6 +54,8 @@ test("completes two isolated recordings strictly in sequence", async () => {
         outputPath: "/private/recording-2.mp4",
       },
     ],
+    contractVersion: 1,
+    surface: "chrome",
     status: "passed",
   });
 });

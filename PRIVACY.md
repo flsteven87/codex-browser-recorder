@@ -1,11 +1,11 @@
 # Privacy
 
 Browser Recorder for Codex is designed for private, local recording of one
-explicitly approved non-sensitive Browser test flow.
+explicitly approved non-sensitive Chrome Browser test flow.
 
 ## Local processing
 
-- Frames are processed by the local Browser Node runtime and local FFmpeg and
+- Frames are processed by the local plugin Node runtime and local FFmpeg and
   are not placed in model context by the skill.
 - The plugin does not automatically upload, share, retain remotely, or send
   telemetry.
@@ -14,9 +14,9 @@ explicitly approved non-sensitive Browser test flow.
   load and run; use only a public, logged-out, non-sensitive fixture.
 - The recording contains the complete visible page viewport, including all
   visible embedded frames. Browser chrome and other tabs are excluded.
-- A fresh tab may reuse the selected Browser's existing session. The plugin does
+- A fresh tab may reuse Chrome's existing session. The plugin does
   not inspect cookies or storage, but existing session state can affect rendered
-  content. Use a logged-out Browser context without sensitive or personalized
+  content. Use a logged-out Chrome profile without sensitive or personalized
   content.
 - Raw frames, page text, full URLs, CDP payloads, subprocess output,
   credentials, and internal plugin paths are excluded from result JSON and
@@ -32,9 +32,9 @@ explicitly approved non-sensitive Browser test flow.
   the occurrence time in result JSON. The plugin does not read event targets,
   selectors, form values, storage, credentials, or network traffic.
 
-The bounded cursor timeline is held locally only long enough to composite the
-project-owned cursor and click feedback. It is not written beside the Saved
-Recording or returned in result JSON.
+For a pointer flow, the bounded cursor timeline is held locally only long enough
+to composite the project-owned cursor and click feedback. It is not written
+beside the Saved Recording or returned in result JSON.
 
 The local result contains only bounded counters, media validation metadata, an
 output filename, and an allowlisted status or failure code with its fixed
@@ -64,7 +64,7 @@ absolute output path.
 Obtain informed consent from everyone whose information may appear. Do not
 record passwords, payment data, passkeys, account-recovery secrets, health
 data, confidential communications, or other sensitive authenticated flows.
-Before consent, confirm that the selected Browser is logged out of the target
+Before consent, confirm that Chrome is logged out of the target
 and that no visible top-level or embedded-frame content is sensitive or
 personalized. The user is responsible for choosing an appropriate target,
 limiting approved actions, protecting the local output, and deleting it when it

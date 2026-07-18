@@ -1,6 +1,19 @@
 # Support
 
 Browser Recorder for Codex `v0.3.0` has a deliberately narrow support boundary.
+The 2026-07-19 OpenAI resubmission candidate contains runtime fixes that are not
+present in the original 2026-07-18 GitHub `v0.3.0` tag and archive.
+
+## Browser support
+
+| Surface | Status | Behavior |
+| --- | --- | --- |
+| Chrome plugin and extension | Supported release target | Every candidate must pass the real Chrome contract and full MP4 smoke before submission. |
+| Codex in-app Browser | Unsupported in this release | Preparation returns `browser_surface_unsupported` before consent or Browser activity. |
+
+The recorder does not switch surfaces after a failure. Deterministic tests cover
+cross-origin and out-of-process embedded frames, but they are not a claim of
+real-browser OOPIF compatibility.
 
 ## Local preflight
 
@@ -23,7 +36,8 @@ steps.
 Use a [GitHub issue](https://github.com/flsteven87/codex-browser-recorder/issues/new/choose)
 for a reproducible, non-sensitive bug or usage question. Include only the
 affected commit or plugin version, operating-system version, Codex desktop app
-version, selected Browser, redacted FFmpeg/FFprobe version information, the
+version, Chrome and extension versions, redacted FFmpeg/FFprobe version
+information, the
 allowlisted status or failure code, and bounded capture counters when relevant.
 Include the Node.js version only for repository development failures. A fully
 public, synthetic, no-login fixture URL may be included when it is required for
@@ -44,6 +58,6 @@ Do not open a public issue for a vulnerability or sensitive recording content.
 
 Authenticated or sensitive flows, existing-tab capture, multiple tabs,
 cross-origin top-level navigation, audio, non-loopback HTTP targets,
-browser-profile inspection, uploads, sharing, alternate video formats, and
-remote storage are unsupported. Support requests cannot make those flows safe
-or supported.
+browser-profile inspection, the Codex in-app Browser, uploads, sharing,
+alternate video formats, and remote storage are unsupported. Support requests
+cannot make those flows safe or supported.

@@ -76,9 +76,15 @@ const MESSAGE_GROUPS = [
       "cdp_unavailable",
       "plugin_module_unavailable",
     ],
-    summary: "The required Browser recording capability is unavailable",
+    summary: "The required Chrome recording capability is unavailable",
     remediation:
-      "Install or enable the Browser plugin and approve full CDP access, then retry",
+      "Install or enable the Chrome plugin and extension, approve full CDP access, then retry",
+  },
+  {
+    codes: ["browser_surface_unsupported"],
+    summary: "The selected Browser surface does not satisfy the recording contract",
+    remediation:
+      "Use the supported Chrome Browser surface; the Codex in-app Browser is not supported by this recorder release",
   },
   {
     codes: [
@@ -121,7 +127,7 @@ const MESSAGE_GROUPS = [
     ],
     summary: "The Browser frame stream could not be recorded safely",
     remediation:
-      "Keep the tab visible, confirm full CDP approval, and retry the recording",
+      "Use the supported Chrome Browser surface, keep the tab visible, confirm full CDP approval, and retry the recording",
   },
   {
     codes: [

@@ -5,7 +5,6 @@ import {
 } from "./cursor-recording.mjs";
 import {
   createFfmpegSink,
-  parseScreencastFrame,
   startFramePump,
 } from "./media-recorder.mjs";
 import {
@@ -98,65 +97,6 @@ function createFrameDeadline(timeoutMs) {
     },
     promise,
   };
-}
-
-async function capturePageFrame({ cdp, maxDecodedBytes, signal }) {
-  try {
-    const screenshot = await awaitAbortable(
-      cdp.send("Page.captureScreenshot", {
-        captureBeyondViewport: false,
-        format: "jpeg",
-        fromSurface: true,
-        quality: RECORDING_JPEG_QUALITY,
-      }),
-      signal,
-    );
-    return parseScreencastFrame(
-      {
-        method: "Page.screencastFrame",
-        params: {
-          data: screenshot?.data,
-          metadata: {},
-          sessionId: 0,
-        },
-      },
-      maxDecodedBytes,
-    ).jpeg;
-  } catch (error) {
-    if (error?.code === "recording_cancelled") throw error;
-    throw new BrowserRecordingError(
-      "frame_stream_unavailable",
-      "The page frame could not be captured",
-    );
-  }
-}
-
-async function captureApprovedPageFrame({
-  approvedOrigin,
-  cdp,
-  deadline,
-  maxDecodedBytes,
-  signal,
-}) {
-  const screenshot = await Promise.race([
-    capturePageFrame({ cdp, maxDecodedBytes, signal }),
-    deadline.promise,
-  ]);
-  try {
-    await Promise.race([
-      inspectTopLevelFrame({ approvedOrigin, cdp }),
-      deadline.promise,
-    ]);
-  } catch (error) {
-    if (error?.code === "origin_not_allowed") {
-      throw new BrowserRecordingError(
-        "origin_changed_during_recording",
-        "The recording page left the approved origin",
-      );
-    }
-    throw error;
-  }
-  return screenshot;
 }
 
 async function readOutputSize(outputPath) {
@@ -383,7 +323,6 @@ export async function startBrowserRecording({
     throw startupCancellation ?? error;
   }
   let startedAt = null;
-  let initialFrameSeeded = false;
   let stopPromise = null;
   const acceptFrame = (jpeg) => {
     if (stopPromise !== null) return false;
@@ -397,32 +336,16 @@ export async function startBrowserRecording({
   const pump = startFramePump({
     cdp,
     initialCursor: baseline.cursor,
-    mainFrameId,
     maxDecodedBytes,
-    onFrame: async () => {
-      const deadline = initialFrameSeeded
-        ? createFrameDeadline(firstFrameTimeoutMs)
-        : firstFrameDeadline;
-      try {
-        const screenshot = await captureApprovedPageFrame({
-          approvedOrigin,
-          cdp,
-          deadline,
-          maxDecodedBytes,
-          signal,
-        });
-        if (acceptFrame(screenshot) === false) {
-          if (stopPromise !== null) return false;
-          throw new BrowserRecordingError(
-            "frame_stream_unavailable",
-            "The page frame could not be recorded",
-          );
-        }
-        initialFrameSeeded = true;
-        return true;
-      } finally {
-        if (deadline !== firstFrameDeadline) deadline.clear();
+    onFrame: async (frame) => {
+      if (acceptFrame(frame.jpeg) === false) {
+        if (stopPromise !== null) return false;
+        throw new BrowserRecordingError(
+          "frame_stream_unavailable",
+          "The page frame could not be recorded",
+        );
       }
+      return true;
     },
     onTopFrameNavigation(url) {
       if (originOf(url) !== approvedOrigin) {
@@ -553,6 +476,20 @@ export async function startBrowserRecording({
     let pumpError = null;
     let renderedCursor = null;
 
+    if (terminationError === null && !signal?.aborted) {
+      try {
+        await inspectTopLevelFrame({ approvedOrigin, cdp });
+      } catch (error) {
+        pumpError =
+          error?.code === "origin_not_allowed"
+            ? new BrowserRecordingError(
+                "origin_changed_during_recording",
+                "The recording page left the approved origin",
+              )
+            : error;
+      }
+    }
+
     const pumpStop = pump.stop();
     void pumpStop.catch(() => {});
 
@@ -565,7 +502,7 @@ export async function startBrowserRecording({
     try {
       await pumpStop;
     } catch (error) {
-      pumpError = error;
+      pumpError ??= error;
     }
 
     try {

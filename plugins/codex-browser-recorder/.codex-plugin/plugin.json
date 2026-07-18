@@ -1,7 +1,7 @@
 {
   "name": "codex-browser-recorder",
   "version": "0.3.0",
-  "description": "Preflight local requirements or save one approved Codex Browser test flow as a local H.264 MP4 with a visible cursor.",
+  "description": "Preflight local requirements or save one approved Chrome Browser test flow as a local H.264 MP4 with pointer feedback when applicable.",
   "author": {
     "name": "Steven Wu",
     "url": "https://github.com/flsteven87"
@@ -19,21 +19,21 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Codex Browser Recorder",
-    "shortDescription": "Preflight or save a Browser flow as MP4.",
-    "longDescription": "Checks local recording requirements without Browser activity, or saves one approved Browser test flow with visible cursor and click feedback as a validated, audio-free H.264 MP4.",
+    "shortDescription": "Preflight or save a Chrome flow as MP4.",
+    "longDescription": "Checks local recording requirements without Browser activity, or saves one approved Chrome Browser test flow as a validated, audio-free H.264 MP4 with visible cursor and click feedback for pointer actions.",
     "developerName": "Steven Wu",
     "category": "Developer Tools",
     "capabilities": [
       "Read-only local recording preflight",
-      "Local Browser test-flow recording with a visible cursor"
+      "Local Chrome Browser test-flow recording with pointer cursor and click feedback"
     ],
     "websiteURL": "https://github.com/flsteven87/codex-browser-recorder",
     "privacyPolicyURL": "https://github.com/flsteven87/codex-browser-recorder/blob/main/PRIVACY.md",
     "termsOfServiceURL": "https://github.com/flsteven87/codex-browser-recorder/blob/main/TERMS.md",
     "defaultPrompt": [
       "Use $record-browser to preflight local recording requirements without opening a Browser tab.",
-      "Use $record-browser to save one approved same-origin navigation flow as a local MP4.",
-      "Use $record-browser to record one approved pointer-driven Browser flow with a visible cursor."
+      "Use $record-browser to save one approved same-origin Chrome navigation flow as a local MP4.",
+      "Use $record-browser to record one approved pointer-driven Chrome flow with a visible cursor."
     ],
     "brandColor": "#E5484D",
     "composerIcon": "./assets/icon.png",

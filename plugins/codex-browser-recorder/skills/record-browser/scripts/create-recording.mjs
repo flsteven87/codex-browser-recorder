@@ -23,6 +23,7 @@ export { describeRecordingFailure };
 const ACTIVE_RECORDING_KEY = Symbol.for("codex-browser-recorder.active");
 const ACTION_EVIDENCE_INTERVAL_MS = 50;
 const ACTION_EVIDENCE_TIMEOUT_MS = 1000;
+const POINTER_VISUAL_TAIL_MS = 200;
 const CLEANUP_DEADLINE_MS = 5000;
 const FINALIZATION_DEADLINE_MS = 10_000;
 const TERMINAL_STATES = new Set(["cancelled", "completed", "failed"]);
@@ -434,10 +435,12 @@ export function createRecording(options) {
   let artifactTransaction;
   let actionFailure;
   let actionInFlight = false;
+  let pointerActionInFlight = false;
   let forcedFailureCode;
   let recordingDeadlineMs;
   let sessionRequiresPointerEvidence;
   let finalizationPromise;
+  let tabClosePromise;
   let terminal = false;
   let ownsFreshTab = false;
   let rejectFinished;
@@ -593,6 +596,7 @@ export function createRecording(options) {
     }
 
     actionInFlight = true;
+    pointerActionInFlight = requiresPointerEvidence;
     try {
       const beforeEvents = inner.captureSnapshot()?.cursorEventsCaptured;
       const actionStartedAtEpochMs = clockNow(dependencies.clock);
@@ -608,33 +612,60 @@ export function createRecording(options) {
           actionStartedAtEpochMs,
           beforeEvents,
         });
+        await waitForClockDelay(
+          dependencies.clock,
+          POINTER_VISUAL_TAIL_MS,
+          cancellation.signal,
+        );
+        if (state !== "recording") {
+          throw sanitizeRecordingFailure({
+            code: "cursor_recording_failed",
+          });
+        }
       }
       return result;
     } catch (error) {
       return failAction(error);
     } finally {
       actionInFlight = false;
+      pointerActionInFlight = false;
     }
   }
 
-  async function closeFreshTab() {
+  function closeFreshTab() {
     if (!ownsFreshTab || freshTab == null) return;
+    if (tabClosePromise !== undefined) return tabClosePromise;
     const tab = freshTab;
-    freshTab = null;
-    const cleanup = await settleBeforeDeadline(
-      closeTabBestEffort(tab),
-      dependencies.clock,
-    );
-    if (cleanup.status !== "fulfilled") {
-      throw sanitizeBrowserFailure(cleanup.reason, {
-        browserTabCleanupIncomplete: true,
-      });
-    }
+    tabClosePromise = (async () => {
+      let cleanup;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        cleanup = await settleBeforeDeadline(
+          closeTabBestEffort(tab),
+          dependencies.clock,
+        );
+        if (cleanup.status === "fulfilled") break;
+        if (cleanup.status !== "rejected") break;
+      }
+      if (cleanup?.status !== "fulfilled") {
+        throw sanitizeBrowserFailure(cleanup?.reason, {
+          browserTabCleanupIncomplete: true,
+        });
+      }
+      if (freshTab === tab) {
+        freshTab = null;
+        ownsFreshTab = false;
+      }
+    })();
+    return tabClosePromise;
   }
 
   function finish({ cancelPending }) {
     if (actionInFlight) {
-      latchActionFailure({ code: "integration_failed" });
+      latchActionFailure({
+        code: pointerActionInFlight
+          ? "cursor_recording_failed"
+          : "integration_failed",
+      });
       cancellation.abort();
     }
     if (cancelPending && ["preparing", "awaiting_frame"].includes(state)) {
@@ -662,23 +693,22 @@ export function createRecording(options) {
             throw finalization.reason;
           }
           const output = finalization.value;
+          let terminalOutput = output;
           try {
             await closeFreshTab();
           } catch (cleanupError) {
-            if (output?.result?.status !== "failed") throw cleanupError;
             const cleanup = getRecordingCleanupDetails(cleanupError);
-            throw sanitizeRecordingFailure(
-              {
-                code: output.result.failureCode ?? "recording_failed",
-              },
-              {
+            terminalOutput = {
+              ...output,
+              cleanup: {
+                ...output?.cleanup,
                 browserTabCleanupIncomplete:
                   cleanup?.browserTabCleanupIncomplete === true,
               },
-            );
+            };
           }
-          setTerminalState(output);
-          return output;
+          setTerminalState(terminalOutput);
+          return terminalOutput;
         } catch (error) {
           let browserTabCleanupIncomplete = false;
           try {

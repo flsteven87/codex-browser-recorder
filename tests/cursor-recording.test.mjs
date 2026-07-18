@@ -84,7 +84,7 @@ function visibleBounds(videoPath, frameIndex) {
   return maxX < 0 ? null : { maxX, maxY, minX, minY };
 }
 
-test("starts cursor capture at the current retained IAB event baseline", async () => {
+test("starts cursor capture at the retained Browser event baseline", async () => {
   const eventRead = deferred();
   const reads = [];
   const cdp = {
@@ -1207,6 +1207,62 @@ test("renders first-event visibility, movement, and a bounded click ring", async
     assert.deepEqual(probe.streams, [
       { codec_name: "h264", codec_type: "video", pix_fmt: "yuv420p" },
     ]);
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("renders a final click inside the bounded pointer visual tail", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "cursor-tail-test-"));
+  const inputPath = join(directory, "base.mp4");
+  const outputPath = join(directory, "cursor.mp4");
+  try {
+    execFileSync(
+      ffmpegPath,
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=#204060:s=320x180:r=10:d=0.4",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-y",
+        inputPath,
+      ],
+      { stdio: "pipe" },
+    );
+
+    await renderCursorRecording({
+      ffmpegPath,
+      inputPath,
+      outputPath,
+      timeline: {
+        durationMs: 301,
+        events: [
+          {
+            atMs: 101,
+            button: 0,
+            buttons: 1,
+            frameId: "main-frame",
+            type: "down",
+            x: 160,
+            y: 90,
+          },
+        ],
+        viewport: { height: 180, width: 320 },
+      },
+    });
+
+    assert.equal(visibleBounds(outputPath, 1), null);
+    const tailFrame = visibleBounds(outputPath, 2);
+    assert.ok(tailFrame.minX < 150);
+    assert.ok(tailFrame.maxX > 180);
   } finally {
     rmSync(directory, { force: true, recursive: true });
   }

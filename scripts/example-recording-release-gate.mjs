@@ -1,29 +1,46 @@
-import { createRecording } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/create-recording.mjs";
+import {
+  prepareRecording,
+  recordApproved,
+} from "../plugins/codex-browser-recorder/skills/record-browser/scripts/record-browser-flow.mjs";
 
 export const EXAMPLE_PAGE_URL = "https://example.com/";
 
 export async function runExampleRecordingReleaseGate({
-  _dependencies = { createRecording },
   browser,
+  dependencies = { prepareRecording, recordApproved },
   durationMs = 12_000,
   signal,
+  targetUrl = EXAMPLE_PAGE_URL,
   temporaryRoot,
 }) {
   const attempts = [];
-  const tabs = [];
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const handle = _dependencies.createRecording({
-      browser,
+    const prepared = await dependencies.prepareRecording({
+      actions: [],
+      browserSurface: "chrome",
       destinationDirectory: temporaryRoot,
       durationMs,
-      signal,
-      targetUrl: EXAMPLE_PAGE_URL,
+      durationWasExplicit: true,
+      recordingName: `release-gate-${attempt + 1}`,
+      targetUrl,
       temporaryRoot,
     });
-    const tab = await handle.ready;
-    const output = await handle.stop();
+    if (prepared?.status !== "prepared") {
+      throw Object.assign(new Error("Example recording preflight failed"), {
+        code: prepared?.blockers?.[0]?.code ?? "release_gate_failed",
+      });
+    }
+    const output = await dependencies.recordApproved(prepared, {
+      browser,
+      signal,
+    });
     if (
-      output?.result?.status !== "passed" ||
+      output?.status !== "completed" ||
+      output.result?.status !== "passed" ||
+      output.cleanup?.artifactCleanupIncomplete === true ||
+      output.cleanup?.browserTabCleanupIncomplete === true ||
+      output.cleanup?.directory != null ||
+      output.cleanup?.file != null ||
       typeof output?.paths?.outputPath !== "string" ||
       output.paths.outputPath.length === 0
     ) {
@@ -32,16 +49,17 @@ export async function runExampleRecordingReleaseGate({
       });
     }
     attempts.push({ outputPath: output.paths.outputPath });
-    tabs.push(tab);
   }
 
-  if (
-    tabs[0] === tabs[1] ||
-    attempts[0].outputPath === attempts[1].outputPath
-  ) {
+  if (attempts[0].outputPath === attempts[1].outputPath) {
     throw Object.assign(new Error("Example recording isolation check failed"), {
       code: "release_gate_isolation_failed",
     });
   }
-  return { attempts, status: "passed" };
+  return {
+    attempts,
+    contractVersion: 1,
+    status: "passed",
+    surface: "chrome",
+  };
 }
