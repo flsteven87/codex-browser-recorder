@@ -17,9 +17,13 @@ function githubAnchors(source) {
   for (const line of source.split("\n")) {
     const heading = line.match(/^#{1,6}\s+(.+?)\s*#*\s*$/u)?.[1];
     if (heading === undefined) continue;
+    assert.doesNotMatch(
+      heading,
+      /[<>]/u,
+      "public Markdown headings must not contain inline HTML",
+    );
     let anchor = heading
       .toLowerCase()
-      .replace(/<[^>]*>/gu, "")
       .replace(/[^\p{L}\p{N}\s-]/gu, "")
       .trim()
       .replace(/\s+/gu, "-");
