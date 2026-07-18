@@ -1,6 +1,6 @@
 # Support
 
-Browser Recorder for Codex `v0.2.3` has a deliberately narrow support boundary.
+Browser Recorder for Codex `v0.3.0` has a deliberately narrow support boundary.
 
 ## Local preflight
 
