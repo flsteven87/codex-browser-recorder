@@ -1,8 +1,8 @@
 # Support
 
-Browser Recorder for Codex `v0.3.0` has a deliberately narrow support boundary.
-The 2026-07-19 OpenAI resubmission candidate contains runtime fixes that are not
-present in the original 2026-07-18 GitHub `v0.3.0` tag and archive.
+Browser Recorder for Codex `v0.3.1` has a deliberately narrow support boundary.
+It supersedes the original 2026-07-18 GitHub `v0.3.0` plugin tree with the
+runtime fixes prepared for OpenAI resubmission.
 
 ## Browser support
 

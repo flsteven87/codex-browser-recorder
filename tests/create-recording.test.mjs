@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
   createRecording,
   describeRecordingFailure,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/create-recording.mjs";
+import {
+  createRecordingArtifactTransaction,
+} from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-artifacts.mjs";
 import {
   getRecordingCleanupDetails,
   sanitizeRecordingFailure,
@@ -63,6 +69,7 @@ function createFakeClock() {
 }
 
 function createHarness({
+  approvedOriginAttestation = async () => {},
   autoReady = true,
   autoStop = true,
   capture = { framesReceived: 12 },
@@ -75,7 +82,13 @@ function createHarness({
   const completionDeferred = deferred();
   const stopDeferred = deferred();
   const clock = createFakeClock();
-  const calls = { startRecording: 0, stop: 0, tabClose: 0, tabNew: 0 };
+  const calls = {
+    assertApprovedOrigin: 0,
+    startRecording: 0,
+    stop: 0,
+    tabClose: 0,
+    tabNew: 0,
+  };
   const paths = {
     directory: "/private/recording",
     outputPath: "/private/recording/recording.mp4",
@@ -89,6 +102,10 @@ function createHarness({
   if (autoStop) stopDeferred.resolve(stopOutput);
 
   const inner = {
+    async assertApprovedOrigin() {
+      calls.assertApprovedOrigin += 1;
+      return approvedOriginAttestation();
+    },
     completion: completionDeferred.promise,
     ready: readyDeferred.promise,
     stats: {
@@ -372,6 +389,65 @@ test("runs a pointer action only after fresh evidence crosses its boundary", asy
   assert.equal(result, "clicked");
   assert.equal(actionsPerformed, 1);
   await handle.stop();
+});
+
+test("re-attests the approved origin before a sequential action may continue", async () => {
+  const attestation = deferred();
+  const harness = createHarness({
+    approvedOriginAttestation: () => attestation.promise,
+    autoStop: false,
+  });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  let secondActionPerformed = false;
+  const sequence = (async () => {
+    await handle.runAction({
+      perform: () => "first action",
+      requiresPointerEvidence: false,
+    });
+    return handle.runAction({
+      perform() {
+        secondActionPerformed = true;
+      },
+      requiresPointerEvidence: false,
+    });
+  })();
+  void sequence.catch(() => {});
+  await settleWorkflow();
+
+  assert.equal(harness.calls.assertApprovedOrigin, 1);
+  assert.equal(secondActionPerformed, false);
+
+  attestation.reject(
+    Object.assign(new Error("private foreign-origin diagnostic"), {
+      code: "origin_changed_during_recording",
+    }),
+  );
+  await settleWorkflow();
+  assert.equal(
+    harness.rawFinalizationOptions.failureCode,
+    "origin_changed_during_recording",
+  );
+  harness.stopDeferred.resolve({
+    paths: {},
+    result: {
+      failureCode: "origin_changed_during_recording",
+      status: "failed",
+    },
+  });
+
+  await assert.rejects(sequence, (error) => {
+    assert.equal(error.code, "origin_changed_during_recording");
+    assert.doesNotMatch(JSON.stringify(error), /foreign-origin diagnostic/);
+    return true;
+  });
+  assert.equal(secondActionPerformed, false);
+  assert.deepEqual((await handle.stop()).paths, {});
 });
 
 test("waits for fresh pointer evidence within the bounded grace period", async () => {
@@ -1298,6 +1374,105 @@ test("a timed-out finalization cannot publish after its capture resolves late", 
   await settleWorkflow();
   assert.equal(finalization.failureCode, "recording_cancelled");
   assert.equal(published, false);
+});
+
+test("a timed-out artifact finalization cannot publish after validation resolves late", async () => {
+  const repositoryRoot = await mkdtemp(
+    join(tmpdir(), "browser-recorder-finalization-fence-"),
+  );
+  const destinationDirectory = join(repositoryRoot, "saved");
+  const temporaryRoot = join(repositoryRoot, "working");
+  await mkdir(temporaryRoot);
+  const validationGate = deferred();
+  const clock = createFakeClock();
+  let underlyingFinalization;
+
+  try {
+    const handle = createRecording({
+      _dependencies: {
+        clock,
+        async createRecordingArtifactTransaction(options) {
+          const transaction = await createRecordingArtifactTransaction({
+            ...options,
+            _dependencies: {
+              async validateVideo() {
+                await validationGate.promise;
+                return {
+                  codecName: "h264",
+                  durationSeconds: 0.1,
+                  height: 720,
+                  sizeBytes: 200,
+                  width: 1280,
+                };
+              },
+            },
+          });
+          return {
+            capturePath: transaction.capturePath,
+            finalize(options) {
+              underlyingFinalization = transaction.finalize(options);
+              return underlyingFinalization;
+            },
+            rollback: transaction.rollback,
+          };
+        },
+        async doctor() {
+          return {
+            blockingReasons: [],
+            ffmpegPath: "/opt/ffmpeg",
+            ffprobePath: "/opt/ffprobe",
+            supported: true,
+          };
+        },
+        async startBrowserRecordingForTab({ outputPath }) {
+          await writeFile(outputPath, Buffer.alloc(200, 1));
+          return {
+            completion: new Promise(() => {}),
+            ready: Promise.resolve(),
+            stats: { cursor: {}, framePump: {}, resources: {}, sink: {} },
+            async stop() {
+              return { elapsedMs: 100, framesReceived: 1 };
+            },
+          };
+        },
+      },
+      browser: {
+        tabs: {
+          async new() {
+            return {
+              capabilities: {
+                async get() {
+                  return { readEvents() {}, send() {} };
+                },
+              },
+              async close() {},
+              async goto() {},
+            };
+          },
+        },
+      },
+      destinationDirectory,
+      recordingName: "recording",
+      targetUrl: "https://example.com/",
+      temporaryRoot,
+    });
+
+    await handle.ready;
+    const stopping = handle.stop();
+    await settleWorkflow();
+    clock.advance(10_000);
+    await assert.rejects(stopping, { code: "integration_failed" });
+    await assert.rejects(access(join(destinationDirectory, "recording.mp4")));
+
+    validationGate.resolve();
+    await assert.rejects(underlyingFinalization, {
+      code: "recording_cancelled",
+    });
+    await assert.rejects(access(join(destinationDirectory, "recording.mp4")));
+  } finally {
+    validationGate.resolve();
+    await rm(repositoryRoot, { force: true, recursive: true });
+  }
 });
 
 test("an external abort cannot publish after earlier pointer evidence", async () => {

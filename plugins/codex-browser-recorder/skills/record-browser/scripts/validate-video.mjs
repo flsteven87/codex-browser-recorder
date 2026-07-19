@@ -80,7 +80,14 @@ export async function validateVideo({
   maxWidth,
   minBytes,
   outputPath,
+  signal,
 }) {
+  if (signal != null && !(signal instanceof AbortSignal)) {
+    throw new VideoValidationError(
+      "invalid_configuration",
+      "Video validation configuration is invalid",
+    );
+  }
   validateConfiguration({
     durationToleranceSeconds,
     expectedDurationSeconds,
@@ -118,7 +125,7 @@ export async function validateVideo({
         "json",
         outputPath,
       ],
-      { encoding: "utf8", maxBuffer: 1024 * 1024 },
+      { encoding: "utf8", maxBuffer: 1024 * 1024, signal },
     );
     probe = JSON.parse(stdout);
   } catch {

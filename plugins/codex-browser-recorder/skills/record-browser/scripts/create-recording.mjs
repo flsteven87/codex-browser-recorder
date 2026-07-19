@@ -368,6 +368,12 @@ async function startRecordingTransaction({
   }
 
   return {
+    assertApprovedOrigin() {
+      if (typeof session.assertApprovedOrigin !== "function") {
+        throw sanitizeRecordingFailure({ code: "integration_failed" });
+      }
+      return session.assertApprovedOrigin();
+    },
     completion: session.completion,
     ready,
     captureSnapshot() {
@@ -578,6 +584,16 @@ export function createRecording(options) {
     }
   }
 
+  async function assertActionBoundaryOrigin() {
+    await awaitAbortable(
+      Promise.resolve().then(() => inner.assertApprovedOrigin()),
+      cancellation.signal,
+    );
+    if (state !== "recording") {
+      throw sanitizeRecordingFailure({ code: "integration_failed" });
+    }
+  }
+
   async function runAction({ perform, requiresPointerEvidence } = {}) {
     if (
       typeof perform !== "function" ||
@@ -598,15 +614,14 @@ export function createRecording(options) {
     actionInFlight = true;
     pointerActionInFlight = requiresPointerEvidence;
     try {
+      await assertActionBoundaryOrigin();
       const beforeEvents = inner.captureSnapshot()?.cursorEventsCaptured;
       const actionStartedAtEpochMs = clockNow(dependencies.clock);
       const result = await awaitAbortable(
         Promise.resolve().then(perform),
         cancellation.signal,
       );
-      if (state !== "recording") {
-        throw sanitizeRecordingFailure({ code: "integration_failed" });
-      }
+      await assertActionBoundaryOrigin();
       if (requiresPointerEvidence) {
         await waitForPointerEvidence({
           actionStartedAtEpochMs,
@@ -617,6 +632,7 @@ export function createRecording(options) {
           POINTER_VISUAL_TAIL_MS,
           cancellation.signal,
         );
+        await assertActionBoundaryOrigin();
         if (state !== "recording") {
           throw sanitizeRecordingFailure({
             code: "cursor_recording_failed",

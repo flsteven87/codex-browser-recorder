@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -19,6 +25,26 @@ const emptyPath = join(directory, "empty.mp4");
 const corruptPath = join(directory, "corrupt.mp4");
 const ffmpegPath = resolveExecutable("ffmpeg");
 const ffprobePath = resolveExecutable("ffprobe");
+const hangingProbePath = join(directory, "hanging-ffprobe.js");
+const hangingProbeStartedPath = join(directory, "hanging-ffprobe-started");
+const hangingProbeTerminatedPath = join(
+  directory,
+  "hanging-ffprobe-terminated",
+);
+
+writeFileSync(
+  hangingProbePath,
+  `#!/usr/bin/env node
+const { writeFileSync } = require("node:fs");
+writeFileSync(${JSON.stringify(hangingProbeStartedPath)}, "started");
+process.on("SIGTERM", () => {
+  writeFileSync(${JSON.stringify(hangingProbeTerminatedPath)}, "terminated");
+  process.exit(0);
+});
+setInterval(() => {}, 1000);
+`,
+);
+chmodSync(hangingProbePath, 0o700);
 
 execFileSync(ffmpegPath, [
   "-hide_banner",
@@ -150,6 +176,15 @@ const defaults = {
   minBytes: 100,
 };
 
+async function waitForFile(path, timeoutMs = 2_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(path)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return existsSync(path);
+}
+
 test("accepts a parseable video with plausible dimensions and duration", async () => {
   const result = await validateVideo({ ...defaults, outputPath: validPath });
 
@@ -158,6 +193,22 @@ test("accepts a parseable video with plausible dimensions and duration", async (
   assert.equal(result.height, 180);
   assert.ok(result.durationSeconds > 0);
   assert.ok(result.sizeBytes >= defaults.minBytes);
+});
+
+test("aborts the production FFprobe subprocess when validation is cancelled", async () => {
+  const cancellation = new AbortController();
+  const validation = validateVideo({
+    ...defaults,
+    ffprobePath: hangingProbePath,
+    outputPath: validPath,
+    signal: cancellation.signal,
+  });
+
+  assert.equal(await waitForFile(hangingProbeStartedPath), true);
+  cancellation.abort();
+
+  await assert.rejects(validation, (error) => error.code === "ffprobe_failed");
+  assert.equal(await waitForFile(hangingProbeTerminatedPath), true);
 });
 
 test("rejects an empty output file", async () => {

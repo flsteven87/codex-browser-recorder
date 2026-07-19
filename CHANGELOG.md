@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-07-19
+
+This patch release is the OpenAI resubmission candidate that supersedes the
+original `v0.3.0` plugin tree. Historical `v0.3.0` release artifacts remain
+unchanged for audit and reproduction.
+
+### Changed
+
+- Re-attest the current top-level page through CDP after every approved Browser
+  action, before pointer evidence, visual-tail handling, or the next sequential
+  action may proceed.
+- Propagate recording cancellation into FFprobe validation so a terminal
+  recording no longer leaves an unbounded validator subprocess running.
+
+### Fixed
+
+- Prevent a delayed artifact validator from publishing a Saved Recording after
+  the public recording session has already timed out or failed. Cancellation is
+  now fenced across each durable-publication boundary and removes any exact
+  partial or committed file created by the cancelled transaction.
+- Close the action-boundary navigation race in which a same-origin action could
+  redirect the fresh tab to a different origin and allow the next approved
+  action to start before the asynchronous navigation event pump observed it.
+
 ## [0.3.0] - 2026-07-19
 
 This is the finalized OpenAI resubmission candidate. The original GitHub
