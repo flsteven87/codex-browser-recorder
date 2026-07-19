@@ -555,6 +555,7 @@ test("acquires a fresh CDP capability for every recording session", async () => 
         const methods = [];
         let reads = 0;
         const cdp = {
+          frameUrl: "https://example.com/start",
           async send(method) {
             methods.push(method);
             if (method === "Page.getFrameTree") {
@@ -562,7 +563,7 @@ test("acquires a fresh CDP capability for every recording session", async () => 
                 frameTree: {
                   frame: {
                     id: "main-frame",
-                    url: "https://example.com/start",
+                    url: cdp.frameUrl,
                   },
                 },
               };
@@ -646,6 +647,20 @@ test("acquires a fresh CDP capability for every recording session", async () => 
       tab,
     });
     await session.ready;
+    assert.deepEqual(await session.assertApprovedOrigin(), {
+      frameId: "main-frame",
+    });
+    if (index === 0) {
+      createdCdps[index].frameUrl =
+        "https://other.example/?token=must-not-leak";
+      await assert.rejects(
+        session.assertApprovedOrigin(),
+        (error) =>
+          error.code === "origin_changed_during_recording" &&
+          !JSON.stringify(error).includes("must-not-leak"),
+      );
+      createdCdps[index].frameUrl = "https://example.com/restored";
+    }
     await session.stop();
   }
 

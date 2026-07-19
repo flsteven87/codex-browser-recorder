@@ -368,6 +368,12 @@ async function startRecordingTransaction({
   }
 
   return {
+    assertApprovedOrigin() {
+      if (typeof session.assertApprovedOrigin !== "function") {
+        throw sanitizeRecordingFailure({ code: "integration_failed" });
+      }
+      return session.assertApprovedOrigin();
+    },
     completion: session.completion,
     ready,
     captureSnapshot() {
@@ -602,6 +608,10 @@ export function createRecording(options) {
       const actionStartedAtEpochMs = clockNow(dependencies.clock);
       const result = await awaitAbortable(
         Promise.resolve().then(perform),
+        cancellation.signal,
+      );
+      await awaitAbortable(
+        Promise.resolve().then(() => inner.assertApprovedOrigin()),
         cancellation.signal,
       );
       if (state !== "recording") {

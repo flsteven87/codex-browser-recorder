@@ -374,6 +374,23 @@ export async function startBrowserRecording({
     firstFrameDeadline.promise,
   ]).finally(() => firstFrameDeadline.clear());
 
+  async function assertApprovedOrigin() {
+    try {
+      return await awaitAbortable(
+        inspectTopLevelFrame({ approvedOrigin, cdp }),
+        signal,
+      );
+    } catch (error) {
+      if (error?.code === "origin_not_allowed") {
+        throw new BrowserRecordingError(
+          "origin_changed_during_recording",
+          "The recording page left the approved origin",
+        );
+      }
+      throw error;
+    }
+  }
+
   let durationTimer = null;
   void recordingReady.then(
     () => {
@@ -601,6 +618,7 @@ export async function startBrowserRecording({
   }
 
   return {
+    assertApprovedOrigin,
     completion,
     ready: recordingReady.catch(
       async (error) => {

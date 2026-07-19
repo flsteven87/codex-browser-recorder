@@ -152,8 +152,12 @@ export async function createRecordingArtifactTransaction({
   _dependencies,
   destinationDirectory,
   outputFilename,
+  signal,
   temporaryRoot,
 }) {
+  if (signal != null && !(signal instanceof AbortSignal)) {
+    throw sanitizeRecordingFailure({ code: "invalid_configuration" });
+  }
   validateSavedRecordingConfiguration({
     destinationDirectory,
     outputFilename,
@@ -248,6 +252,43 @@ export async function createRecordingArtifactTransaction({
   }
 
   async function finalize({ capture, failureCode = null, ffprobePath }) {
+    const cancellationCanFencePublication = failureCode === null;
+    let publishingPath;
+    let savedRecordingCommitted = false;
+    let savedRecordingPath;
+
+    async function throwIfPublicationCancelled() {
+      if (
+        !cancellationCanFencePublication ||
+        signal?.aborted !== true
+      ) {
+        return;
+      }
+
+      let cleanupFile;
+      if (savedRecordingCommitted) {
+        try {
+          await dependencies.rm(savedRecordingPath, { force: true });
+          savedRecordingCommitted = false;
+        } catch {
+          cleanupFile = savedRecordingPath;
+        }
+      }
+      if (publishingPath !== undefined) {
+        try {
+          await dependencies.rm(publishingPath, { force: true });
+        } catch {
+          cleanupFile ??= publishingPath;
+        }
+      }
+      const cleanupDirectory = await discardWorkingRecording();
+      throw sanitizeRecordingFailure(
+        { code: "recording_cancelled" },
+        { cleanupDirectory, cleanupFile },
+      );
+    }
+
+    await throwIfPublicationCancelled();
     let validation = null;
     if (failureCode === null) {
       try {
@@ -259,8 +300,10 @@ export async function createRecordingArtifactTransaction({
           maxWidth: RECORDING_MAX_WIDTH,
           minBytes: VIDEO_MINIMUM_BYTES,
           outputPath: capturePath,
+          signal,
         });
       } catch (error) {
+        await throwIfPublicationCancelled();
         if (!isVideoValidationFailure(error)) {
           const cleanupDirectory = await discardWorkingRecording();
           throw sanitizeRecordingFailure(error, { cleanupDirectory });
@@ -268,6 +311,7 @@ export async function createRecordingArtifactTransaction({
         failureCode = error.code;
       }
     }
+    await throwIfPublicationCancelled();
 
     let result = createRecordingOutcome({
       capture,
@@ -292,36 +336,45 @@ export async function createRecordingArtifactTransaction({
         { encoding: "utf8", flag: "wx", mode: 0o600 },
       );
     } catch {
+      await throwIfPublicationCancelled();
       throw sanitizeRecordingFailure(
         { code: "saved_recording_persistence_failed" },
         { cleanupDirectory: workingDirectory },
       );
     }
+    await throwIfPublicationCancelled();
 
     const recordingId = dependencies.randomUUID();
-    const publishingPath = join(
+    publishingPath = join(
       destinationDirectory,
       `.${outputFilename}.${recordingId}.partial`,
     );
-    let savedRecordingPath = join(destinationDirectory, outputFilename);
+    savedRecordingPath = join(destinationDirectory, outputFilename);
     try {
       await dependencies.copyFile(
         capturePath,
         publishingPath,
         constants.COPYFILE_EXCL,
       );
+      await throwIfPublicationCancelled();
       await dependencies.chmod(publishingPath, 0o600);
+      await throwIfPublicationCancelled();
       try {
         await dependencies.link(publishingPath, savedRecordingPath);
+        savedRecordingCommitted = true;
       } catch (error) {
         if (error?.code !== "EEXIST") throw error;
+        await throwIfPublicationCancelled();
         savedRecordingPath = join(
           destinationDirectory,
           collisionFilename(outputFilename, recordingId),
         );
         await dependencies.link(publishingPath, savedRecordingPath);
+        savedRecordingCommitted = true;
       }
+      await throwIfPublicationCancelled();
     } catch {
+      await throwIfPublicationCancelled();
       let cleanupFile;
       try {
         await dependencies.rm(publishingPath, { force: true });
@@ -350,6 +403,7 @@ export async function createRecordingArtifactTransaction({
       } catch {
         // A durable Saved Recording is already committed. Do not downgrade it.
       }
+      await throwIfPublicationCancelled();
     }
 
     let cleanupFile;
@@ -371,6 +425,7 @@ export async function createRecordingArtifactTransaction({
     } catch {
       cleanupDirectory = workingDirectory;
     }
+    await throwIfPublicationCancelled();
 
     return {
       paths: {

@@ -1,6 +1,6 @@
 {
   "name": "codex-browser-recorder",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Preflight local requirements or save one approved Chrome Browser test flow as a local H.264 MP4 with pointer feedback when applicable.",
   "author": {
     "name": "Steven Wu",

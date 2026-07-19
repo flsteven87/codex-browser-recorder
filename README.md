@@ -92,38 +92,38 @@ install the plugin. In Codex CLI, use `/plugins` to browse the configured source
 and install it, then start a new session. See the official [local marketplace
 guide](https://learn.chatgpt.com/docs/build-plugins#build-your-own-curated-plugin-list).
 
-To reproduce the original GitHub release, use its versioned tag rather than the
+To reproduce the latest GitHub release, use its versioned tag rather than the
 mutable `main` branch:
 
 ```sh
-git clone --branch v0.3.0 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
+git clone --branch v0.3.1 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
 codex plugin marketplace add /absolute/path/to/codex-browser-recorder
 ```
 
-That tag predates the 2026-07-19 runtime fixes prepared for OpenAI
-resubmission. It is an audit/reproduction source, not the checkout to use when
-testing this later candidate. For candidate testing, use the reviewed current
-repository checkout and record its full commit SHA locally.
+For candidate testing before the tag is published, use the reviewed current
+repository checkout and record its full commit SHA locally. The historical
+`v0.3.0` tag and assets remain unchanged and do not contain the two 0.3.1
+recording-boundary fixes.
 
 A Git tag is a version selector, not a cryptographic immutability guarantee. For
 strict reproducibility, pin the full release commit or compare the archive with
 a digest recorded independently of the mutable release assets. For the matching
-[v0.3.0 release page](https://github.com/flsteven87/codex-browser-recorder/releases/tag/v0.3.0),
-the release commit is `32bfdf995465122075ff18b712dc3e91605b9051` and the audited
-archive digest is:
+[v0.3.1 release page](https://github.com/flsteven87/codex-browser-recorder/releases/tag/v0.3.1),
+compare the release commit shown there with the tag and verify the separately
+published archive checksum:
 
 ```sh
-recorder_release=v0.3.0
+recorder_release=v0.3.1
 recorder_archive="codex-browser-recorder-${recorder_release}.zip"
-recorder_sha256="2f603b01dcd40fea0483038f79093ac41fed93de59afb6e98131dc5a6e6442e1"
 curl --fail --location --remote-name \
   "https://github.com/flsteven87/codex-browser-recorder/releases/download/${recorder_release}/${recorder_archive}"
-echo "${recorder_sha256}  ${recorder_archive}" | shasum -a 256 -c -
+curl --fail --location --remote-name \
+  "https://github.com/flsteven87/codex-browser-recorder/releases/download/${recorder_release}/${recorder_archive}.sha256"
+shasum -a 256 -c "${recorder_archive}.sha256"
 ```
 
-That digest verifies the original GitHub `v0.3.0` archive only. It neither
-contains nor verifies the later OpenAI portal resubmission candidate or a newer
-`main` commit that retains the same plugin version.
+The checksum verifies the versioned `v0.3.1` plugin archive only; it does not
+verify a newer `main` commit that retains the same plugin version.
 
 For non-interactive installation, the equivalent command is:
 
