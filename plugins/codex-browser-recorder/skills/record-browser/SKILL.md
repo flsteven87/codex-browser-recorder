@@ -73,7 +73,7 @@ const outcome = await recordApproved(preparation, {
 });
 ```
 
-The Recording Flow owns the fresh tab, navigation, CDP acquisition, first-frame gate, origin enforcement, per-action pointer evidence, duration, media validation, publication, rollback, tab closure, and singleton release. It consumes the preparation exactly once and returns one terminal outcome. Do not call lower-level recording modules, perform extra actions, retry approval, broaden the origin, enable Developer mode, install packages, or switch browsers.
+The Recording Flow owns the fresh tab, navigation, CDP acquisition, first-frame gate, origin enforcement, per-action pointer evidence, duration, media validation, publication, rollback, verified exact-tab cleanup, and singleton release. It consumes the preparation exactly once and returns one terminal outcome. Do not call lower-level recording modules, perform extra actions, retry approval, broaden the origin, enable Developer mode, install packages, or switch browsers.
 
 ## Report The Terminal Outcome
 
