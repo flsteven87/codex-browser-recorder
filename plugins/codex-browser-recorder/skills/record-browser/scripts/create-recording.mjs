@@ -148,13 +148,44 @@ function settleBeforeDeadline(
   });
 }
 
-function closeTabBestEffort(tab) {
-  return Promise.resolve().then(() => {
-    if (typeof tab?.close !== "function") {
-      throw new Error("Fresh Browser tab cannot be closed");
-    }
-    return tab.close();
-  });
+async function tabRemainsListed(browser, tab) {
+  if (
+    typeof tab?.id !== "string" ||
+    tab.id.length === 0 ||
+    typeof browser?.tabs?.list !== "function"
+  ) {
+    throw new Error("Browser tab inventory is unavailable");
+  }
+  const tabs = await browser.tabs.list();
+  if (!Array.isArray(tabs)) {
+    throw new Error("Browser tab inventory is unavailable");
+  }
+  return tabs.some((candidate) => candidate?.id === tab.id);
+}
+
+async function closeTabWithinRetryBudget(browser, tab, clock) {
+  let requiresClose = true;
+  let cleanup;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    cleanup = await settleBeforeDeadline(
+      (async () => {
+        if (requiresClose) {
+          if (typeof tab?.close !== "function") {
+            throw new Error("Fresh Browser tab cannot be closed");
+          }
+          await tab.close();
+          requiresClose = false;
+        }
+        if (await tabRemainsListed(browser, tab)) {
+          requiresClose = true;
+          throw new Error("Fresh Browser tab remained open after closure");
+        }
+      })(),
+      clock,
+    );
+    if (cleanup.status !== "rejected") break;
+  }
+  return cleanup;
 }
 
 async function createFreshTab(browser, signal, clock) {
@@ -170,15 +201,17 @@ async function createFreshTab(browser, signal, clock) {
     }
     if (creation.status === "timed_out") {
       void operation.then(
-        (lateTab) => closeTabBestEffort(lateTab).catch(() => {}),
+        (lateTab) =>
+          closeTabWithinRetryBudget(browser, lateTab, clock).catch(() => {}),
         () => {},
       );
       throw sanitizeRecordingFailure(error, {
         browserTabCleanupIncomplete: true,
       });
     }
-    const cleanup = await settleBeforeDeadline(
-      closeTabBestEffort(creation.value),
+    const cleanup = await closeTabWithinRetryBudget(
+      browser,
+      creation.value,
       clock,
     );
     if (cleanup.status !== "fulfilled") {
@@ -653,15 +686,11 @@ export function createRecording(options) {
     if (tabClosePromise !== undefined) return tabClosePromise;
     const tab = freshTab;
     tabClosePromise = (async () => {
-      let cleanup;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        cleanup = await settleBeforeDeadline(
-          closeTabBestEffort(tab),
-          dependencies.clock,
-        );
-        if (cleanup.status === "fulfilled") break;
-        if (cleanup.status !== "rejected") break;
-      }
+      const cleanup = await closeTabWithinRetryBudget(
+        options.browser,
+        tab,
+        dependencies.clock,
+      );
       if (cleanup?.status !== "fulfilled") {
         throw sanitizeBrowserFailure(cleanup?.reason, {
           browserTabCleanupIncomplete: true,

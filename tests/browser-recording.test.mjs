@@ -172,6 +172,7 @@ function createHarness({
 
 async function createHandle(harness) {
   const tab = {
+    id: "owned-recording-tab",
     capabilities: {
       async get() {
         return { readEvents() {}, send() {} };
@@ -193,7 +194,16 @@ async function createHandle(harness) {
         };
       },
     },
-    browser: { tabs: { async new() { return tab; } } },
+    browser: {
+      tabs: {
+        async list() {
+          return [];
+        },
+        async new() {
+          return tab;
+        },
+      },
+    },
     targetUrl: "https://example.com/",
     temporaryRoot: "/private/temporary",
   });

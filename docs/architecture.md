@@ -20,7 +20,7 @@ flowchart TD
   S --> A["Run fixed actions with automatic pointer evidence"]
   A --> M["Finalize frames, encoder, and cursor composition"]
   M --> V["Validate H.264 MP4 and atomically publish"]
-  V --> X["Clean private artifacts and close the owned tab"]
+  V --> X["Clean private artifacts and verify owned-tab closure"]
   X --> O["One completed, failed, or cancelled outcome"]
 ```
 
@@ -57,7 +57,7 @@ it is not the skill or caller interface.
 | --- | --- | --- |
 | `$record-browser` skill | Request interpretation, concrete action functions, one consent, Chrome acquisition, outcome reporting | Tab lifecycle, CDP, stop ordering, direct cleanup |
 | Recording Flow | Request/output preparation, opaque authorization, action sequence, single terminal outcome | New actions after consent, raw diagnostics |
-| Internal coordinator | Artifact and fresh-tab ownership, timers, per-action evidence, finalization, memoized close | User-visible policy expansion |
+| Internal coordinator | Artifact and fresh-tab ownership, timers, per-action evidence, finalization, memoized verified tab cleanup | User-visible policy expansion |
 | Browser recording | CDP acquisition, origin checks, direct screencast-frame consumption, frame/resource limits | Publication and public error wording |
 | Cursor recording | Pointer observation, frame-coordinate mapping, cursor and click-feedback composition | Authenticating whether an event came from a person |
 | Artifact transaction | Private Working Recording, validation, collision-safe publication, rollback | Upload, sharing, playback, or deletion after delivery |
@@ -103,8 +103,10 @@ page.
 8. Publish only one validated H.264 `yuv420p` video stream with no audio, using
    collision-safe atomic publication.
 9. Remove private artifacts and close the exact owned tab. Concurrent close
-   requests share one promise; one immediate transient rejection is retried,
-   while timeouts remain bounded and are reported for manual cleanup.
+   requests share one promise, and successful closure requires the exact tab to
+   disappear from the Browser tab inventory. One shared retry covers an
+   immediate close rejection, inventory failure, or still-listed tab; timeouts
+   remain bounded and are reported for manual cleanup.
 10. Preserve the primary recording result when cleanup also fails.
 
 The fail-closed invariants are:
