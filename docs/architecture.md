@@ -103,8 +103,10 @@ page.
 8. Publish only one validated H.264 `yuv420p` video stream with no audio, using
    collision-safe atomic publication.
 9. Remove private artifacts and close the exact owned tab. Concurrent close
-   requests share one promise; one immediate transient rejection is retried,
-   while timeouts remain bounded and are reported for manual cleanup.
+   requests share one promise, and successful closure requires the exact tab to
+   disappear from the Browser tab inventory. One immediate close or inventory
+   failure is retried, while timeouts remain bounded and are reported for
+   manual cleanup.
 10. Preserve the primary recording result when cleanup also fails.
 
 The fail-closed invariants are:

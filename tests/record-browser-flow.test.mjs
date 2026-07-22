@@ -95,6 +95,9 @@ function createCoordinatorHarness({
   };
   const browser = {
     tabs: {
+      async list() {
+        return [];
+      },
       async new() {
         return freshTab;
       },

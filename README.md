@@ -184,8 +184,9 @@ and the sensitive-data exclusion. It also discloses that all visible embedded
 frames are captured and that the fresh tab may reuse Chrome's existing session.
 
 After consent, the skill creates one fresh Chrome tab. It performs only approved
-actions and attempts to close the fresh tab on every path; it reports bounded
-manual cleanup instructions if closure fails.
+actions, closes that exact tab on every path, and verifies that the tab no longer
+appears in Chrome's tab inventory. It reports bounded manual cleanup instructions
+if closure cannot be confirmed.
 
 Approval denial returns `cancelled`; the plugin never retries or bypasses it.
 

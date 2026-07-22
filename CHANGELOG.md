@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Verify that the exact owned recording tab disappears from Chrome's tab
+  inventory after `close()` fulfills. A tab that remains listed now consumes
+  the existing bounded retry and reports manual cleanup if both attempts fail.
+
 ## [0.3.1] - 2026-07-19
 
 This patch release is the OpenAI resubmission candidate that supersedes the
