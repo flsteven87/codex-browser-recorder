@@ -163,21 +163,24 @@ async function tabRemainsListed(browser, tab) {
   return tabs.some((candidate) => candidate?.id === tab.id);
 }
 
-async function closeTabAndVerify(browser, tab) {
-  if (typeof tab?.close !== "function") {
-    throw new Error("Fresh Browser tab cannot be closed");
-  }
-  await tab.close();
-  if (await tabRemainsListed(browser, tab)) {
-    throw new Error("Fresh Browser tab remained open after closure");
-  }
-}
-
 async function closeTabWithinRetryBudget(browser, tab, clock) {
+  let requiresClose = true;
   let cleanup;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     cleanup = await settleBeforeDeadline(
-      closeTabAndVerify(browser, tab),
+      (async () => {
+        if (requiresClose) {
+          if (typeof tab?.close !== "function") {
+            throw new Error("Fresh Browser tab cannot be closed");
+          }
+          await tab.close();
+          requiresClose = false;
+        }
+        if (await tabRemainsListed(browser, tab)) {
+          requiresClose = true;
+          throw new Error("Fresh Browser tab remained open after closure");
+        }
+      })(),
       clock,
     );
     if (cleanup.status !== "rejected") break;

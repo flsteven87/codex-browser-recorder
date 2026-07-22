@@ -1149,6 +1149,33 @@ test("recovers from one transient close failure for the exact owned tab", async 
   await assertSingletonReleased();
 });
 
+test("retries inventory after closure without closing the tab twice", async () => {
+  const harness = createHarness();
+  let inventoryCalls = 0;
+  harness.browser.tabs.list = async () => {
+    inventoryCalls += 1;
+    if (inventoryCalls === 1) {
+      throw new Error("private Browser inventory failure");
+    }
+    return [];
+  };
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+
+  await handle.ready;
+  const output = await handle.stop();
+
+  assert.equal(output.result.status, "passed");
+  assert.equal(harness.calls.tabClose, 1);
+  assert.equal(inventoryCalls, 2);
+  assert.equal(output.cleanup, undefined);
+  assert.doesNotMatch(JSON.stringify(output), /private Browser inventory failure/);
+  await assertSingletonReleased();
+});
+
 test("retries a fulfilled close while the exact owned tab remains listed", async () => {
   const harness = createHarness();
   let tabOpen = true;
@@ -1208,7 +1235,7 @@ test("reports cleanup incomplete when the exact tab identity is unavailable", as
   await handle.ready;
   const output = await handle.stop();
 
-  assert.equal(harness.calls.tabClose, 2);
+  assert.equal(harness.calls.tabClose, 1);
   assert.deepEqual(output.cleanup, { browserTabCleanupIncomplete: true });
   await assertSingletonReleased();
 });
@@ -1225,7 +1252,7 @@ test("reports cleanup incomplete when Browser tab inventory is unavailable", asy
   await handle.ready;
   const output = await handle.stop();
 
-  assert.equal(harness.calls.tabClose, 2);
+  assert.equal(harness.calls.tabClose, 1);
   assert.deepEqual(output.cleanup, { browserTabCleanupIncomplete: true });
   await assertSingletonReleased();
 });
@@ -1325,6 +1352,59 @@ test("bounds cancellation when fresh-tab creation never settles", async () => {
     });
     return true;
   });
+  await assertSingletonReleased();
+});
+
+test("verifies detached tab cleanup after fresh-tab creation times out", async () => {
+  const harness = createHarness();
+  const tabDeferred = deferred();
+  let inventoryCalls = 0;
+  let tabOpen = true;
+  harness.browser.tabs.new = () => {
+    harness.calls.tabNew += 1;
+    return tabDeferred.promise;
+  };
+  harness.freshTab.id = "private-detached-tab-identifier";
+  harness.freshTab.close = async () => {
+    harness.calls.tabClose += 1;
+    if (harness.calls.tabClose === 2) tabOpen = false;
+  };
+  harness.browser.tabs.list = async () => {
+    inventoryCalls += 1;
+    return tabOpen ? [{ id: harness.freshTab.id }] : [];
+  };
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+
+  await settleWorkflow();
+  const stopped = handle.stop();
+  await settleWorkflow();
+  harness.clock.advance(5_000);
+  let stoppedError;
+  await assert.rejects(stopped, (error) => {
+    stoppedError = error;
+    assert.equal(error.code, "recording_cancelled");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      browserTabCleanupIncomplete: true,
+    });
+    return true;
+  });
+  assert.equal(harness.calls.tabClose, 0);
+
+  tabDeferred.resolve(harness.freshTab);
+  await settleWorkflow();
+
+  assert.equal(harness.calls.tabClose, 2);
+  assert.equal(inventoryCalls, 2);
+  assert.equal(harness.clock.pending, 0);
+  assert.doesNotMatch(
+    JSON.stringify(stoppedError),
+    /private-detached-tab-identifier/,
+  );
+  await assert.rejects(handle.ready, (error) => error.code === "recording_cancelled");
   await assertSingletonReleased();
 });
 
