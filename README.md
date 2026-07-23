@@ -141,7 +141,7 @@ First, check the local dependencies and planned output location without opening
 a Browser tab:
 
 ```text
-$record-browser Check whether my local recording environment is ready.
+$codex-browser-recorder:record-browser Check whether my local recording environment is ready.
 ```
 
 A successful report starts with `Local recording preflight passed`. The check
@@ -153,7 +153,7 @@ Browser or CDP approval.
 Then request one concrete public, logged-out flow:
 
 ```text
-$record-browser Open https://www.w3.org/TR/pointerevents/, click the 1. Introduction link in the table of contents, and save the approved flow as pointer-events-intro.
+$codex-browser-recorder:record-browser Open https://www.w3.org/TR/pointerevents/, click the 1. Introduction link in the table of contents, and save the approved flow as pointer-events-intro.
 ```
 
 Chrome is the only supported recording surface for this release. An explicit
@@ -168,7 +168,7 @@ wait-only recordings require an explicit duration.
 
 ## Record a Flow
 
-Explicitly invoke `$record-browser` and provide:
+Explicitly invoke `$codex-browser-recorder:record-browser` and provide:
 
 - the target URL;
 - the concrete Chrome Browser actions to perform, or an explicit 5–60 second
@@ -244,7 +244,8 @@ delete a Saved Recording.
 
 ## Architecture
 
-`$record-browser` defines the plan, calls `prepareRecording()`, presents the
+`$codex-browser-recorder:record-browser` defines the plan, calls
+`prepareRecording()`, presents the
 returned consent projection, acquires the supported Chrome surface, and passes
 the same opaque preparation to `recordApproved()`. The Recording Flow owns the
 fresh tab, approved actions, per-action evidence, capture, origin enforcement,

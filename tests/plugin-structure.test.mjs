@@ -198,7 +198,7 @@ test("record-browser is an explicit skill with one canonical script tree", () =>
   ]);
   assert.match(
     frontmatter.description,
-    /user explicitly invokes \$record-browser/,
+    /user explicitly invokes \$codex-browser-recorder:record-browser/,
   );
   assert.ok(
     !("compatibility" in frontmatter),
@@ -211,7 +211,7 @@ test("record-browser is an explicit skill with one canonical script tree", () =>
   );
   assert.match(
     agentManifest,
-    /default_prompt: "Use \$record-browser to preflight or record an approved, non-sensitive Chrome Browser flow[.]"/,
+    /default_prompt: "Use \$codex-browser-recorder:record-browser to preflight or record an approved, non-sensitive Chrome Browser flow[.]"/,
   );
   assert.doesNotMatch(agentManifest, /integration gate|example[.]com/i);
   for (const script of requiredScripts) {

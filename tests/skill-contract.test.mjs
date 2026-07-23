@@ -3,12 +3,38 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { PUBLIC_TEXT_PATHS } from "../scripts/release-materials.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+const canonicalSkillInvocation =
+  "$codex-browser-recorder:record-browser";
+const bareSkillInvocation = /\$record-browser\b/u;
+const architecture = readFileSync(
+  join(repositoryRoot, "docs", "architecture.md"),
+  "utf8",
+);
 const changelog = readFileSync(join(repositoryRoot, "CHANGELOG.md"), "utf8");
+const evals = readFileSync(
+  join(repositoryRoot, "evals", "plugin-submission-cases.json"),
+  "utf8",
+);
+const manifest = readFileSync(
+  join(
+    repositoryRoot,
+    "plugins",
+    "codex-browser-recorder",
+    ".codex-plugin",
+    "plugin.json",
+  ),
+  "utf8",
+);
 const privacy = readFileSync(join(repositoryRoot, "PRIVACY.md"), "utf8");
 const readme = readFileSync(join(repositoryRoot, "README.md"), "utf8");
 const support = readFileSync(join(repositoryRoot, "SUPPORT.md"), "utf8");
+const troubleshooting = readFileSync(
+  join(repositoryRoot, "docs", "troubleshooting.md"),
+  "utf8",
+);
 const skillRoot = join(
   repositoryRoot,
   "plugins",
@@ -18,6 +44,10 @@ const skillRoot = join(
 );
 const skill = readFileSync(join(skillRoot, "SKILL.md"), "utf8");
 const agent = readFileSync(join(skillRoot, "agents", "openai.yaml"), "utf8");
+const publicTextSources = PUBLIC_TEXT_PATHS.map((relativePath) => [
+  relativePath,
+  readFileSync(join(repositoryRoot, relativePath), "utf8"),
+]);
 const frontmatterMatch = skill.match(/^---\n([\s\S]*?)\n---(?:\n|$)/u);
 assert.ok(frontmatterMatch, "skill must have frontmatter");
 const frontmatter = frontmatterMatch[1];
@@ -99,7 +129,7 @@ function assertPrivacyReportingContract(source) {
 
 test("README documents the public recording contract", () => {
   for (const required of [
-    "$record-browser",
+    canonicalSkillInvocation,
     "same-origin",
     "cross-origin",
     "Record & Replay",
@@ -115,6 +145,50 @@ test("README documents the public recording contract", () => {
   );
   assert.doesNotMatch(readme, /cursor-complete/iu);
   assert.doesNotMatch(readme, /diagnostic `status[(][)]`/iu);
+});
+
+test("public surfaces use the canonical namespaced skill invocation", () => {
+  for (const [label, source] of [
+    ["README", readme],
+    ["architecture", architecture],
+    ["troubleshooting", troubleshooting],
+    ["support", support],
+    ["skill", skill],
+    ["agent metadata", agent],
+    ["plugin manifest", manifest],
+    ["submission evals", evals],
+  ]) {
+    assert.match(
+      source,
+      new RegExp(canonicalSkillInvocation.replaceAll("$", "\\$"), "u"),
+      `${label} must publish the canonical skill invocation`,
+    );
+    assert.doesNotMatch(
+      source,
+      bareSkillInvocation,
+      `${label} must not publish the unresolvable bare skill invocation`,
+    );
+  }
+
+  for (const [relativePath, source] of publicTextSources) {
+    assert.doesNotMatch(
+      source,
+      bareSkillInvocation,
+      `${relativePath} must not publish the unresolvable bare skill invocation`,
+    );
+  }
+
+  for (const mutant of [
+    "$record-browser",
+    "Use $record-browser",
+    "Invoke:$record-browser",
+  ]) {
+    assert.match(
+      mutant,
+      bareSkillInvocation,
+      `bare invocation detector must reject: ${mutant}`,
+    );
+  }
 });
 
 test("public docs expose preflight and the complete visible boundary", () => {
@@ -171,7 +245,10 @@ test("public docs disclose failure-specific local media retention", () => {
 
 test("skill is explicit and keeps minimal frontmatter", () => {
   assert.match(agent, /allow_implicit_invocation: false/u);
-  assert.match(frontmatter, /explicitly invokes \$record-browser/iu);
+  assert.match(
+    frontmatter,
+    /explicitly invokes \$codex-browser-recorder:record-browser/iu,
+  );
   assert.match(frontmatter, /Chrome Browser/iu);
   assert.match(frontmatter, /visible cursor/iu);
   assert.deepEqual(

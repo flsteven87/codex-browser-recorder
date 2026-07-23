@@ -28,6 +28,8 @@ const allowedPublicHosts = new Set([
   "example.net",
   "www.w3.org",
 ]);
+const canonicalSkillInvocation =
+  "$codex-browser-recorder:record-browser";
 const topLevelKeys = ["cases", "fixtures", "plugin", "schemaVersion"];
 const caseKeys = ["expected", "id", "kind", "prompt", "setup"];
 const expectedKeys = [
@@ -393,7 +395,10 @@ test("proves the sole credentialed negative through production policy", async ()
 test("keeps every eval explicit, consent-bound, and free of sensitive flows", async () => {
   const { cases } = await loadCases();
   for (const item of cases) {
-    assert.match(item.prompt, /\$record-browser/);
+    assert.ok(
+      item.prompt.startsWith(`${canonicalSkillInvocation} `),
+      `${item.id} must start with the canonical skill invocation`,
+    );
     assert.ok(item.prompt.length <= 512);
     assert.equal(item.expected.browserActivityBeforeConsent, false);
     assert.equal(typeof item.expected.outcome, "string");

@@ -4,7 +4,7 @@ Start with the built-in preflight. It checks the supported platform, media
 tools, codecs, container support, and destination without opening a Browser tab:
 
 ```text
-$record-browser Check whether my local recording environment is ready.
+$codex-browser-recorder:record-browser Check whether my local recording environment is ready.
 ```
 
 A passing result begins with `Local recording preflight passed`. Preflight does
@@ -13,7 +13,7 @@ approved, or that full CDP access will be granted.
 
 ## Installation and discovery
 
-If `$record-browser` is missing:
+If `$codex-browser-recorder:record-browser` is missing:
 
 1. In the ChatGPT desktop app, select Codex and open **Plugins**.
 2. Confirm that **Codex Browser Recorder** and **Chrome** are installed.
