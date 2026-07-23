@@ -8,6 +8,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Publish the installed skill's canonical
+  `$codex-browser-recorder:record-browser` invocation across starter prompts,
+  documentation, support guidance, and submission evals so explicit invocation
+  resolves through the plugin namespace.
 - Verify that the exact owned recording tab disappears from Chrome's tab
   inventory after `close()` fulfills. A tab that remains listed now consumes
   the existing bounded retry and reports manual cleanup if both attempts fail.

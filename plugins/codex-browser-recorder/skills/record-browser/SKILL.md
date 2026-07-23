@@ -1,6 +1,6 @@
 ---
 name: record-browser
-description: Preflight or record an explicitly approved, non-sensitive Chrome Browser flow as a local H.264 MP4; pointer flows add a visible cursor and click feedback. Use only when the user explicitly invokes $record-browser; never record authenticated, sensitive, payment, credential, health, or confidential content.
+description: Preflight or record an explicitly approved, non-sensitive Chrome Browser flow as a local H.264 MP4; pointer flows add a visible cursor and click feedback. Use only when the user explicitly invokes $codex-browser-recorder:record-browser; never record authenticated, sensitive, payment, credential, health, or confidential content.
 ---
 
 # Record Browser

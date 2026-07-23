@@ -20,7 +20,7 @@ real-browser OOPIF compatibility.
 Before filing an environment issue, invoke:
 
 ```text
-$record-browser Check whether my local recording environment is ready.
+$codex-browser-recorder:record-browser Check whether my local recording environment is ready.
 ```
 
 A passing result begins with `Local recording preflight passed`. Otherwise,

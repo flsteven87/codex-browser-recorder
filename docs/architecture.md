@@ -8,7 +8,7 @@ cleanup state remain internal.
 
 ```mermaid
 flowchart TD
-  U["User invokes $record-browser"] --> P["prepareRecording(spec)"]
+  U["User invokes $codex-browser-recorder:record-browser"] --> P["prepareRecording(spec)"]
   P -->|"blocked"| F["Report every stable blocker"]
   P -->|"preflight_passed"| L["Report local-only environment"]
   P -->|"prepared"| C["One consent projection"]
@@ -55,7 +55,7 @@ it is not the skill or caller interface.
 
 | Layer | Owns | Must not own |
 | --- | --- | --- |
-| `$record-browser` skill | Request interpretation, concrete action functions, one consent, Chrome acquisition, outcome reporting | Tab lifecycle, CDP, stop ordering, direct cleanup |
+| `$codex-browser-recorder:record-browser` skill | Request interpretation, concrete action functions, one consent, Chrome acquisition, outcome reporting | Tab lifecycle, CDP, stop ordering, direct cleanup |
 | Recording Flow | Request/output preparation, opaque authorization, action sequence, single terminal outcome | New actions after consent, raw diagnostics |
 | Internal coordinator | Artifact and fresh-tab ownership, timers, per-action evidence, finalization, memoized verified tab cleanup | User-visible policy expansion |
 | Browser recording | CDP acquisition, origin checks, direct screencast-frame consumption, frame/resource limits | Publication and public error wording |
