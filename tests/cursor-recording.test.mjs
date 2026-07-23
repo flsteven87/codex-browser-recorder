@@ -1212,6 +1212,89 @@ test("renders first-event visibility, movement, and a bounded click ring", async
   }
 });
 
+test("hides the click ring between separated clicks", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "cursor-ring-gap-test-"));
+  const inputPath = join(directory, "base.mp4");
+  const outputPath = join(directory, "cursor.mp4");
+  try {
+    execFileSync(
+      ffmpegPath,
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=#204060:s=320x180:r=10:d=1",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-y",
+        inputPath,
+      ],
+      { stdio: "pipe" },
+    );
+
+    await renderCursorRecording({
+      ffmpegPath,
+      inputPath,
+      outputPath,
+      timeline: {
+        durationMs: 1000,
+        events: [
+          {
+            atMs: 100,
+            button: 0,
+            buttons: 0,
+            frameId: "main-frame",
+            type: "move",
+            x: 160,
+            y: 90,
+          },
+          {
+            atMs: 200,
+            button: 0,
+            buttons: 1,
+            frameId: "main-frame",
+            type: "down",
+            x: 160,
+            y: 90,
+          },
+          {
+            atMs: 700,
+            button: 0,
+            buttons: 1,
+            frameId: "main-frame",
+            type: "down",
+            x: 160,
+            y: 90,
+          },
+        ],
+        viewport: { height: 180, width: 320 },
+      },
+    });
+
+    const firstClick = visibleBounds(outputPath, 3);
+    assert.ok(firstClick.minX < 150);
+    assert.ok(firstClick.maxX > 180);
+
+    for (const frameIndex of [4, 5, 6]) {
+      const betweenClicks = visibleBounds(outputPath, frameIndex);
+      assert.ok(betweenClicks.minX >= 158 && betweenClicks.minX <= 162);
+      assert.ok(betweenClicks.maxX < firstClick.maxX);
+    }
+
+    const secondClick = visibleBounds(outputPath, 7);
+    assert.ok(secondClick.minX < 150);
+    assert.ok(secondClick.maxX > 180);
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
 test("renders a final click inside the bounded pointer visual tail", async () => {
   const directory = mkdtempSync(join(tmpdir(), "cursor-tail-test-"));
   const inputPath = join(directory, "base.mp4");

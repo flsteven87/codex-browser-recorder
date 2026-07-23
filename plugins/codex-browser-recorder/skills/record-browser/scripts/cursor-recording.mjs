@@ -294,6 +294,16 @@ function expressionFor(samples, property, offset, viewportSize) {
   const first = runs[0].start;
   const terms = first === 0 ? [] : [`-1000*lt(n,${first})`];
   for (const [index, run] of runs.entries()) {
+    const previous = runs[index - 1];
+    if (previous !== undefined && previous.end + 1 < run.start) {
+      const gapStart = previous.end + 1;
+      const gapEnd = run.start - 1;
+      const gapSelector =
+        gapStart === gapEnd
+          ? `eq(n,${gapStart})`
+          : `between(n,${gapStart},${gapEnd})`;
+      terms.push(`-1000*${gapSelector}`);
+    }
     const isLast = index === runs.length - 1 && run.end === samples.length - 1;
     const selector = isLast
       ? `gte(n,${run.start})`

@@ -8,6 +8,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Hide click feedback between non-contiguous click-ring windows instead of
+  rendering a ghost ring at the viewport origin.
 - Publish the installed skill's canonical
   `$codex-browser-recorder:record-browser` invocation across starter prompts,
   documentation, support guidance, and submission evals so explicit invocation
