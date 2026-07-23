@@ -96,24 +96,24 @@ To reproduce the latest GitHub release, use its versioned tag rather than the
 mutable `main` branch:
 
 ```sh
-git clone --branch v0.3.1 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
+git clone --branch v0.3.2 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
 codex plugin marketplace add /absolute/path/to/codex-browser-recorder
 ```
 
 For candidate testing before the tag is published, use the reviewed current
 repository checkout and record its full commit SHA locally. The historical
-`v0.3.0` tag and assets remain unchanged and do not contain the two 0.3.1
-recording-boundary fixes.
+`v0.3.0` and `v0.3.1` tags and assets remain unchanged and do not contain the
+0.3.2 invocation, tab-cleanup, and click-feedback fixes.
 
 A Git tag is a version selector, not a cryptographic immutability guarantee. For
 strict reproducibility, pin the full release commit or compare the archive with
 a digest recorded independently of the mutable release assets. For the matching
-[v0.3.1 release page](https://github.com/flsteven87/codex-browser-recorder/releases/tag/v0.3.1),
+[v0.3.2 release page](https://github.com/flsteven87/codex-browser-recorder/releases/tag/v0.3.2),
 compare the release commit shown there with the tag and verify the separately
 published archive checksum:
 
 ```sh
-recorder_release=v0.3.1
+recorder_release=v0.3.2
 recorder_archive="codex-browser-recorder-${recorder_release}.zip"
 curl --fail --location --remote-name \
   "https://github.com/flsteven87/codex-browser-recorder/releases/download/${recorder_release}/${recorder_archive}"
@@ -122,7 +122,7 @@ curl --fail --location --remote-name \
 shasum -a 256 -c "${recorder_archive}.sha256"
 ```
 
-The checksum verifies the versioned `v0.3.1` plugin archive only; it does not
+The checksum verifies the versioned `v0.3.2` plugin archive only; it does not
 verify a newer `main` commit that retains the same plugin version.
 
 For non-interactive installation, the equivalent command is:
