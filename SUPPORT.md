@@ -1,8 +1,8 @@
 # Support
 
-Browser Recorder for Codex `v0.3.1` has a deliberately narrow support boundary.
-It supersedes the original 2026-07-18 GitHub `v0.3.0` plugin tree with the
-runtime fixes prepared for OpenAI resubmission.
+Browser Recorder for Codex `v0.3.2` has a deliberately narrow support boundary.
+It supersedes `v0.3.1` with canonical installed-skill invocation, verified
+recording-tab cleanup, and corrected click-feedback rendering.
 
 ## Browser support
 

@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Version `0.3.1` is the latest supported release. Security fixes are prepared on
+Version `0.3.2` is the latest supported release. Security fixes are prepared on
 `main`, validated through the repository release gates, and published in the
 latest supported release.
 
