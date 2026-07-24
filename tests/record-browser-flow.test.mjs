@@ -80,36 +80,45 @@ function createControllableCodexInAppBrowser({ frame, targetUrl }) {
     acknowledgements: 0,
     cdpAcquisitions: 0,
     cdpMethods: [],
+    focusChanges: 0,
     goto: [],
     tabClose: 0,
     tabsNew: 0,
+    visibilityAcquisitions: 0,
+    visibilityGets: 0,
+    visibilitySets: [],
   };
-  let screencastStarted = false;
+  const events = [];
+  let browserVisible = false;
+  let sequence = 0;
   let tabOpen = false;
+  function publish(method, params) {
+    sequence += 1;
+    events.push({ method, params, sequence });
+  }
+  function publishFrame(sessionId) {
+    publish("Page.screencastFrame", {
+      data: frame.toString("base64"),
+      metadata: { timestamp: sessionId },
+      sessionId,
+    });
+  }
   const cdp = {
     async readEvents({ afterSequence = 0, methods = [] } = {}) {
-      const frameAvailable =
-        screencastStarted &&
-        afterSequence < 1 &&
-        methods.includes("Page.screencastFrame");
-      if (!frameAvailable) {
+      let pending = events.filter(
+        (event) =>
+          event.sequence > afterSequence && methods.includes(event.method),
+      );
+      if (pending.length === 0) {
         await new Promise((resolve) => setTimeout(resolve, 1));
+        pending = events.filter(
+          (event) =>
+            event.sequence > afterSequence && methods.includes(event.method),
+        );
       }
       return {
-        cursor: screencastStarted ? 1 : 0,
-        events: frameAvailable
-          ? [
-              {
-                method: "Page.screencastFrame",
-                params: {
-                  data: frame.toString("base64"),
-                  metadata: { timestamp: 1 },
-                  sessionId: 1,
-                },
-                sequence: 1,
-              },
-            ]
-          : [],
+        cursor: sequence,
+        events: pending,
         hasMore: false,
         truncated: false,
       };
@@ -132,7 +141,7 @@ function createControllableCodexInAppBrowser({ frame, targetUrl }) {
         };
       }
       if (method === "Page.startScreencast") {
-        screencastStarted = true;
+        publishFrame(1);
       }
       if (method === "Page.screencastFrameAck") {
         calls.acknowledgements += 1;
@@ -153,11 +162,28 @@ function createControllableCodexInAppBrowser({ frame, targetUrl }) {
       tabOpen = false;
     },
     async goto(url) {
+      assert.equal(browserVisible, true);
       calls.goto.push(url);
     },
     id: "controllable-codex-in-app-browser-tab",
   };
   const browser = {
+    capabilities: {
+      async get(capability) {
+        assert.equal(capability, "visibility");
+        calls.visibilityAcquisitions += 1;
+        return {
+          async get() {
+            calls.visibilityGets += 1;
+            return browserVisible;
+          },
+          async set(visible) {
+            calls.visibilitySets.push(visible);
+            browserVisible = visible;
+          },
+        };
+      },
+    },
     tabs: {
       async list() {
         return tabOpen ? [tab] : [];
@@ -169,7 +195,24 @@ function createControllableCodexInAppBrowser({ frame, targetUrl }) {
       },
     },
   };
-  return { browser, calls };
+  return {
+    browser,
+    calls,
+    async switchToAnotherCodexView() {
+      calls.focusChanges += 1;
+      browserVisible = false;
+      publish("Page.screencastVisibilityChanged", { visible: false });
+      publishFrame(2);
+      const deadline = Date.now() + 1000;
+      while (calls.acknowledgements < 2) {
+        assert.ok(
+          Date.now() < deadline,
+          "hidden continuation frame was not acknowledged",
+        );
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    },
+  };
 }
 
 function createCoordinatorHarness({
@@ -181,6 +224,8 @@ function createCoordinatorHarness({
   const clock = createFakeClock();
   const calls = {
     assertApprovedOrigin: 0,
+    artifactRollback: 0,
+    browserVisibilitySet: 0,
     tabClose: 0,
   };
   const freshTab = {
@@ -196,6 +241,20 @@ function createCoordinatorHarness({
     id: "production-owned-fresh-tab",
   };
   const browser = {
+    capabilities: {
+      async get(name) {
+        assert.equal(name, "visibility");
+        return {
+          async get() {
+            return true;
+          },
+          async set(visible) {
+            assert.equal(visible, true);
+            calls.browserVisibilitySet += 1;
+          },
+        };
+      },
+    },
     tabs: {
       async list() {
         return [];
@@ -225,7 +284,9 @@ function createCoordinatorHarness({
             },
           };
         },
-        async rollback() {},
+        async rollback() {
+          calls.artifactRollback += 1;
+        },
       };
     },
     async doctor() {
@@ -1330,7 +1391,44 @@ test("executes the approved actions and returns one completed outcome", async ()
   assert.equal(harness.sessionOptions.requirePointerEvents, true);
 });
 
-test("produces a validated MP4 through a controllable Codex In-app Browser", async () => {
+test("returns a deterministic visibility blocker before approved actions and cleans up", async () => {
+  const harness = createCoordinatorHarness();
+  const secret = "private Browser visibility diagnostic";
+  harness.browser.capabilities.get = async () => {
+    throw new Error(secret);
+  };
+  let actionPerformed = false;
+  const prepared = await harness.flow.prepareRecording(
+    recordingSpec({
+      actions: [
+        {
+          label: "Read the approved page",
+          modality: "programmatic",
+          async perform() {
+            actionPerformed = true;
+          },
+        },
+      ],
+    }),
+  );
+
+  const outcome = await harness.flow.recordApproved(prepared, {
+    browser: harness.browser,
+  });
+
+  assert.equal(outcome.status, "failed");
+  assert.equal(outcome.failure.code, "browser_visibility_unavailable");
+  assert.equal(
+    outcome.failure.summary,
+    "The Codex In-app Browser could not be shown",
+  );
+  assert.doesNotMatch(JSON.stringify(outcome), /private Browser visibility/u);
+  assert.equal(actionPerformed, false);
+  assert.equal(harness.calls.artifactRollback, 1);
+  assert.equal(harness.calls.tabClose, 1);
+});
+
+test("publishes a valid MP4 after the user switches away from the Browser", async () => {
   const repositoryRoot = await mkdtemp(
     join(tmpdir(), "browser-recorder-iab-happy-path-"),
   );
@@ -1357,18 +1455,32 @@ test("produces a validated MP4 through a controllable Codex In-app Browser", asy
   ]);
   const iab = createControllableCodexInAppBrowser({ frame, targetUrl });
   const flow = createRecordingFlow();
+  let hiddenActionCompleted = false;
 
   try {
     const prepared = await flow.prepareRecording({
       actions: [
         {
-          label: "Read the approved page",
+          label: "Read the approved page and switch Codex views",
           modality: "programmatic",
           async perform({ tab }) {
             assert.equal(
               tab.id,
               "controllable-codex-in-app-browser-tab",
             );
+            await iab.switchToAnotherCodexView();
+          },
+        },
+        {
+          label: "Continue the approved flow",
+          modality: "programmatic",
+          async perform({ tab }) {
+            assert.equal(
+              tab.id,
+              "controllable-codex-in-app-browser-tab",
+            );
+            assert.equal(iab.calls.focusChanges, 1);
+            hiddenActionCompleted = true;
           },
         },
       ],
@@ -1416,9 +1528,18 @@ test("produces a validated MP4 through a controllable Codex In-app Browser", asy
       0,
     );
     assert.equal(iab.calls.tabsNew, 1);
+    assert.equal(iab.calls.visibilityAcquisitions, 1);
+    assert.deepEqual(iab.calls.visibilitySets, [true]);
+    assert.equal(iab.calls.visibilityGets, 1);
     assert.deepEqual(iab.calls.goto, [targetUrl]);
     assert.equal(iab.calls.cdpAcquisitions, 2);
-    assert.equal(iab.calls.acknowledgements, 1);
+    assert.equal(iab.calls.focusChanges, 1);
+    assert.equal(hiddenActionCompleted, true);
+    assert.equal(iab.calls.acknowledgements, 2);
+    assert.equal(outcome.result.capture.framesAcknowledged, 2);
+    assert.equal(outcome.result.capture.framesReceived, 2);
+    assert.equal(outcome.result.capture.visibilityChanges, 1);
+    assert.equal(outcome.result.capture.visibilityState, false);
     assert.equal(iab.calls.tabClose, 1);
   } finally {
     await rm(repositoryRoot, { force: true, recursive: true });

@@ -481,6 +481,67 @@ test("acknowledges a frame before handing it to the consumer", async () => {
   assert.equal(reads[0].afterSequence, undefined);
 });
 
+test("continues receiving and acknowledging frames after the Browser is hidden", async () => {
+  const operations = [];
+  let reads = 0;
+  const cdp = {
+    async send(method, params) {
+      operations.push([method, params.sessionId]);
+    },
+    async readEvents() {
+      reads += 1;
+      if (reads === 1) {
+        return {
+          cursor: 1,
+          events: [
+            {
+              method: "Page.screencastVisibilityChanged",
+              params: { visible: false },
+              sequence: 1,
+            },
+          ],
+          hasMore: false,
+          truncated: false,
+        };
+      }
+      if (reads === 2) {
+        return {
+          cursor: 2,
+          events: [{ ...frameEvent(), sequence: 2 }],
+          hasMore: false,
+          truncated: false,
+        };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      return { cursor: 2, events: [], hasMore: false, truncated: false };
+    },
+  };
+
+  const pump = startFramePump({
+    cdp,
+    mainFrameId: "main-frame",
+    maxDecodedBytes: 1024,
+    onFrame(frame) {
+      operations.push(["onFrame", frame.sessionId]);
+      return true;
+    },
+    onTopFrameNavigation() {},
+    readTimeoutMs: 1,
+  });
+
+  await pump.ready;
+  await pump.stop();
+
+  assert.deepEqual(operations, [
+    ["Page.screencastFrameAck", 7],
+    ["onFrame", 7],
+  ]);
+  assert.equal(pump.stats.framesReceived, 1);
+  assert.equal(pump.stats.framesAcknowledged, 1);
+  assert.equal(pump.stats.visibilityState, false);
+  assert.equal(pump.stats.visibilityChanges, 1);
+});
+
 test("fails closed before processing any event from a truncated batch", async () => {
   let framesProcessed = 0;
   let reads = 0;

@@ -31,6 +31,7 @@ const manifest = readFileSync(
 const privacy = readFileSync(join(repositoryRoot, "PRIVACY.md"), "utf8");
 const readme = readFileSync(join(repositoryRoot, "README.md"), "utf8");
 const support = readFileSync(join(repositoryRoot, "SUPPORT.md"), "utf8");
+const terms = readFileSync(join(repositoryRoot, "TERMS.md"), "utf8");
 const troubleshooting = readFileSync(
   join(repositoryRoot, "docs", "troubleshooting.md"),
   "utf8",
@@ -211,6 +212,31 @@ test("public docs expose preflight and the complete visible boundary", () => {
   assert.match(privacy, /all\s+visible embedded frames/iu);
   assert.match(privacy, /existing session state can affect rendered\s+content/iu);
   assert.match(support, /Local recording preflight passed/iu);
+});
+
+test("keeps Background Recording as a developer-facing invariant only", () => {
+  assert.match(
+    architecture,
+    /Background Recording[^.]*visibility[^.]*capture correctness/iu,
+  );
+  for (const [label, source] of [
+    ["README", readme],
+    ["changelog", changelog],
+    ["privacy policy", privacy],
+    ["support", support],
+    ["terms", terms],
+    ["troubleshooting", troubleshooting],
+    ["Marketplace skill and consent", skill],
+    ["Marketplace metadata", agent],
+    ["plugin manifest", manifest],
+    ["submission evals", evals],
+  ]) {
+    assert.doesNotMatch(
+      source,
+      /Background Recording/iu,
+      `${label} must not advertise the developer-facing invariant`,
+    );
+  }
 });
 
 test("public copy describes an observable cursor without provenance claims", () => {

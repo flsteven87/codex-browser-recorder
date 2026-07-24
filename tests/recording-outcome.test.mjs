@@ -14,7 +14,7 @@ const FAILURE_MESSAGE_GROUPS = [
     codes: ["cursor_recording_failed"],
     summary: "Cursor or click feedback was missing",
     remediation:
-      "Keep the tab visible, make each pointer action clear, and record the flow again",
+      "Make each pointer action clear, then record the flow again",
   },
   {
     codes: [
@@ -36,6 +36,12 @@ const FAILURE_MESSAGE_GROUPS = [
     summary: "Browser Recorder could not connect to the Codex In-app Browser",
     remediation:
       "Make sure the Codex In-app Browser is available and full CDP access is enabled in Codex settings, then try again",
+  },
+  {
+    codes: ["browser_visibility_unavailable"],
+    summary: "The Codex In-app Browser could not be shown",
+    remediation:
+      "Keep Codex open and make sure the Codex In-app Browser can be displayed, then try again",
   },
   {
     codes: ["unsupported_platform"],
@@ -147,7 +153,7 @@ const FAILURE_MESSAGE_GROUPS = [
     ],
     summary: "The video could not be verified, so it was not saved",
     remediation:
-      "Run preflight, keep the page visible, and record the flow again",
+      "Run preflight, verify local H.264 MP4 support, and record the flow again",
   },
   {
     codes: ["saved_recording_unavailable"],

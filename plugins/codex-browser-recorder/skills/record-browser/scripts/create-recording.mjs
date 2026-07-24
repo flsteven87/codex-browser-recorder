@@ -23,6 +23,7 @@ export { describeRecordingFailure };
 const ACTIVE_RECORDING_KEY = Symbol.for("codex-browser-recorder.active");
 const ACTION_EVIDENCE_INTERVAL_MS = 50;
 const ACTION_EVIDENCE_TIMEOUT_MS = 1000;
+const BROWSER_VISIBILITY_TIMEOUT_MS = 5000;
 const POINTER_VISUAL_TAIL_MS = 200;
 const CLEANUP_DEADLINE_MS = 5000;
 const FINALIZATION_DEADLINE_MS = 10_000;
@@ -221,6 +222,57 @@ async function createFreshTab(browser, signal, clock) {
     }
     throw error;
   }
+}
+
+async function showBrowser(browser, signal, clock) {
+  const operationCancellation = new AbortController();
+  const cancelOperation = () => operationCancellation.abort();
+  addAbortListener(signal, cancelOperation);
+  if (isAborted(signal)) cancelOperation();
+  const visibilityOperation = (async () => {
+    const visibility = await awaitAbortable(
+      Promise.resolve().then(() =>
+        browser.capabilities.get("visibility"),
+      ),
+      operationCancellation.signal,
+    );
+    if (
+      typeof visibility?.get !== "function" ||
+      typeof visibility?.set !== "function"
+    ) {
+      throw new Error("Browser visibility capability is unavailable");
+    }
+    await awaitAbortable(
+      Promise.resolve().then(() => visibility.set(true)),
+      operationCancellation.signal,
+    );
+    const visible = await awaitAbortable(
+      Promise.resolve().then(() => visibility.get()),
+      operationCancellation.signal,
+    );
+    if (visible !== true) {
+      throw new Error("Browser visibility could not be established");
+    }
+  })();
+  const settlement = await settleBeforeDeadline(
+    visibilityOperation,
+    clock,
+    BROWSER_VISIBILITY_TIMEOUT_MS,
+  );
+  if (settlement.status === "timed_out") {
+    operationCancellation.abort();
+  }
+  removeAbortListener(signal, cancelOperation);
+  if (settlement.status === "fulfilled") return;
+  if (
+    settlement.status === "rejected" &&
+    settlement.reason?.code === "recording_cancelled"
+  ) {
+    throw settlement.reason;
+  }
+  throw sanitizeRecordingFailure({
+    code: "browser_visibility_unavailable",
+  });
 }
 
 async function prepareArtifactTransaction({
@@ -816,6 +868,11 @@ export function createRecording(options) {
           dependencies.clock,
         );
         ownsFreshTab = true;
+        await showBrowser(
+          options.browser,
+          cancellation.signal,
+          dependencies.clock,
+        );
         await awaitAbortable(
           freshTab.goto(request.targetUrl),
           cancellation.signal,

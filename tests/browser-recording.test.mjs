@@ -51,6 +51,22 @@ function deferred() {
   return { promise, reject, resolve };
 }
 
+function visibleBrowserCapabilities() {
+  return {
+    async get(name) {
+      assert.equal(name, "visibility");
+      return {
+        async get() {
+          return true;
+        },
+        async set(visible) {
+          assert.equal(visible, true);
+        },
+      };
+    },
+  };
+}
+
 function createHarness({
   cleanupError,
   completion,
@@ -195,6 +211,7 @@ async function createHandle(harness) {
       },
     },
     browser: {
+      capabilities: visibleBrowserCapabilities(),
       tabs: {
         async list() {
           return [];
@@ -266,16 +283,23 @@ test("external abort cancels capability acquisition and cleans late startup", as
         };
       },
     },
-    browser: { tabs: { async new() { return {
-      capabilities: {
-        async get() {
-          acquisitionStarted = true;
-          return capability.promise;
+    browser: {
+      capabilities: visibleBrowserCapabilities(),
+      tabs: {
+        async new() {
+          return {
+            capabilities: {
+              async get() {
+                acquisitionStarted = true;
+                return capability.promise;
+              },
+            },
+            async close() {},
+            async goto() {},
+          };
         },
       },
-      async close() {},
-      async goto() {},
-    }; } } },
+    },
     destinationDirectory: temporaryRoot,
     signal: controller.signal,
     targetUrl: "https://example.com/",
@@ -338,26 +362,33 @@ test("public stop cancels a pending Page.enable and releases its artifacts", asy
         };
       },
     },
-    browser: { tabs: { async new() { return {
-      capabilities: {
-        async get() {
+    browser: {
+      capabilities: visibleBrowserCapabilities(),
+      tabs: {
+        async new() {
           return {
-            async readEvents() {
-              return { cursor: 0, events: [], truncated: false };
-            },
-            async send(method) {
-              methods.push(method);
-              if (method === "Page.enable") {
-                enableStarted = true;
-                await enable.promise;
+            capabilities: {
+              async get() {
+                return {
+                  async readEvents() {
+                    return { cursor: 0, events: [], truncated: false };
+                  },
+                  async send(method) {
+                    methods.push(method);
+                    if (method === "Page.enable") {
+                      enableStarted = true;
+                      await enable.promise;
+                    }
+                  },
+                };
               }
             },
+            async close() {},
+            async goto() {},
           };
         },
       },
-      async close() {},
-      async goto() {},
-    }; } } },
+    },
     destinationDirectory: temporaryRoot,
     ffmpegPath: "/unused/ffmpeg",
     ffprobePath: "/unused/ffprobe",
@@ -1117,7 +1148,10 @@ test("sanitizes every pre-handle Browser and CDP startup failure after rollback"
             },
             startBrowserRecordingForTab,
           },
-          browser: { tabs: { async new() { return tab; } } },
+          browser: {
+            capabilities: visibleBrowserCapabilities(),
+            tabs: { async new() { return tab; } },
+          },
           destinationDirectory: temporaryRoot,
           targetUrl: "https://example.com/",
           temporaryRoot,

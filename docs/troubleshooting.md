@@ -96,12 +96,13 @@ reported as their group code; for example, `frame_too_large` and
 
 | Failure group | Recognized public codes | What to do |
 | --- | --- | --- |
+| Browser visibility unavailable | `browser_visibility_unavailable` | Keep Codex open, make sure the Codex In-app Browser can be displayed, and retry. |
 | Origin changed | `origin_not_allowed`, `origin_verification_failed`, `origin_changed_during_recording` | Start again and keep top-level navigation within the approved origin. |
 | Frame stream failed | `event_stream_invalid`, `frame_ack_failed`, `frame_stream_stalled`, `frame_stream_unavailable`, `frame_too_large`, `invalid_frame` | Confirm full CDP approval in the Codex In-app Browser and retry a shorter flow. |
-| Pointer evidence failed | `cursor_recording_failed` | Keep every participating frame available and retry each pointer action visibly. |
+| Pointer evidence failed | `cursor_recording_failed` | Make each pointer action clear, then retry the flow. |
 | Safety limit reached | `recording_duration_limit`, `recording_output_limit`, `output_monitor_failed` | Shorten the flow or reduce visual activity. |
 | Encoder failed | `encoder_failed`, `encoder_finalize_failed`, `encoder_shutdown_timeout` | Rerun preflight and verify local H.264 MP4 support. |
-| Media validation failed | `audio_stream_present`, `codec_invalid`, `container_invalid`, `dimensions_out_of_bounds`, `duration_invalid`, `duration_mismatch`, `ffprobe_failed`, `output_missing`, `output_too_small`, `pixel_format_invalid`, `video_stream_count_invalid`, `video_stream_missing` | Rerun preflight, keep the page visible, and record again. Failed media is not published. |
+| Media validation failed | `audio_stream_present`, `codec_invalid`, `container_invalid`, `dimensions_out_of_bounds`, `duration_invalid`, `duration_mismatch`, `ffprobe_failed`, `output_missing`, `output_too_small`, `pixel_format_invalid`, `video_stream_count_invalid`, `video_stream_missing` | Rerun preflight, verify local H.264 MP4 support, and record again. Failed media is not published. |
 | Session state failed | `recording_already_active`, `recording_not_started`, `capture_failed`, `integration_failed`, `invalid_configuration`, `recording_failed` | Run preflight, start a new task if plugin state changed, and retry only one recording at a time. |
 
 These failures intentionally do not publish a Saved Recording. If automatic
