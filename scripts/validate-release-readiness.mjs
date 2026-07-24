@@ -12,7 +12,7 @@ const manifestPath = "plugins/codex-browser-recorder/.codex-plugin/plugin.json";
 const evalPath = "evals/plugin-submission-cases.json";
 const ciPath = ".github/workflows/ci.yml";
 const canonicalCiSha256 =
-  "c85c35d394f0a32f64a20d6ea71a9338c99b1cd2d67e8c5c2e0fc7c719b52553";
+  "153056e60e021b4da65838e31ffd12280f26803976db5f8bbd2274cd6f913c93";
 const workflowPaths = [ciPath, ".github/workflows/codeql.yml"];
 const assetPaths = [
   "plugins/codex-browser-recorder/assets/icon.png",
