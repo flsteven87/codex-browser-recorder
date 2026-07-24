@@ -84,10 +84,14 @@ function createHarness({
   const clock = createFakeClock();
   const calls = {
     assertApprovedOrigin: 0,
+    artifactRollback: 0,
+    browserVisibilityGet: 0,
+    browserVisibilitySet: 0,
     startRecording: 0,
     stop: 0,
     tabClose: 0,
     tabNew: 0,
+    visibilityAcquisition: 0,
   };
   const paths = {
     directory: "/private/recording",
@@ -124,6 +128,7 @@ function createHarness({
       return stopPromise;
     },
   };
+  let browserVisible = false;
   const freshTab = {
     id: "fresh-recording-tab",
     capabilities: {
@@ -137,6 +142,22 @@ function createHarness({
     async goto() {},
   };
   const browser = {
+    capabilities: {
+      async get(name) {
+        assert.equal(name, "visibility");
+        calls.visibilityAcquisition += 1;
+        return {
+          async get() {
+            calls.browserVisibilityGet += 1;
+            return browserVisible;
+          },
+          async set(visible) {
+            calls.browserVisibilitySet += 1;
+            browserVisible = visible;
+          },
+        };
+      },
+    },
     tabs: {
       async list() {
         return [];
@@ -162,7 +183,9 @@ function createHarness({
             rawFinalizationOptions = finalizationOptions;
             return stopDeferred.promise;
           },
-          async rollback() {},
+          async rollback() {
+            calls.artifactRollback += 1;
+          },
         };
       },
       async doctor() {
@@ -262,10 +285,21 @@ test("returns a preparing handle and validates before allocating Browser resourc
   assert.equal(harness.rawFinalizationOptions.capture.framesReceived, 12);
 });
 
-test("owns fresh-tab preflight and returns only the approved tab at readiness", async () => {
+test("shows the Browser before navigating its owned fresh tab", async () => {
   const harness = createHarness();
   const calls = [];
   const preflightCdp = { readEvents() {}, send() {} };
+  let browserVisible = false;
+  const visibility = {
+    async get() {
+      calls.push("visibility:get");
+      return browserVisible;
+    },
+    async set(visible) {
+      calls.push(`visibility:set:${visible}`);
+      browserVisible = visible;
+    },
+  };
   const freshTab = {
     id: "fresh-recording-tab",
     capabilities: {
@@ -282,6 +316,13 @@ test("owns fresh-tab preflight and returns only the approved tab at readiness", 
     },
   };
   const browser = {
+    capabilities: {
+      async get(name) {
+        calls.push(`browser-capability:${name}`);
+        assert.equal(name, "visibility");
+        return visibility;
+      },
+    },
     tabs: {
       async list() {
         calls.push("tabs:list");
@@ -350,6 +391,9 @@ test("owns fresh-tab preflight and returns only the approved tab at readiness", 
   assert.deepEqual(calls, [
     "artifacts:prepare",
     "tab:new",
+    "browser-capability:visibility",
+    "visibility:set:true",
+    "visibility:get",
     "goto:https://example.com/demo",
     "capability:cdp",
     "doctor",
@@ -367,6 +411,82 @@ test("owns fresh-tab preflight and returns only the approved tab at readiness", 
     "tab:close",
     "tabs:list",
   ]);
+});
+
+test("returns a deterministic Technical Blocker and cleans up when the Browser cannot be shown", async () => {
+  const harness = createHarness();
+  const secret = "private Browser visibility diagnostic";
+  harness.browser.capabilities.get = async () => ({
+    async get() {
+      assert.fail("failed visibility must not be verified");
+    },
+    async set() {
+      throw new Error(secret);
+    },
+  });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+
+  await assert.rejects(handle.ready, (error) => {
+    assert.equal(error.code, "browser_visibility_unavailable");
+    assert.equal(
+      error.summary,
+      "The Codex In-app Browser could not be shown",
+    );
+    assert.doesNotMatch(JSON.stringify(error), /private Browser visibility/u);
+    return true;
+  });
+  assert.equal(harness.calls.startRecording, 0);
+  assert.equal(harness.calls.artifactRollback, 1);
+  assert.equal(harness.calls.tabClose, 1);
+});
+
+test("bounds Browser visibility establishment and follows normal cleanup", async () => {
+  const harness = createHarness();
+  const visibilitySet = deferred();
+  let visibilityVerificationCalls = 0;
+  let visibilitySetStarted = false;
+  harness.browser.capabilities.get = async () => ({
+    async get() {
+      visibilityVerificationCalls += 1;
+      return true;
+    },
+    async set() {
+      visibilitySetStarted = true;
+      return visibilitySet.promise;
+    },
+  });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+
+  await settleWorkflow();
+  assert.equal(visibilitySetStarted, true);
+  harness.clock.advance(5_000);
+  const result = await Promise.race([
+    handle.ready.then(
+      () => ({ status: "resolved" }),
+      (error) => ({ error, status: "rejected" }),
+    ),
+    new Promise((resolve) => {
+      setTimeout(() => resolve({ status: "test_deadline" }), 100);
+    }),
+  ]);
+
+  assert.equal(result.status, "rejected");
+  assert.equal(result.error.code, "browser_visibility_unavailable");
+  assert.equal(harness.calls.startRecording, 0);
+  assert.equal(harness.calls.artifactRollback, 1);
+  assert.equal(harness.calls.tabClose, 1);
+
+  visibilitySet.resolve();
+  await settleWorkflow();
+  assert.equal(visibilityVerificationCalls, 0);
 });
 
 test("runs a pointer action only after fresh evidence crosses its boundary", async () => {
@@ -1559,6 +1679,19 @@ test("a timed-out finalization cannot publish after its capture resolves late", 
       },
     },
     browser: {
+      capabilities: {
+        async get(name) {
+          assert.equal(name, "visibility");
+          return {
+            async get() {
+              return true;
+            },
+            async set(visible) {
+              assert.equal(visible, true);
+            },
+          };
+        },
+      },
       tabs: {
         async new() {
           return {
@@ -1649,6 +1782,19 @@ test("a timed-out artifact finalization cannot publish after validation resolves
         },
       },
       browser: {
+        capabilities: {
+          async get(name) {
+            assert.equal(name, "visibility");
+            return {
+              async get() {
+                return true;
+              },
+              async set(visible) {
+                assert.equal(visible, true);
+              },
+            };
+          },
+        },
         tabs: {
           async new() {
             return {

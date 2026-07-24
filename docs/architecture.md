@@ -20,7 +20,8 @@ flowchart TD
   C -->|"approved"| B["Acquire Codex In-app Browser"]
   B --> R["recordApproved(preparation, browser)"]
   R --> T["Create artifact transaction and owned fresh tab"]
-  T --> S["Navigate, acquire CDP, verify origin, start frame stream"]
+  T --> W["Establish initial Browser visibility"]
+  W --> S["Navigate, acquire CDP, verify origin, start frame stream"]
   S --> A["Run fixed actions with automatic pointer evidence"]
   A --> M["Finalize frames, encoder, and cursor composition"]
   M --> V["Validate H.264 MP4 and atomically publish"]
@@ -64,7 +65,7 @@ it is not the skill or caller interface.
 | --- | --- | --- |
 | `$codex-browser-recorder:record-browser` skill | Request interpretation, concrete action functions, one consent, bounded Codex In-app Browser acquisition callback, outcome reporting | Tab lifecycle, CDP, stop ordering, direct cleanup |
 | Recording Flow | Request/output preparation, setup diagnostic-tab ownership, opaque authorization, action sequence, terminal outcomes | New actions after consent, raw diagnostics |
-| Internal coordinator | Artifact and fresh-tab ownership, timers, per-action evidence, finalization, memoized verified tab cleanup | User-visible policy expansion |
+| Internal coordinator | Artifact and fresh-tab ownership, initial Browser visibility, timers, per-action evidence, finalization, memoized verified tab cleanup | User-visible policy expansion |
 | Browser recording | CDP acquisition, origin checks, direct screencast-frame consumption, frame/resource limits | Publication and public error wording |
 | Cursor recording | Pointer observation, frame-coordinate mapping, cursor and click-feedback composition | Authenticating whether an event came from a person |
 | Artifact transaction | Private Working Recording, validation, collision-safe publication, rollback | Upload, sharing, playback, or deletion after delivery |
@@ -74,6 +75,14 @@ it is not the skill or caller interface.
 The Codex In-app Browser is the only Recording Surface. Preparation rejects a
 caller-provided surface selector, and the recorder never probes or falls back
 to Chrome or another Browser.
+
+Background Recording is the developer-facing invariant that Browser visibility
+is presentation state, not a capture correctness dependency. After approval,
+the internal coordinator creates the owned fresh tab, establishes and verifies
+the initial visible Browser state within five seconds, and only then navigates
+to the approved target. A missing, rejected, malformed, unverifiable, or timed
+out visibility capability fails with `browser_visibility_unavailable` and uses
+the normal artifact rollback and exact-tab cleanup path.
 
 The production capture path consumes the JPEG bytes delivered in
 `Page.screencastFrame.params.data`. Each valid frame is acknowledged once and
@@ -90,7 +99,10 @@ reverifies the current top-level origin before successful finalization. A
 top-level navigation outside the approved origin is terminal. Invalid and
 oversized frames are bounded, encoder backpressure cannot create an unbounded
 queue, and a fixed 10 fps encoder may repeat the latest valid frame on a static
-page.
+page. Hiding the Browser or moving focus to another Codex view changes only the
+bounded `visibilityState` and `visibilityChanges` diagnostics; neither event
+gates frame acknowledgement, actions, encoding, validation, publication, or
+cleanup.
 
 ## Lifecycle invariants
 
@@ -103,9 +115,11 @@ page.
 3. Fix prepared recording actions and the consent projection before asking for
    recording approval.
 4. For a recording, acquire the Codex In-app Browser and create exactly one
-   fresh owned tab only after approval.
+   fresh owned tab only after approval. Establish and verify initial Browser
+   visibility before navigating; bound failure and use normal cleanup.
 5. Navigate, acquire CDP, verify the approved top-level origin, and require the
-   first valid frame before performing an action.
+   first valid frame before performing an action. Later visibility and focus
+   changes do not affect the healthy Recording Session lifecycle.
 6. Run actions sequentially. Every pointer action automatically requires fresh
    observed evidence after its action boundary. Action-driven pointer plans keep
    a 200 ms visual tail after their final action.
@@ -128,6 +142,8 @@ The fail-closed invariants are:
 - no recording Browser activity before consent;
 - no setup recording artifact, raw frame dump, or upload;
 - no Chrome recording or automatic Recording Surface switch;
+- no recording navigation or approved action before initial Browser visibility
+  is established and verified;
 - one fresh tab and one normalized approved top-level origin;
 - no successful pointer flow without per-action evidence;
 - no Saved Recording before media validation and atomic publication;
