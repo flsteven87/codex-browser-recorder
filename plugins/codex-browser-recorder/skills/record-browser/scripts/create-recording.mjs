@@ -372,6 +372,8 @@ function sanitizeActionFailure(error) {
         cleanup?.browserTabCleanupIncomplete === true,
       cleanupDirectory: cleanup?.directory,
       cleanupFile: cleanup?.cleanupFile,
+      resourceCleanupIncomplete:
+        cleanup?.resourceCleanupIncomplete === true,
     },
   );
 }
@@ -398,20 +400,47 @@ async function startRecordingTransaction({
   tab,
 }) {
   let session;
+  let startup;
   try {
-    session = await dependencies.startBrowserRecordingForTab({
-      approvedOrigin: request.approvedOrigin,
-      ffmpegPath: options.ffmpegPath,
-      firstFrameTimeoutMs: 5000,
-      maxDurationMs: RECORDING_HARD_LIMIT_MS,
-      outputPath: artifacts.capturePath,
-      readTimeoutMs: 1000,
-      requirePointerEvents: request.requirePointerEvents,
-      resourceCheckIntervalMs: 1000,
-      signal,
-      tab,
-    });
+    startup = Promise.resolve().then(() =>
+      dependencies.startBrowserRecordingForTab({
+        approvedOrigin: request.approvedOrigin,
+        ffmpegPath: options.ffmpegPath,
+        firstFrameTimeoutMs: 5000,
+        maxDurationMs: RECORDING_HARD_LIMIT_MS,
+        outputPath: artifacts.capturePath,
+        readTimeoutMs: 1000,
+        requirePointerEvents: request.requirePointerEvents,
+        resourceCheckIntervalMs: 1000,
+        signal,
+        tab,
+      }),
+    );
+    session = await awaitAbortable(startup, signal);
   } catch (error) {
+    let resourceCleanupIncomplete = false;
+    if (error?.code === "recording_cancelled" && startup != null) {
+      const startupSettlement = await settleBeforeDeadline(
+        startup,
+        dependencies.clock,
+      );
+      if (startupSettlement.status === "fulfilled") {
+        if (typeof startupSettlement.value?.stop !== "function") {
+          resourceCleanupIncomplete = true;
+        } else {
+          const stopped = await settleBeforeDeadline(
+            Promise.resolve().then(() => startupSettlement.value.stop()),
+            dependencies.clock,
+          );
+          resourceCleanupIncomplete = stopped.status !== "fulfilled";
+        }
+      } else if (startupSettlement.status === "timed_out") {
+        resourceCleanupIncomplete = true;
+        void startup
+          .then((lateSession) => lateSession?.stop?.())
+          .catch(() => {});
+      }
+    }
     const cleanup = await settleBeforeDeadline(
       Promise.resolve().then(() =>
         artifacts.rollback(),
@@ -431,6 +460,7 @@ async function startRecordingTransaction({
           cleanup.status !== "fulfilled" && cleanupDetails == null,
         cleanupDirectory: cleanupDetails?.directory,
         cleanupFile: cleanupDetails?.cleanupFile,
+        resourceCleanupIncomplete,
       },
     );
   }
@@ -538,7 +568,12 @@ export function createRecording(options) {
   let resolveFinished;
   const reservation = {};
   const cancellation = new AbortController();
-  const cancelFromCaller = () => cancellation.abort();
+  const cancelFromCaller = () => {
+    cancellation.abort();
+    queueMicrotask(() => {
+      if (!terminal) void finish({ cancelPending: true }).catch(() => {});
+    });
+  };
 
   if (globalThis[ACTIVE_RECORDING_KEY] != null) {
     return failedHandle("recording_already_active");
@@ -619,8 +654,14 @@ export function createRecording(options) {
     try {
       const output = await finish({ cancelPending: true });
       cleanupOptions = {
+        artifactCleanupIncomplete:
+          output?.cleanup?.artifactCleanupIncomplete === true,
+        browserTabCleanupIncomplete:
+          output?.cleanup?.browserTabCleanupIncomplete === true,
         cleanupDirectory: output?.paths?.cleanupDirectory,
         cleanupFile: output?.paths?.cleanupFile,
+        resourceCleanupIncomplete:
+          output?.cleanup?.resourceCleanupIncomplete === true,
       };
     } catch (cleanupError) {
       const cleanup = getRecordingCleanupDetails(cleanupError);
@@ -631,6 +672,8 @@ export function createRecording(options) {
           cleanup?.browserTabCleanupIncomplete === true,
         cleanupDirectory: cleanup?.directory,
         cleanupFile: cleanup?.cleanupFile,
+        resourceCleanupIncomplete:
+          cleanup?.resourceCleanupIncomplete === true,
       };
     }
     throw sanitizeRecordingFailure(primaryFailure, cleanupOptions);
@@ -780,10 +823,18 @@ export function createRecording(options) {
             FINALIZATION_DEADLINE_MS,
           );
           if (finalization.status === "timed_out") {
+            const cancellationWasRequested = cancellation.signal.aborted;
             cancellation.abort();
             throw sanitizeRecordingFailure(
-              { code: "integration_failed" },
-              { artifactCleanupIncomplete: true },
+              {
+                code: cancellationWasRequested
+                  ? "recording_cancelled"
+                  : "integration_failed",
+              },
+              {
+                artifactCleanupIncomplete: true,
+                resourceCleanupIncomplete: true,
+              },
             );
           }
           if (finalization.status === "rejected") {
@@ -949,6 +1000,7 @@ export function createRecording(options) {
       let artifactCleanupIncomplete = false;
       let cleanupDirectory;
       let cleanupFile;
+      let resourceCleanupIncomplete = false;
       if (inner != null) {
         const cleanup = await settleBeforeDeadline(
           inner.stop(),
@@ -958,10 +1010,13 @@ export function createRecording(options) {
         if (cleanup.status === "timed_out") {
           cancellation.abort();
           artifactCleanupIncomplete = true;
+          resourceCleanupIncomplete = true;
         } else if (cleanup.status === "rejected") {
           const details = getRecordingCleanupDetails(cleanup.reason);
           artifactCleanupIncomplete =
             details?.artifactCleanupIncomplete === true;
+          resourceCleanupIncomplete =
+            details?.resourceCleanupIncomplete === true;
           if (details?.cleanupIncomplete === true) {
             cleanupDirectory = details.directory;
             cleanupFile = details.cleanupFile;
@@ -992,6 +1047,7 @@ export function createRecording(options) {
         browserTabCleanupIncomplete,
         cleanupDirectory,
         cleanupFile,
+        resourceCleanupIncomplete,
       });
       setTerminalFailure(publicError);
       release();

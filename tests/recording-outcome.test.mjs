@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  captureFailureCode,
   createRecordingOutcome,
   describeRecordingFailure,
   getRecordingCleanupDetails,
@@ -198,6 +199,11 @@ test("keeps every public failure code mapped to its documented message", () => {
         remediation,
         summary,
       });
+      assert.doesNotMatch(
+        `${summary}\n${remediation}`,
+        /\b(?:Chrome|IAB)\b/u,
+        code,
+      );
     }
   }
 });
@@ -226,6 +232,14 @@ test("maps unknown private failures to a fixed privacy-safe fallback", () => {
   assert.equal(JSON.stringify(error).includes(secret), false);
 });
 
+test("preserves bounded frame failures through artifact finalization", () => {
+  assert.equal(captureFailureCode({ code: "invalid_frame" }), "invalid_frame");
+  assert.equal(
+    captureFailureCode({ code: "frame_too_large" }),
+    "frame_too_large",
+  );
+});
+
 test("keeps combined artifact and Browser cleanup state bounded", () => {
   const error = sanitizeRecordingFailure(
     { code: "integration_failed" },
@@ -233,6 +247,7 @@ test("keeps combined artifact and Browser cleanup state bounded", () => {
       artifactCleanupIncomplete: true,
       browserTabCleanupIncomplete: true,
       cleanupDirectory: "/private/recording",
+      resourceCleanupIncomplete: true,
     },
   );
 
@@ -241,11 +256,13 @@ test("keeps combined artifact and Browser cleanup state bounded", () => {
     browserTabCleanupIncomplete: true,
     cleanupIncomplete: true,
     directory: "/private/recording",
+    resourceCleanupIncomplete: true,
   });
   assert.equal("browserTabCleanupIncomplete" in error, false);
   assert.equal("artifactCleanupIncomplete" in error, false);
   assert.equal("cleanupIncomplete" in error, false);
   assert.equal("directory" in error, false);
+  assert.equal("resourceCleanupIncomplete" in error, false);
 });
 
 test("builds the schema-v3 result without performing persistence", () => {

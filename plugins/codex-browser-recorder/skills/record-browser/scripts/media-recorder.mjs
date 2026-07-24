@@ -64,6 +64,7 @@ const SCREENCAST_EVENT_METHODS = [
   "Page.screencastFrame",
   "Page.screencastVisibilityChanged",
 ];
+const FRAME_READ_STALL_TIMEOUT_MS = 5_000;
 
 function validateFramePumpConfiguration({
   cdp,
@@ -108,7 +109,34 @@ function validateEventBatch(batch, currentCursor) {
   }
 }
 
+function readEventsWithinDeadline(cdp, options, dependencies) {
+  const operation = Promise.resolve().then(() => cdp.readEvents(options));
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      dependencies.clearTimeout(timer);
+      callback(value);
+    };
+    const failure = () =>
+      new RecorderError(
+        "frame_stream_stalled",
+        "CDP frame events could not be read",
+      );
+    const timer = dependencies.setTimeout(
+      () => finish(reject, failure()),
+      dependencies.readStallTimeoutMs,
+    );
+    operation.then(
+      (value) => finish(resolve, value),
+      () => finish(reject, failure()),
+    );
+  });
+}
+
 export function startFramePump({
+  _dependencies,
   cdp,
   initialCursor,
   onFrame,
@@ -124,6 +152,26 @@ export function startFramePump({
     onTopFrameNavigation,
     readTimeoutMs,
   });
+  const dependencies = {
+    clearTimeout,
+    readStallTimeoutMs: Math.max(
+      FRAME_READ_STALL_TIMEOUT_MS,
+      readTimeoutMs * 5,
+    ),
+    setTimeout,
+    ..._dependencies,
+  };
+  if (
+    typeof dependencies.clearTimeout !== "function" ||
+    !Number.isInteger(dependencies.readStallTimeoutMs) ||
+    dependencies.readStallTimeoutMs <= readTimeoutMs ||
+    typeof dependencies.setTimeout !== "function"
+  ) {
+    throw new RecorderError(
+      "invalid_configuration",
+      "Frame pump configuration is invalid",
+    );
+  }
 
   let stopped = false;
   let cursor = initialCursor;
@@ -201,7 +249,6 @@ export function startFramePump({
     } catch (error) {
       if (error instanceof RecorderError) {
         stats.invalidFrames += 1;
-        return;
       }
       throw error;
     }
@@ -219,12 +266,16 @@ export function startFramePump({
 
   const loop = (async () => {
     while (!stopped) {
-      const batch = await cdp.readEvents({
-        afterSequence: cursor,
-        limit: 1000,
-        methods: SCREENCAST_EVENT_METHODS,
-        timeoutMs: readTimeoutMs,
-      });
+      const batch = await readEventsWithinDeadline(
+        cdp,
+        {
+          afterSequence: cursor,
+          limit: 1000,
+          methods: SCREENCAST_EVENT_METHODS,
+          timeoutMs: readTimeoutMs,
+        },
+        dependencies,
+      );
 
       validateEventBatch(batch, cursor);
 

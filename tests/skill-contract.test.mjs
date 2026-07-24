@@ -466,6 +466,7 @@ test("skill reports one terminal product outcome before bounded diagnostics", ()
   assert.match(skill, /summary/iu);
   assert.match(skill, /remediation/iu);
   assert.match(skill, /artifactCleanupIncomplete/u);
+  assert.match(skill, /resourceCleanupIncomplete/u);
   assert.match(skill, /operating-system temporary directory/iu);
   assertPrivacyReportingContract(skill);
 });
