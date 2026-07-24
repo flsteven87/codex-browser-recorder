@@ -1,5 +1,6 @@
 coverage/
 .serena/
+docs/research/
 *.partial
 *.webm
 result.json

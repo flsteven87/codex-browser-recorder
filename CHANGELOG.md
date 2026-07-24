@@ -4,7 +4,17 @@ All notable changes to this project will be documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.3] - 2026-07-24
+
+This patch release makes Browser Recorder's public project surfaces easier to
+use while preserving its consent, privacy, and local-only recording boundary.
+
+### Added
+
+- Added focused regression coverage for every public recording-failure message,
+  its remediation, and the privacy-safe fallback for unknown internal errors.
+- Added a dedicated question form so usage questions no longer lead to a closed
+  issue-creation path.
 
 ### Changed
 
@@ -12,8 +22,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   plain-language tasks.
 - Made consent, setup failures, recording failures, support guidance, privacy
   answers, issue forms, and contribution steps easier to scan and act on.
-- Added a dedicated question form so usage questions no longer lead to a closed
-  issue-creation path.
+- Made public issue forms explicitly reject recordings, raw frames, private
+  content, and Browser/CDP diagnostics.
+- Removed internal research notes from the public project tree.
+
+### Fixed
+
+- Made the capability-acquisition cancellation test use an isolated destination
+  and a bounded startup wait so restricted environments fail promptly instead
+  of hanging.
 
 ## [0.3.2] - 2026-07-23
 

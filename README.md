@@ -129,15 +129,15 @@ or edit cache contents by hand.
 Use a release tag when you need to reproduce the published plugin:
 
 ```sh
-git clone --branch v0.3.2 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
+git clone --branch v0.3.3 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
 codex plugin marketplace add /absolute/path/to/codex-browser-recorder
 ```
 
-The [v0.3.2 release page](https://github.com/flsteven87/codex-browser-recorder/releases/tag/v0.3.2)
+The [v0.3.3 release page](https://github.com/flsteven87/codex-browser-recorder/releases/tag/v0.3.3)
 lists the release commit. You can also verify the downloaded archive:
 
 ```sh
-recorder_release=v0.3.2
+recorder_release=v0.3.3
 recorder_archive="codex-browser-recorder-${recorder_release}.zip"
 curl --fail --location --remote-name \
   "https://github.com/flsteven87/codex-browser-recorder/releases/download/${recorder_release}/${recorder_archive}"
