@@ -1,116 +1,140 @@
+<p align="center">
+  <img
+    src="plugins/codex-browser-recorder/assets/icon.png"
+    width="128"
+    alt="Codex Browser Recorder icon"
+  >
+</p>
+
 # Browser Recorder for Codex
 
-Browser Recorder is an experimental, community-developed Codex plugin that
-records one explicitly approved test flow in a fresh Chrome tab. It saves a
-local H.264 MP4 with no audio to `~/Downloads/Codex Browser Recordings/` by
-default. Pointer flows add a visible project cursor and click feedback.
+Turn a short browser flow into a local video—without leaving Codex.
 
-The recorder reuses the Chrome plugin's permission-gated CDP connection. It
-does not record Codex UI, browser chrome, other tabs, or an entire browser
-profile, and it does not add upload, sharing, or telemetry.
+Browser Recorder opens one fresh Chrome tab, follows the actions you approve,
+and saves the result as an MP4. Pointer flows include a visible cursor
+and click feedback, so the recording is easy to follow in a bug report, QA
+note, or review.
 
-The fresh tab may reuse Chrome's existing session. The recording
-contains the complete page viewport, including all visible embedded frames, so
-use a logged-out Chrome profile with no sensitive or personalized content.
+Recordings stay on your Mac. The plugin does not upload or share them, add
+telemetry, capture audio, or record your other tabs.
 
-Authenticated or sensitive flows are out of scope. Record only non-sensitive
-test pages and actions that every affected person has agreed may be recorded.
+> [!NOTE]
+> This is an experimental, community-developed Codex plugin. The current
+> release supports the Codex desktop app on macOS with Chrome.
 
-## Documentation
+## Before you record
 
-- [Quick Start](#quick-start) — preflight and record a first flow
-- [Supported Scope](#requirements-and-supported-scope) — platforms, browsers,
-  targets, and media limits
-- [Troubleshooting](docs/troubleshooting.md) — installation, preflight, CDP, and
-  recording failures
-- [Architecture](docs/architecture.md) — trust boundaries, lifecycle, public
-  flow, and source-of-truth map
-- [Contributing](CONTRIBUTING.md) — development and release verification
+> [!WARNING]
+> Record only public, non-sensitive pages and actions that everyone affected
+> has agreed may be recorded.
 
-## Requirements and Supported Scope
+- A fresh tab may reuse Chrome's existing session. Use a logged-out Chrome
+  profile without sensitive or personalized content.
+- The recording includes the complete visible page viewport, including all
+  visible embedded frames.
+- If the page sends the tab to another website, recording stops without saving
+  a video.
+- Never record credentials, payment details, private messages, health data,
+  account-recovery secrets, or other sensitive content.
 
-- macOS with the Codex desktop app
-- The official [Chrome plugin and
-  extension](https://learn.chatgpt.com/docs/chrome-extension), fully configured
-  in the Chrome profile used for recording
-- **Settings > Browser > Developer mode > Enable full CDP access** enabled by
-  the user; Codex still asks for site-specific approval before using it
-- `ffmpeg` and `ffprobe` on `PATH`, including `libx264` and MP4 support
-- `https:` targets without URL credentials, or explicit loopback development
-  targets using `http:` with `localhost`, `127.0.0.1`, or `[::1]`
-- One fresh tab and one approved top-level origin
-- An optional explicit duration from 5 to 60 seconds; action-driven recordings
-  stop when their approved actions finish, with a 15-second hard session cap
-  when duration is omitted
+See the [privacy policy](PRIVACY.md) for the complete data boundary, retention,
+cleanup, and failure behavior.
 
-On a Homebrew-managed Mac, `brew install ffmpeg` installs both required media
-tools. Other package sources are supported when `ffmpeg` and `ffprobe` resolve
-on `PATH` with the required capabilities.
+## Quick start
 
-Embedded-frame pointer coverage is available only when Chrome exposes the frame
-through public CDP. Deterministic fixtures cover cross-origin and
-out-of-process iframe targets, but that is not a real-browser OOPIF
-certification. A release candidate must separately pass the documented Chrome
-smoke. If a required frame cannot be observed, recording fails closed instead
-of publishing incomplete evidence.
+### 1. Install the prerequisites
 
-The Codex in-app Browser does not satisfy this recorder release's first-frame
-contract and is rejected before consent with `browser_surface_unsupported`.
-There is no automatic fallback or browser switch. Existing tabs, multiple tabs,
-non-loopback `http:`, URL credentials, audio, authenticated or sensitive flows,
-and cross-origin top-level navigation are unsupported.
+You will need:
 
-The recorder runs a read-only environment check. It does not enable Developer
-mode, install packages, change policy, or bypass site or CDP approval. Node.js
-24 or newer is required only for repository development and verification.
+- the Codex desktop app on macOS;
+- the official [Chrome plugin and extension](https://learn.chatgpt.com/docs/chrome-extension);
+- **Settings > Browser > Developer mode > Enable full CDP access** turned on;
+- FFmpeg and FFprobe with H.264 and MP4 support.
 
-## Install
+Homebrew users can install the media tools with:
 
-### Plugins Directory
+```sh
+brew install ffmpeg
+```
 
-In the ChatGPT desktop app, select Codex, open **Plugins**, and search for
-**Codex Browser Recorder**. If it is available to your account and workspace,
-install it with the plus button; otherwise use the local marketplace flow below.
-Install **Chrome** and finish its extension setup for recording. Then start a
-new task. This is the current
-[official plugin installation flow](https://learn.chatgpt.com/docs/plugins).
+In the ChatGPT desktop app, open **Codex > Plugins**, search for
+**Codex Browser Recorder**, and install it. Install **Chrome** there too, finish
+the extension setup, then start a new task. If the recorder is not listed for
+your account or workspace, use the [local checkout](#install-from-a-local-checkout)
+below.
 
-The published plugin can lag the [latest GitHub
-release](https://github.com/flsteven87/codex-browser-recorder/releases/latest).
-Check the installed plugin version before reporting a regression.
+### 2. Check your setup
 
-### Local Marketplace
+Ask Codex to run the recorder's read-only preflight:
 
-For local development, add the repository as a marketplace source:
+```text
+$codex-browser-recorder:record-browser Check whether my local recording environment is ready.
+```
+
+A successful check begins with `Local recording preflight passed`. It checks
+your Mac, media tools, and output folder without opening Chrome. Chrome
+permissions are requested later, when you record.
+
+### 3. Record your first flow
+
+Try a short, public, logged-out page:
+
+```text
+$codex-browser-recorder:record-browser Open https://www.w3.org/TR/pointerevents/, click the 1. Introduction link in the table of contents, and save the approved flow as pointer-events-intro.
+```
+
+Before Chrome opens, Codex shows the page, actions, duration, and output name
+for your approval. When the flow finishes, the video is saved to
+`~/Downloads/Codex Browser Recordings/` by default.
+
+## What you get
+
+| | |
+| --- | --- |
+| **A focused capture** | One approved flow in one fresh Chrome tab—never the Codex UI, browser chrome, or your other tabs. |
+| **A ready-to-use file** | A local H.264 MP4, capped at 720p and encoded at 10 frames per second with no audio. |
+| **Visible actions** | Pointer flows show the cursor and click feedback. |
+| **Private by default** | The video is created on your Mac, and page images are not sent to the model. There is no automatic upload, sharing, or telemetry. |
+
+The fixed video profile is designed for short test evidence, not high-motion
+product demos.
+
+## Current limits
+
+- macOS and Chrome only; the Codex in-app Browser is not supported.
+- One fresh tab and one approved website at a time.
+- Public `https:` pages, plus explicit loopback development pages on
+  `localhost`, `127.0.0.1`, or `[::1]`.
+- An optional duration from 5 to 60 seconds. Action-driven recordings can stop
+  after the approved actions; passive or wait-only recordings require an
+  explicit duration.
+- No audio, authenticated flows, multiple tabs, uploads, remote storage, or
+  navigation to another website.
+
+## Install from a local checkout
+
+Add this repository as a local marketplace:
 
 ```sh
 codex plugin marketplace add /absolute/path/to/codex-browser-recorder
+codex plugin add codex-browser-recorder@codex-browser-recorder
 ```
 
-Then open **Plugins**, select the `codex-browser-recorder` marketplace, and
-install the plugin. In Codex CLI, use `/plugins` to browse the configured source
-and install it, then start a new session. See the official [local marketplace
-guide](https://learn.chatgpt.com/docs/build-plugins#build-your-own-curated-plugin-list).
+Start a new Codex task after installing. Do not copy files into the plugin cache
+or edit cache contents by hand.
 
-To reproduce the latest GitHub release, use its versioned tag rather than the
-mutable `main` branch:
+<details>
+<summary>Install and verify the current versioned release</summary>
+
+Use a release tag when you need to reproduce the published plugin:
 
 ```sh
 git clone --branch v0.3.2 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
 codex plugin marketplace add /absolute/path/to/codex-browser-recorder
 ```
 
-For candidate testing before the tag is published, use the reviewed current
-repository checkout and record its full commit SHA locally. The historical
-`v0.3.0` and `v0.3.1` tags and assets remain unchanged and do not contain the
-0.3.2 invocation, tab-cleanup, and click-feedback fixes.
-
-A Git tag is a version selector, not a cryptographic immutability guarantee. For
-strict reproducibility, pin the full release commit or compare the archive with
-a digest recorded independently of the mutable release assets. For the matching
-[v0.3.2 release page](https://github.com/flsteven87/codex-browser-recorder/releases/tag/v0.3.2),
-compare the release commit shown there with the tag and verify the separately
-published archive checksum:
+The [v0.3.2 release page](https://github.com/flsteven87/codex-browser-recorder/releases/tag/v0.3.2)
+lists the release commit. You can also verify the downloaded archive:
 
 ```sh
 recorder_release=v0.3.2
@@ -122,212 +146,63 @@ curl --fail --location --remote-name \
 shasum -a 256 -c "${recorder_archive}.sha256"
 ```
 
-The checksum verifies the versioned `v0.3.2` plugin archive only; it does not
-verify a newer `main` commit that retains the same plugin version.
+The checksum covers the versioned archive. For stricter reproducibility, also
+pin the full release commit.
 
-For non-interactive installation, the equivalent command is:
+</details>
 
-```sh
-codex plugin add codex-browser-recorder@codex-browser-recorder
-```
+## Documentation
 
-If the skill does not appear in a new task, restart the ChatGPT desktop app and
-create another task. Do not copy files into the plugin cache or edit cache
-contents by hand.
-
-## Quick Start
-
-First, check the local dependencies and planned output location without opening
-a Browser tab:
-
-```text
-$codex-browser-recorder:record-browser Check whether my local recording environment is ready.
-```
-
-A successful report starts with `Local recording preflight passed`. The check
-reports all detected local blockers, including unsupported platform, missing
-FFmpeg or FFprobe, missing H.264 or MP4 support, and an unavailable destination.
-It is read-only apart from bounded media-tool subprocesses and does not verify
-Browser or CDP approval.
-
-Then request one concrete public, logged-out flow:
-
-```text
-$codex-browser-recorder:record-browser Open https://www.w3.org/TR/pointerevents/, click the 1. Introduction link in the table of contents, and save the approved flow as pointer-events-intro.
-```
-
-Chrome is the only supported recording surface for this release. An explicit
-in-app Browser request returns `browser_surface_unsupported` before Browser
-activity. Surface, target, actions, and output are all included in the consent
-boundary.
-
-The skill shows one consent checklist before Browser activity. With no explicit
-recording duration, it stops after the approved actions and any bounded pointer
-feedback tail finish; 15 seconds remains the hard session cap. Passive or
-wait-only recordings require an explicit duration.
-
-## Record a Flow
-
-Explicitly invoke `$codex-browser-recorder:record-browser` and provide:
-
-- the target URL;
-- the concrete Chrome Browser actions to perform, or an explicit 5–60 second
-  duration for a passive recording;
-- an optional duration for action-driven recording, absolute destination folder,
-  and recording name.
-
-Mentioning the skill does not approve an unknown target or scope. Before any
-Browser activity, it validates the request and presents one consolidated consent
-request containing the approved origin, actions, duration, destination,
-filename, H.264 MP4 with no audio, pointer cursor/click behavior when applicable,
-and the sensitive-data exclusion. It also discloses that all visible embedded
-frames are captured and that the fresh tab may reuse Chrome's existing session.
-
-After consent, the skill creates one fresh Chrome tab. It performs only approved
-actions, attempts to close that exact tab on every path, and verifies that the tab
-no longer appears in Chrome's tab inventory. It reports bounded manual cleanup
-instructions if closure cannot be confirmed.
-
-Approval denial returns `cancelled`; the plugin never retries or bypasses it.
-
-Consent remains locked to one normalized origin. Approved same-origin path,
-query, fragment, redirect, and single-page-application changes may continue. A
-cross-origin top-frame navigation stops the Recording Session and discards its
-media.
-
-Credentials, payment data, passkeys, account-recovery secrets, health data,
-confidential communications, and other sensitive authenticated flows must be
-refused.
-
-## Recording Lifecycle and Output
-
-- A **Recording Session** is one authorized attempt in one approved fresh tab.
-- A **Working Recording** is private temporary media that has not been validated
-  or delivered.
-- A **Saved Recording** is validated media atomically published to the approved
-  durable destination.
-- A pointer-driven Recording requires a new observed page pointer event after
-  each planned pointer action begins; missing evidence fails closed. A bounded
-  200 ms visual tail keeps the final observed click available to the 10 fps
-  compositor before action-driven capture stops.
-
-This evidence proves observation coverage, not event provenance. Browser
-controls and page scripts can both generate observed events, which may appear in
-the visible-cursor timeline.
-
-Working Recording directories use mode `0700`. Saved Recordings use mode `0600`
-and default to a privacy-safe filename such as
-`browser-recording-YYYY-MM-DD-HHmmss.mp4`. Filenames never derive from page
-titles, hosts, URLs, or page text, and collisions never overwrite existing
-files.
-
-A successful output is a compatibility-oriented verification recording capped
-at 720p and encoded at 10 frames per second. It contains one H.264 `yuv420p`
-video stream in an MP4 container with no audio. Cursor observation, coordinate
-mapping, composition, validation, and durable publication must all succeed
-before the result is reported as `Recording completed`. This fixed profile is
-intended for concise test evidence, not high-motion product demos.
-
-Capture, cancellation, cross-origin, and validation failures do not publish a
-Saved Recording; the transaction discards their Working Recording. If that
-automatic cleanup fails, the plugin reports the local path for deletion. If
-durable publication fails after validation, the plugin reports
-`saved_recording_persistence_failed` and a retained Working Recording recovery
-directory so the user can copy it to a durable folder before cleanup. Temporary
-output is never reported as a successful result.
-
-The private result contains bounded counters, validation metadata, an output
-filename, and an allowlisted status or failure code. It excludes raw frames,
-CDP payloads, FFmpeg output, full URLs, page text, credentials, and internal
-plugin paths. The plugin does not automatically open, play, upload, share, or
-delete a Saved Recording.
-
-## Architecture
-
-`$codex-browser-recorder:record-browser` defines the plan, calls
-`prepareRecording()`, presents the
-returned consent projection, acquires the supported Chrome surface, and passes
-the same opaque preparation to `recordApproved()`. The Recording Flow owns the
-fresh tab, approved actions, per-action evidence, capture, origin enforcement,
-media validation, durable publication, cleanup, and one discriminated terminal
-outcome. The lower-level handle is an internal coordinator, not a caller
-contract.
-
-See [Architecture](docs/architecture.md) for the lifecycle, module ownership,
-failure boundaries, and test map.
+- **Can't install or record?** Start with
+  [Troubleshooting](docs/troubleshooting.md).
+- **Need the full data boundary?** Read [Privacy](PRIVACY.md).
+- **Found a bug?** Follow [Support](SUPPORT.md) to share a safe report.
+- **Found a security issue?** Use the private process in
+  [Security](SECURITY.md).
+- **Want to contribute?** See [Contributing](CONTRIBUTING.md).
+- **Want to understand the internals?** Read
+  [Architecture](docs/architecture.md).
+- **Looking for release history?** Open the [Changelog](CHANGELOG.md).
 
 ## Development
 
-The repository has no npm runtime dependencies and requires no development
-server. Tests use local FFmpeg and FFprobe processes without accessing a browser
-profile or writing recording artifacts into the repository.
+Repository development requires Node.js 24 or newer. There are no npm runtime
+dependencies and no development server.
 
 ```sh
 npm run check
-npm run test:coverage
-npm run test:coverage:cursor
-npm run test:plugin-install
-npm run check:release-candidate
 ```
 
-These commands validate syntax, deterministic contracts, media fixtures,
-coverage, plugin installation, metadata, and release structure. They do not
-control Chrome and are not a real-browser end-to-end test. The isolated
-installation test requires the `codex` CLI.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full validation and
+real-Chrome release process.
 
-Before release, a maintainer must also run the documented manual smoke flow in
-the supported Codex desktop Chrome environment against a public, logged-out
-fixture and verify the Saved Recording. Do not commit or attach that recording.
-Contribution and release requirements are documented in
-[CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELOG.md).
+<details>
+<summary>Update or uninstall a local installation</summary>
 
-## Update or Uninstall
-
-### Plugins Directory
-
-Open **Plugins**, use the **Installed** row to open **Codex Browser Recorder**,
-and select **Uninstall plugin** when that action is available. Workspace-installed
-or default plugins may be controlled by an administrator instead. After an
-install, reinstall, or removal, start a new task so the plugin catalog is
-reloaded. Removing this recorder does not remove the separately installed
-**Chrome** plugin.
-
-### Local Marketplace
-
-To reinstall from an updated local marketplace checkout:
+Reinstall after updating the local checkout:
 
 ```sh
 codex plugin remove codex-browser-recorder@codex-browser-recorder
 codex plugin add codex-browser-recorder@codex-browser-recorder
 ```
 
-To uninstall the plugin and marketplace:
+Remove both the plugin and its local marketplace:
 
 ```sh
 codex plugin remove codex-browser-recorder@codex-browser-recorder
 codex plugin marketplace remove codex-browser-recorder
 ```
 
-## Privacy, Security, and Support
+Start a new task after changing installed plugins.
 
-Frames are processed by the local plugin Node runtime and local FFmpeg; the
-skill does not place them in model context. The user controls retention and
-must delete recordings when they are no longer needed. The target page and its
-embedded content can still make their normal network requests; the recorder
-does not make an offline copy of the site.
+</details>
 
-See [PRIVACY.md](PRIVACY.md), [SECURITY.md](SECURITY.md), [TERMS.md](TERMS.md),
-[SUPPORT.md](SUPPORT.md), and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Report
-security issues through [GitHub private vulnerability
-reporting](https://github.com/flsteven87/codex-browser-recorder/security/advisories/new),
-not a public issue.
+## Browser Recorder and Record & Replay
 
-## Record & Replay
-
-Browser Recorder saves the visible page flow as a local video artifact. Codex
+Browser Recorder creates a local video of a visible page flow. Codex
 [Record & Replay](https://learn.chatgpt.com/docs/extend/record-and-replay)
-instead turns a demonstrated workflow into a reusable skill. It is a separate
-Codex feature with its own availability requirements.
+turns a demonstrated workflow into a reusable skill. They are separate
+features.
 
 ## License
 
