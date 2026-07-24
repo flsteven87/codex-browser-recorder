@@ -1,6 +1,10 @@
 coverage/
 .serena/
 docs/research/
+AGENTS.md
+CONTEXT.md
+docs/adr/
+docs/agents/
 *.partial
 *.webm
 result.json
