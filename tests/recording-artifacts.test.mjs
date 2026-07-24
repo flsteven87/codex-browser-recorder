@@ -27,6 +27,7 @@ const temporaryRoot = mkdtempSync(join(tmpdir(), "recording-artifacts-test-"));
 
 const expectedCapture = {
   backpressureDrops: 0,
+  cursorChildFrameEventsCaptured: null,
   elapsedMs: 500,
   encoderExitCode: 0,
   framesAcknowledged: 5,

@@ -23,6 +23,7 @@ export { describeRecordingFailure };
 const ACTIVE_RECORDING_KEY = Symbol.for("codex-browser-recorder.active");
 const ACTION_EVIDENCE_INTERVAL_MS = 50;
 const ACTION_EVIDENCE_TIMEOUT_MS = 1000;
+const BROWSER_VISIBILITY_POLL_INTERVAL_MS = 100;
 const BROWSER_VISIBILITY_TIMEOUT_MS = 5000;
 const POINTER_VISUAL_TAIL_MS = 200;
 const CLEANUP_DEADLINE_MS = 5000;
@@ -95,6 +96,17 @@ function hasPointerEvidenceAfterActionBoundary({
     capture.cursorEventsCaptured > beforeEvents &&
     Number.isFinite(capture?.cursorLastEventEpochMs) &&
     capture.cursorLastEventEpochMs >= actionStartedAtEpochMs
+  );
+}
+
+function hasChildFramePointerEvidenceAfterActionBoundary({
+  beforeEvents,
+  capture,
+}) {
+  return (
+    Number.isInteger(beforeEvents) &&
+    Number.isInteger(capture?.cursorChildFrameEventsCaptured) &&
+    capture.cursorChildFrameEventsCaptured > beforeEvents
   );
 }
 
@@ -246,12 +258,17 @@ async function showBrowser(browser, signal, clock) {
       Promise.resolve().then(() => visibility.set(true)),
       operationCancellation.signal,
     );
-    const visible = await awaitAbortable(
-      Promise.resolve().then(() => visibility.get()),
-      operationCancellation.signal,
-    );
-    if (visible !== true) {
-      throw new Error("Browser visibility could not be established");
+    while (true) {
+      const visible = await awaitAbortable(
+        Promise.resolve().then(() => visibility.get()),
+        operationCancellation.signal,
+      );
+      if (visible === true) return;
+      await waitForClockDelay(
+        clock,
+        BROWSER_VISIBILITY_POLL_INTERVAL_MS,
+        operationCancellation.signal,
+      );
     }
   })();
   const settlement = await settleBeforeDeadline(
@@ -681,7 +698,9 @@ export function createRecording(options) {
 
   async function waitForPointerEvidence({
     actionStartedAtEpochMs,
+    beforeChildFrameEvents,
     beforeEvents,
+    requiresChildFramePointerEvidence,
   }) {
     const evidenceDeadline = Math.min(
       clockNow(dependencies.clock) + ACTION_EVIDENCE_TIMEOUT_MS,
@@ -691,13 +710,19 @@ export function createRecording(options) {
       if (state !== "recording") {
         throw sanitizeRecordingFailure({ code: "integration_failed" });
       }
-      if (
-        hasPointerEvidenceAfterActionBoundary({
-          actionStartedAtEpochMs,
-          beforeEvents,
-          capture: inner.captureSnapshot(),
-        })
-      ) {
+      const capture = inner.captureSnapshot();
+      const hasPointerEvidence = hasPointerEvidenceAfterActionBoundary({
+        actionStartedAtEpochMs,
+        beforeEvents,
+        capture,
+      });
+      const hasRequiredChildFrameEvidence =
+        requiresChildFramePointerEvidence !== true ||
+        hasChildFramePointerEvidenceAfterActionBoundary({
+          beforeEvents: beforeChildFrameEvents,
+          capture,
+        });
+      if (hasPointerEvidence && hasRequiredChildFrameEvidence) {
         return;
       }
       const remainingMs = evidenceDeadline - clockNow(dependencies.clock);
@@ -722,10 +747,21 @@ export function createRecording(options) {
     }
   }
 
-  async function runAction({ perform, requiresPointerEvidence } = {}) {
+  async function runAction({
+    perform,
+    requiresChildFramePointerEvidence = false,
+    requiresPointerEvidence,
+  } = {}) {
     if (
       typeof perform !== "function" ||
+      typeof requiresChildFramePointerEvidence !== "boolean" ||
       typeof requiresPointerEvidence !== "boolean"
+    ) {
+      return failAction({ code: "invalid_configuration" });
+    }
+    if (
+      requiresChildFramePointerEvidence &&
+      requiresPointerEvidence !== true
     ) {
       return failAction({ code: "invalid_configuration" });
     }
@@ -743,7 +779,10 @@ export function createRecording(options) {
     pointerActionInFlight = requiresPointerEvidence;
     try {
       await assertActionBoundaryOrigin();
-      const beforeEvents = inner.captureSnapshot()?.cursorEventsCaptured;
+      const beforeCapture = inner.captureSnapshot();
+      const beforeChildFrameEvents =
+        beforeCapture?.cursorChildFrameEventsCaptured;
+      const beforeEvents = beforeCapture?.cursorEventsCaptured;
       const actionStartedAtEpochMs = clockNow(dependencies.clock);
       const result = await awaitAbortable(
         Promise.resolve().then(perform),
@@ -753,7 +792,9 @@ export function createRecording(options) {
       if (requiresPointerEvidence) {
         await waitForPointerEvidence({
           actionStartedAtEpochMs,
+          beforeChildFrameEvents,
           beforeEvents,
+          requiresChildFramePointerEvidence,
         });
         await waitForClockDelay(
           dependencies.clock,

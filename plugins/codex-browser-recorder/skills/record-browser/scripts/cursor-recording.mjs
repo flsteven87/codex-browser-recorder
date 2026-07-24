@@ -826,6 +826,7 @@ export async function startCursorCapture({ cdp, mainFrameId, now }) {
   }
 
   const stats = {
+    cursorChildFrameEventsCaptured: 0,
     cursorEventsCaptured: 0,
     cursorFramesObserved: 0,
     cursorLastEventEpochMs: null,
@@ -941,6 +942,10 @@ export async function startCursorCapture({ cdp, mainFrameId, now }) {
         ).toFixed(3),
       ),
     });
+    const eventFrame = frames.get(frameId);
+    if (eventFrame !== undefined && eventFrame.parentFrameId !== null) {
+      stats.cursorChildFrameEventsCaptured += 1;
+    }
     stats.cursorEventsCaptured += 1;
     stats.cursorLastEventEpochMs = pointer.observedAtEpochMs;
   }

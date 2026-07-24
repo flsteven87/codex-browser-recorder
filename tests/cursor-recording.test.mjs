@@ -383,6 +383,7 @@ test("maps an embedded-frame pointer through its public owner geometry", async (
     ],
     viewport: { height: 300, width: 400 },
   });
+  assert.equal(capture.stats.cursorChildFrameEventsCaptured, 1);
   assert.deepEqual(
     operations
       .filter(([method]) => method === "Page.createIsolatedWorld")

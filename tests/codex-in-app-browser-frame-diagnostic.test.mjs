@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  runChromeFrameContractGate,
-} from "../scripts/browser-frame-contract-gate.mjs";
+  runCodexInAppBrowserFrameDiagnostic,
+} from "../scripts/codex-in-app-browser-frame-diagnostic.mjs";
 
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
 
@@ -17,7 +17,28 @@ function deferred() {
   return { promise, reject, resolve };
 }
 
-test("proves one direct Chrome frame and leaves no Browser tab", async () => {
+function addOwnedTabInventory(browser) {
+  const owned = new Map();
+  const createTab = browser.tabs.new;
+  let nextId = 0;
+  browser.tabs.new = async function newTrackedTab(...args) {
+    const tab = await Reflect.apply(createTab, this, args);
+    tab.id ??= `owned-diagnostic-${nextId += 1}`;
+    const close = tab.close;
+    tab.close = async function closeTrackedTab(...closeArgs) {
+      const result = await Reflect.apply(close, this, closeArgs);
+      owned.delete(tab.id);
+      return result;
+    };
+    owned.set(tab.id, tab);
+    return tab;
+  };
+  browser.tabs.list = async () =>
+    [...owned.values()].map(({ id }) => ({ id }));
+  return browser;
+}
+
+test("reports one direct Codex In-app Browser frame as diagnostic-only evidence", async () => {
   const calls = [];
   let reads = 0;
   const cdp = {
@@ -58,6 +79,7 @@ test("proves one direct Chrome frame and leaves no Browser tab", async () => {
     },
   };
   const tab = {
+    id: "owned-diagnostic-tab",
     capabilities: {
       async get(name) {
         calls.push(["capability", name]);
@@ -73,6 +95,10 @@ test("proves one direct Chrome frame and leaves no Browser tab", async () => {
   };
   const browser = {
     tabs: {
+      async list() {
+        calls.push(["tabs.list"]);
+        return [];
+      },
       async new() {
         calls.push(["tabs.new"]);
         return tab;
@@ -80,14 +106,16 @@ test("proves one direct Chrome frame and leaves no Browser tab", async () => {
     },
   };
 
-  const result = await runChromeFrameContractGate({ browser });
+  const result = await runCodexInAppBrowserFrameDiagnostic({ browser });
 
   assert.deepEqual(result, {
-    contractVersion: 1,
+    contractVersion: 2,
+    diagnostic: "low_level_cdp_frame_probe",
     framesAcknowledged: 1,
     framesReceived: 1,
+    releaseAcceptance: false,
     status: "passed",
-    surface: "chrome",
+    surface: "Codex In-app Browser",
   });
   assert.equal(
     calls.some(([method]) => method === "Page.captureScreenshot"),
@@ -97,11 +125,14 @@ test("proves one direct Chrome frame and leaves no Browser tab", async () => {
     calls.filter(([method]) => method === "Page.screencastFrameAck").length,
     1,
   );
-  assert.deepEqual(calls.at(-2), ["Page.stopScreencast", undefined]);
-  assert.deepEqual(calls.at(-1), ["tab.close"]);
+  assert.deepEqual(calls.slice(-3), [
+    ["Page.stopScreencast", undefined],
+    ["tab.close"],
+    ["tabs.list"],
+  ]);
 });
 
-test("fails closed when Chrome produces no frame and still closes the tab", async () => {
+test("fails closed when the Codex In-app Browser produces no frame and still closes the tab", async () => {
   let now = 0;
   let tabClose = 0;
   const cdp = {
@@ -131,9 +162,10 @@ test("fails closed when Chrome produces no frame and still closes the tab", asyn
       },
     },
   };
+  addOwnedTabInventory(browser);
 
   await assert.rejects(
-    runChromeFrameContractGate({
+    runCodexInAppBrowserFrameDiagnostic({
       browser,
       dependencies: {
         now: () => now,
@@ -146,8 +178,74 @@ test("fails closed when Chrome produces no frame and still closes the tab", asyn
   assert.equal(tabClose, 1);
 });
 
+test("retries transient inventory failure without closing the tab twice", async () => {
+  let closeCalls = 0;
+  let inventoryCalls = 0;
+  let reads = 0;
+  const cdp = {
+    async readEvents() {
+      reads += 1;
+      return reads === 1
+        ? { cursor: 1, events: [], hasMore: false, truncated: false }
+        : {
+            cursor: 2,
+            events: [
+              {
+                method: "Page.screencastFrame",
+                params: {
+                  data: jpeg.toString("base64"),
+                  metadata: {},
+                  sessionId: 1,
+                },
+              },
+            ],
+            hasMore: false,
+            truncated: false,
+          };
+    },
+    async send(method) {
+      if (method === "Page.getFrameTree") {
+        return {
+          frameTree: {
+            frame: { id: "main", url: "https://example.com/" },
+          },
+        };
+      }
+    },
+  };
+  const tab = {
+    id: "owned-diagnostic-tab",
+    capabilities: { async get() { return cdp; } },
+    async close() {
+      closeCalls += 1;
+    },
+    async goto() {},
+  };
+  const browser = {
+    tabs: {
+      async list() {
+        inventoryCalls += 1;
+        if (inventoryCalls === 1) {
+          throw new Error("transient inventory failure");
+        }
+        return [];
+      },
+      async new() {
+        return tab;
+      },
+    },
+  };
+
+  const result = await runCodexInAppBrowserFrameDiagnostic({ browser });
+
+  assert.equal(result.status, "passed");
+  assert.equal(closeCalls, 1);
+  assert.equal(inventoryCalls, 2);
+});
+
 test("maps an invalid main-frame URL to the stable origin failure", async () => {
   let tabClose = 0;
+  const secret = "diagnostic-url-secret-token";
   const browser = {
     tabs: {
       async new() {
@@ -160,7 +258,17 @@ test("maps an invalid main-frame URL to the stable origin failure", async () => 
                 },
                 async send(method) {
                   if (method === "Page.getFrameTree") {
-                    return { frameTree: { frame: { url: undefined } } };
+                    return {
+                      frameTree: {
+                        frame: {
+                          url: {
+                            toString() {
+                              throw new Error(secret);
+                            },
+                          },
+                        },
+                      },
+                    };
                   }
                 },
               };
@@ -172,14 +280,92 @@ test("maps an invalid main-frame URL to the stable origin failure", async () => 
       },
     },
   };
+  addOwnedTabInventory(browser);
 
   await assert.rejects(
-    runChromeFrameContractGate({ browser }),
-    (error) =>
-      error.code === "origin_verification_failed" &&
-      error.cause instanceof Error,
+    runCodexInAppBrowserFrameDiagnostic({ browser }),
+    (error) => {
+      assert.equal(error.code, "origin_verification_failed");
+      assert.equal(
+        error.message,
+        "Codex In-app Browser diagnostic fixture returned an invalid main-frame URL",
+      );
+      assert.equal(error.cause, undefined);
+      assert.doesNotMatch(JSON.stringify(error), new RegExp(secret, "u"));
+      assert.doesNotMatch(error.stack, new RegExp(secret, "u"));
+      return true;
+    },
   );
   assert.equal(tabClose, 1);
+});
+
+test("maps immediate Browser and CDP rejections to fixed safe failures", async (t) => {
+  const secret = "diagnostic-operation-secret-token";
+  const cases = [
+    {
+      browser: {
+        tabs: {
+          async list() {
+            return [];
+          },
+          async new() {
+            throw new Error(secret);
+          },
+        },
+      },
+      name: "fresh-tab creation",
+    },
+    {
+      browser: addOwnedTabInventory({
+        tabs: {
+          async new() {
+            return {
+              capabilities: {
+                async get() {
+                  return {
+                    async readEvents() {
+                      return {
+                        cursor: 0,
+                        events: [],
+                        truncated: false,
+                      };
+                    },
+                    async send() {
+                      throw new Error(secret);
+                    },
+                  };
+                },
+              },
+              async close() {},
+              async goto() {},
+            };
+          },
+        },
+      }),
+      name: "CDP command",
+    },
+  ];
+
+  for (const current of cases) {
+    await t.test(current.name, async () => {
+      await assert.rejects(
+        runCodexInAppBrowserFrameDiagnostic({
+          browser: current.browser,
+        }),
+        (error) => {
+          assert.equal(error.code, "diagnostic_operation_failed");
+          assert.equal(
+            error.message,
+            "Codex In-app Browser frame diagnostic operation failed",
+          );
+          assert.equal(error.cause, undefined);
+          assert.doesNotMatch(JSON.stringify(error), new RegExp(secret, "u"));
+          assert.doesNotMatch(error.stack, new RegExp(secret, "u"));
+          return true;
+        },
+      );
+    });
+  }
 });
 
 test("bounds a hanging fresh-tab close", async () => {
@@ -230,10 +416,11 @@ test("bounds a hanging fresh-tab close", async () => {
       },
     },
   };
+  addOwnedTabInventory(browser);
 
   await assert.rejects(
-    runChromeFrameContractGate({ browser, cleanupTimeoutMs: 5 }),
-    (error) => error.code === "release_gate_cleanup_failed",
+    runCodexInAppBrowserFrameDiagnostic({ browser, cleanupTimeoutMs: 5 }),
+    (error) => error.code === "diagnostic_cleanup_failed",
   );
 });
 
@@ -269,9 +456,10 @@ test("keeps primary gate failure and annotates cleanup failure", async () => {
       },
     },
   };
+  addOwnedTabInventory(browser);
 
   await assert.rejects(
-    runChromeFrameContractGate({
+    runCodexInAppBrowserFrameDiagnostic({
       browser,
       dependencies: {
         now: () => now,
@@ -283,7 +471,7 @@ test("keeps primary gate failure and annotates cleanup failure", async () => {
     }),
     (error) =>
       error.code === "frame_stream_unavailable" &&
-      error.cleanupFailure?.code === "release_gate_cleanup_failed",
+      error.cleanupFailure?.code === "diagnostic_cleanup_failed",
   );
 });
 
@@ -333,11 +521,12 @@ test("reports simultaneous frame-stream and Browser-tab cleanup failures", async
       },
     },
   };
+  addOwnedTabInventory(browser);
 
   await assert.rejects(
-    runChromeFrameContractGate({ browser }),
+    runCodexInAppBrowserFrameDiagnostic({ browser }),
     (error) => {
-      assert.equal(error.code, "release_gate_cleanup_failed");
+      assert.equal(error.code, "diagnostic_cleanup_failed");
       assert.equal(error.frameStreamCleanupIncomplete, true);
       assert.equal(error.browserTabCleanupIncomplete, true);
       assert.match(error.message, /frame stream and fresh Browser tab/u);
@@ -355,8 +544,11 @@ test("reclaims a tab that appears after its acquisition timeout", async () => {
       tabClose += 1;
     },
   };
-  const running = runChromeFrameContractGate({
-    browser: { tabs: { new: () => pendingTab.promise } },
+  const browser = addOwnedTabInventory({
+    tabs: { new: () => pendingTab.promise },
+  });
+  const running = runCodexInAppBrowserFrameDiagnostic({
+    browser,
     cleanupTimeoutMs: 50,
     operationTimeoutMs: 5,
   });
@@ -364,7 +556,7 @@ test("reclaims a tab that appears after its acquisition timeout", async () => {
 
   await assert.rejects(
     running,
-    (error) => error.code === "release_gate_timeout",
+    (error) => error.code === "diagnostic_timeout",
   );
   assert.equal(tabClose, 1);
 });
@@ -397,7 +589,8 @@ test("stops a screencast that starts after its operation timeout", async () => {
       },
     },
   };
-  const running = runChromeFrameContractGate({
+  addOwnedTabInventory(browser);
+  const running = runCodexInAppBrowserFrameDiagnostic({
     browser,
     cleanupTimeoutMs: 50,
     operationTimeoutMs: 5,
@@ -406,7 +599,7 @@ test("stops a screencast that starts after its operation timeout", async () => {
 
   await assert.rejects(
     running,
-    (error) => error.code === "release_gate_timeout",
+    (error) => error.code === "diagnostic_timeout",
   );
   assert.equal(stopCalls, 1);
 });
