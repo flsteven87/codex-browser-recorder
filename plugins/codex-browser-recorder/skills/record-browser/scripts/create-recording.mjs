@@ -110,6 +110,17 @@ function hasChildFramePointerEvidenceAfterActionBoundary({
   );
 }
 
+function hasFrameEvidenceAfterActionBoundary({
+  beforeFrames,
+  capture,
+}) {
+  return (
+    Number.isInteger(beforeFrames) &&
+    Number.isInteger(capture?.framesReceived) &&
+    capture.framesReceived > beforeFrames
+  );
+}
+
 function waitForClockDelay(clock, delayMs, signal) {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -696,11 +707,13 @@ export function createRecording(options) {
     throw sanitizeRecordingFailure(primaryFailure, cleanupOptions);
   }
 
-  async function waitForPointerEvidence({
+  async function waitForActionEvidence({
     actionStartedAtEpochMs,
     beforeChildFrameEvents,
     beforeEvents,
+    beforeFrames,
     requiresChildFramePointerEvidence,
+    requiresFrameEvidence,
   }) {
     const evidenceDeadline = Math.min(
       clockNow(dependencies.clock) + ACTION_EVIDENCE_TIMEOUT_MS,
@@ -722,12 +735,27 @@ export function createRecording(options) {
           beforeEvents: beforeChildFrameEvents,
           capture,
         });
-      if (hasPointerEvidence && hasRequiredChildFrameEvidence) {
+      const hasRequiredFrameEvidence =
+        requiresFrameEvidence !== true ||
+        hasFrameEvidenceAfterActionBoundary({
+          beforeFrames,
+          capture,
+        });
+      if (
+        hasPointerEvidence &&
+        hasRequiredChildFrameEvidence &&
+        hasRequiredFrameEvidence
+      ) {
         return;
       }
       const remainingMs = evidenceDeadline - clockNow(dependencies.clock);
       if (remainingMs <= 0) {
-        throw sanitizeRecordingFailure({ code: "cursor_recording_failed" });
+        throw sanitizeRecordingFailure({
+          code:
+            requiresFrameEvidence && !hasRequiredFrameEvidence
+              ? "frame_stream_stalled"
+              : "cursor_recording_failed",
+        });
       }
       await waitForClockDelay(
         dependencies.clock,
@@ -750,17 +778,19 @@ export function createRecording(options) {
   async function runAction({
     perform,
     requiresChildFramePointerEvidence = false,
+    requiresFrameEvidence = false,
     requiresPointerEvidence,
   } = {}) {
     if (
       typeof perform !== "function" ||
       typeof requiresChildFramePointerEvidence !== "boolean" ||
+      typeof requiresFrameEvidence !== "boolean" ||
       typeof requiresPointerEvidence !== "boolean"
     ) {
       return failAction({ code: "invalid_configuration" });
     }
     if (
-      requiresChildFramePointerEvidence &&
+      (requiresChildFramePointerEvidence || requiresFrameEvidence) &&
       requiresPointerEvidence !== true
     ) {
       return failAction({ code: "invalid_configuration" });
@@ -783,6 +813,7 @@ export function createRecording(options) {
       const beforeChildFrameEvents =
         beforeCapture?.cursorChildFrameEventsCaptured;
       const beforeEvents = beforeCapture?.cursorEventsCaptured;
+      const beforeFrames = beforeCapture?.framesReceived;
       const actionStartedAtEpochMs = clockNow(dependencies.clock);
       const result = await awaitAbortable(
         Promise.resolve().then(perform),
@@ -790,11 +821,13 @@ export function createRecording(options) {
       );
       await assertActionBoundaryOrigin();
       if (requiresPointerEvidence) {
-        await waitForPointerEvidence({
+        await waitForActionEvidence({
           actionStartedAtEpochMs,
           beforeChildFrameEvents,
           beforeEvents,
+          beforeFrames,
           requiresChildFramePointerEvidence,
+          requiresFrameEvidence,
         });
         await waitForClockDelay(
           dependencies.clock,

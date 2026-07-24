@@ -683,6 +683,82 @@ test("accepts child pointer evidence added inside the same action boundary", asy
   await handle.stop();
 });
 
+test("rejects a hidden pointer action when no fresh frame crosses its boundary", async () => {
+  const capture = {
+    cursorChildFrameEventsCaptured: 0,
+    cursorEventsCaptured: 1,
+    cursorFramesObserved: 1,
+    cursorLastEventEpochMs: 0,
+    framesReceived: 12,
+  };
+  const harness = createHarness({ autoStop: false, capture });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    requirePointerEvents: true,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  const action = handle.runAction({
+    perform() {
+      capture.cursorEventsCaptured += 1;
+      capture.cursorLastEventEpochMs = harness.clock.now();
+      return "hidden pointer click";
+    },
+    requiresFrameEvidence: true,
+    requiresPointerEvidence: true,
+  });
+  void action.catch(() => {});
+  await settleWorkflow();
+  harness.clock.advance(1_000);
+  await settleWorkflow();
+
+  assert.equal(
+    harness.rawFinalizationOptions.failureCode,
+    "frame_stream_stalled",
+  );
+  harness.stopDeferred.resolve({
+    paths: {},
+    result: { failureCode: "frame_stream_stalled", status: "failed" },
+  });
+  await assert.rejects(action, { code: "frame_stream_stalled" });
+});
+
+test("accepts fresh pointer and frame evidence inside the same action boundary", async () => {
+  const capture = {
+    cursorChildFrameEventsCaptured: 0,
+    cursorEventsCaptured: 1,
+    cursorFramesObserved: 1,
+    cursorLastEventEpochMs: 0,
+    framesReceived: 12,
+  };
+  const harness = createHarness({ capture });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    requirePointerEvents: true,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  const action = handle.runAction({
+    perform() {
+      capture.cursorEventsCaptured += 1;
+      capture.cursorLastEventEpochMs = harness.clock.now();
+      capture.framesReceived += 1;
+      return "captured hidden pointer click";
+    },
+    requiresFrameEvidence: true,
+    requiresPointerEvidence: true,
+  });
+  await settleWorkflow();
+  harness.clock.advance(200);
+
+  assert.equal(await action, "captured hidden pointer click");
+  await handle.stop();
+});
+
 test("re-attests the approved origin before a sequential action may continue", async () => {
   const attestation = deferred();
   const harness = createHarness({

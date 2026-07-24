@@ -53,6 +53,7 @@ function createHarness({
   embeddedChildFrameEventsCaptured = 1,
   exerciseActions = true,
   pointerCapture = {
+    framesReceived: 12,
     visibilityChanges: 2,
     visibilityState: false,
   },
@@ -452,19 +453,37 @@ test("requires the exact pointer-hidden action sequence before Browser activity"
   assert.equal(harness.calls.length, 0);
 });
 
-test("requires two visibility observations and a hidden terminal state", async () => {
+test("uses gate-owned visibility and action-bound frame evidence instead of Page visibility state", async () => {
   const harness = createHarness({
     pointerCapture: {
+      framesReceived: 12,
       visibilityChanges: 1,
-      visibilityState: false,
+      visibilityState: true,
     },
   });
 
-  await assert.rejects(
-    runCodexInAppBrowserReleaseGate(harness.options),
-    (error) => error.code === "release_gate_visibility_failed",
+  const result = await runCodexInAppBrowserReleaseGate(harness.options);
+
+  assert.equal(
+    result.scenarios.pointerSameOriginHidden.actionEvidence
+      .hiddenFrameContinuationObserved,
+    true,
   );
-  assert.equal(harness.calls.at(-1), "workspace:delete");
+  assert.equal(
+    result.scenarios.pointerSameOriginHidden.actionEvidence
+      .hiddenTransitionObserved,
+    true,
+  );
+  assert.equal(
+    result.scenarios.pointerSameOriginHidden.actionEvidence
+      .pageVisibilityChanges,
+    1,
+  );
+  assert.equal(
+    result.scenarios.pointerSameOriginHidden.actionEvidence
+      .pageVisibilityState,
+    true,
+  );
 });
 
 test("qualifies the production flow only after explicit approval and deletes all evidence", async () => {
@@ -516,10 +535,12 @@ test("qualifies the production flow only after explicit approval and deletes all
       },
       pointerSameOriginHidden: {
         actionEvidence: {
+          hiddenFrameContinuationObserved: true,
           hiddenPointerActionObserved: true,
           hiddenTransitionObserved: true,
+          pageVisibilityChanges: 2,
+          pageVisibilityState: false,
           sameOriginNavigationObserved: true,
-          visibilityChanges: 2,
         },
         media: {
           audioStreams: 0,

@@ -201,6 +201,7 @@ function pointerHiddenEvidenceFlow(flow, runtime) {
     },
     {
       ...pointerAfterHide,
+      requiresFrameEvidence: true,
       async perform(context) {
         if (
           evidence.step !== 2 ||
@@ -383,20 +384,27 @@ export function verifyReleaseQualificationEvidence({
       );
     }
     if (
-      !Number.isInteger(capture?.visibilityChanges) ||
-      capture.visibilityChanges < 2 ||
-      capture.visibilityState !== false
+      !Number.isInteger(capture?.framesReceived) ||
+      capture.framesReceived < 1
     ) {
       throw evidenceError(
         "release_gate_visibility_failed",
-        "Recording did not continue from visible to hidden Browser state",
+        "Recording did not continue after the Browser became hidden",
       );
     }
     return Object.freeze({
+      hiddenFrameContinuationObserved: true,
       hiddenPointerActionObserved: true,
       hiddenTransitionObserved: true,
+      pageVisibilityChanges:
+        Number.isInteger(capture.visibilityChanges)
+          ? capture.visibilityChanges
+          : null,
+      pageVisibilityState:
+        typeof capture.visibilityState === "boolean"
+          ? capture.visibilityState
+          : null,
       sameOriginNavigationObserved: true,
-      visibilityChanges: capture.visibilityChanges,
     });
   }
   if (key === "embeddedFrame") {

@@ -95,10 +95,13 @@ must:
    ]
    ```
 
-   The completed capture must report at least two visibility observations and a
-   final hidden state; an initial visible observation alone does not qualify.
-   Let the visual-evidence callback independently confirm both pointer movement
-   and click feedback.
+   The gate observes the Browser capability changing from visible to hidden and
+   requires the final hidden pointer action to add both fresh pointer evidence
+   and a fresh captured frame inside the same production action boundary. CDP
+   page-visibility events are recorded as diagnostic evidence only; they are
+   not the source of truth for whether the Codex Browser panel is shown. Let
+   the visual-evidence callback independently confirm both pointer movement and
+   click feedback.
 5. The sequential flow must be a second real action-driven recording. The
    cross-origin flow must navigate outside its approved origin. Declare
    embedded-frame coverage as `exercised` only with exactly one pointer action

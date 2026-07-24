@@ -1435,7 +1435,7 @@ test("executes the approved actions and returns one completed outcome", async ()
   assert.equal(harness.sessionOptions.requirePointerEvents, true);
 });
 
-test("forwards child-frame pointer requirements without exposing them in consent", async () => {
+test("forwards internal pointer evidence requirements without exposing them in consent", async () => {
   const harness = createHarness();
   const action = recordingSpec().actions[0];
   const prepared = await harness.flow.prepareRecording(
@@ -1444,6 +1444,7 @@ test("forwards child-frame pointer requirements without exposing them in consent
         {
           ...action,
           requiresChildFramePointerEvidence: true,
+          requiresFrameEvidence: true,
         },
       ],
     }),
@@ -1462,6 +1463,10 @@ test("forwards child-frame pointer requirements without exposing them in consent
   assert.equal(outcome.status, "completed");
   assert.equal(
     harness.calls.runAction[0].requiresChildFramePointerEvidence,
+    true,
+  );
+  assert.equal(
+    harness.calls.runAction[0].requiresFrameEvidence,
     true,
   );
   assert.equal(

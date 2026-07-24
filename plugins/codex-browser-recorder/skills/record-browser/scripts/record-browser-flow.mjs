@@ -121,6 +121,8 @@ function normalizeActions(actions, durationWasExplicit) {
       const label = action?.label?.trim();
       const requiresChildFramePointerEvidence =
         action?.requiresChildFramePointerEvidence === true;
+      const requiresFrameEvidence =
+        action?.requiresFrameEvidence === true;
       if (
         typeof label !== "string" ||
         label.length === 0 ||
@@ -129,7 +131,10 @@ function normalizeActions(actions, durationWasExplicit) {
         typeof action?.perform !== "function" ||
         (action?.requiresChildFramePointerEvidence !== undefined &&
           typeof action.requiresChildFramePointerEvidence !== "boolean") ||
-        (requiresChildFramePointerEvidence && action.modality !== "pointer")
+        (action?.requiresFrameEvidence !== undefined &&
+          typeof action.requiresFrameEvidence !== "boolean") ||
+        ((requiresChildFramePointerEvidence || requiresFrameEvidence) &&
+          action.modality !== "pointer")
       ) {
         throw sanitizeRecordingFailure({ code: "invalid_configuration" });
       }
@@ -138,6 +143,7 @@ function normalizeActions(actions, durationWasExplicit) {
         modality: action.modality,
         perform: action.perform,
         requiresChildFramePointerEvidence,
+        requiresFrameEvidence,
       });
     }),
   );
@@ -508,6 +514,7 @@ export function createRecordingFlow({ dependencies: overrides } = {}) {
           perform: () => action.perform({ tab }),
           requiresChildFramePointerEvidence:
             action.requiresChildFramePointerEvidence,
+          requiresFrameEvidence: action.requiresFrameEvidence,
           requiresPointerEvidence: action.modality === "pointer",
         });
       }
