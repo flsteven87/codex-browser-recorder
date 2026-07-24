@@ -1,6 +1,6 @@
 # Support
 
-Browser Recorder for Codex `v0.3.2` is a small, local-only tool for recording
+Browser Recorder for Codex `v0.3.3` is a small, local-only tool for recording
 one approved Chrome test flow. The fastest way to get help is to start with the
 setup check, then choose the issue form that matches your question.
 

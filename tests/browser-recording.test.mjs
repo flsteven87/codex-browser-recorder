@@ -276,13 +276,19 @@ test("external abort cancels capability acquisition and cleans late startup", as
       async close() {},
       async goto() {},
     }; } } },
+    destinationDirectory: temporaryRoot,
     signal: controller.signal,
     targetUrl: "https://example.com/",
     temporaryRoot,
   });
 
   try {
+    const acquisitionDeadline = Date.now() + 1000;
     while (!acquisitionStarted) {
+      assert.ok(
+        Date.now() < acquisitionDeadline,
+        "capability acquisition did not start within 1 second",
+      );
       await new Promise((resolve) => setImmediate(resolve));
     }
     controller.abort();
@@ -352,6 +358,7 @@ test("public stop cancels a pending Page.enable and releases its artifacts", asy
       async close() {},
       async goto() {},
     }; } } },
+    destinationDirectory: temporaryRoot,
     ffmpegPath: "/unused/ffmpeg",
     ffprobePath: "/unused/ffprobe",
     targetUrl: "https://example.com/",
@@ -359,7 +366,12 @@ test("public stop cancels a pending Page.enable and releases its artifacts", asy
   });
 
   try {
+    const enableDeadline = Date.now() + 1000;
     while (!enableStarted) {
+      assert.ok(
+        Date.now() < enableDeadline,
+        "Page.enable did not start within 1 second",
+      );
       await new Promise((resolve) => setImmediate(resolve));
     }
     const stopped = handle.stop();
@@ -1106,6 +1118,7 @@ test("sanitizes every pre-handle Browser and CDP startup failure after rollback"
             startBrowserRecordingForTab,
           },
           browser: { tabs: { async new() { return tab; } } },
+          destinationDirectory: temporaryRoot,
           targetUrl: "https://example.com/",
           temporaryRoot,
         });

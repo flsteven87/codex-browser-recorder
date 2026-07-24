@@ -55,7 +55,7 @@ body:
     attributes:
       label: Before submitting
       options:
-        - label: This report contains no recording, private page content or URL, credential, token, personal data, local private path, or browser diagnostic.
+        - label: This report contains no recording or raw frames, private page content or URL, credential, token, personal data, local private path, or Browser/CDP diagnostic.
           required: true
         - label: This is not a security vulnerability. I will use private vulnerability reporting for security issues.
           required: true

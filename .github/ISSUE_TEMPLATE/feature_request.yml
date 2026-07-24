@@ -33,5 +33,5 @@ body:
     attributes:
       label: Before submitting
       options:
-        - label: This request contains no recording, private page content or URL, credential, token, personal data, local private path, or browser diagnostic.
+        - label: This request contains no recording or raw frames, private page content or URL, credential, token, personal data, local private path, or Browser/CDP diagnostic.
           required: true
