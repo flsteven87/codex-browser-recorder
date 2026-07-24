@@ -10,8 +10,8 @@
 
 Turn a short browser flow into a local video—without leaving Codex.
 
-Browser Recorder opens one fresh Chrome tab, follows the actions you approve,
-and saves the result as an MP4. Pointer flows include a visible cursor
+Browser Recorder opens one fresh Codex In-app Browser tab, follows the actions
+you approve, and saves the result as an MP4. Pointer flows include a visible cursor
 and click feedback, so the recording is easy to follow in a bug report, QA
 note, or review.
 
@@ -20,7 +20,7 @@ telemetry, capture audio, or record your other tabs.
 
 > [!NOTE]
 > This is an experimental, community-developed Codex plugin. The current
-> release supports the Codex desktop app on macOS with Chrome.
+> release supports the Codex desktop app on macOS with the Codex In-app Browser.
 
 ## Before you record
 
@@ -28,8 +28,8 @@ telemetry, capture audio, or record your other tabs.
 > Record only public, non-sensitive pages and actions that everyone affected
 > has agreed may be recorded.
 
-- A fresh tab may reuse Chrome's existing session. Use a logged-out Chrome
-  profile without sensitive or personalized content.
+- A fresh tab may reuse the Codex In-app Browser's existing session. Use a
+  logged-out session without sensitive or personalized content.
 - The recording includes the complete visible page viewport, including all
   visible embedded frames.
 - If the page sends the tab to another website, recording stops without saving
@@ -47,7 +47,7 @@ cleanup, and failure behavior.
 You will need:
 
 - the Codex desktop app on macOS;
-- the official [Chrome plugin and extension](https://learn.chatgpt.com/docs/chrome-extension);
+- the official **Browser** plugin available in Codex;
 - **Settings > Browser > Developer mode > Enable full CDP access** turned on;
 - FFmpeg and FFprobe with H.264 and MP4 support.
 
@@ -58,10 +58,10 @@ brew install ffmpeg
 ```
 
 In the ChatGPT desktop app, open **Codex > Plugins**, search for
-**Codex Browser Recorder**, and install it. Install **Chrome** there too, finish
-the extension setup, then start a new task. If the recorder is not listed for
-your account or workspace, use the [local checkout](#install-from-a-local-checkout)
-below.
+**Codex Browser Recorder**, and install it. Confirm that the official
+**Browser** plugin is available, then start a new task. If the recorder is not
+listed for your account or workspace, use the
+[local checkout](#install-from-a-local-checkout) below.
 
 ### 2. Check your setup
 
@@ -72,8 +72,8 @@ $codex-browser-recorder:record-browser Check whether my local recording environm
 ```
 
 A successful check begins with `Local recording preflight passed`. It checks
-your Mac, media tools, and output folder without opening Chrome. Chrome
-permissions are requested later, when you record.
+your Mac, media tools, and output folder without opening the Browser. Browser
+and full-CDP permissions are requested later, when you record.
 
 ### 3. Record your first flow
 
@@ -83,15 +83,15 @@ Try a short, public, logged-out page:
 $codex-browser-recorder:record-browser Open https://www.w3.org/TR/pointerevents/, click the 1. Introduction link in the table of contents, and save the approved flow as pointer-events-intro.
 ```
 
-Before Chrome opens, Codex shows the page, actions, duration, and output name
-for your approval. When the flow finishes, the video is saved to
+Before the Codex In-app Browser opens, Codex shows the page, actions, duration,
+and output name for your approval. When the flow finishes, the video is saved to
 `~/Downloads/Codex Browser Recordings/` by default.
 
 ## What you get
 
 | | |
 | --- | --- |
-| **A focused capture** | One approved flow in one fresh Chrome tab—never the Codex UI, browser chrome, or your other tabs. |
+| **A focused capture** | One approved flow in one fresh Codex In-app Browser tab—never the Codex UI, browser controls, or your other tabs. |
 | **A ready-to-use file** | A local H.264 MP4, capped at 720p and encoded at 10 frames per second with no audio. |
 | **Visible actions** | Pointer flows show the cursor and click feedback. |
 | **Private by default** | The video is created on your Mac, and page images are not sent to the model. There is no automatic upload, sharing, or telemetry. |
@@ -101,7 +101,7 @@ product demos.
 
 ## Current limits
 
-- macOS and Chrome only; the Codex in-app Browser is not supported.
+- macOS and the Codex In-app Browser only; Chrome is not a fallback Recording Surface.
 - One fresh tab and one approved website at a time.
 - Public `https:` pages, plus explicit loopback development pages on
   `localhost`, `127.0.0.1`, or `[::1]`.
@@ -173,8 +173,8 @@ dependencies and no development server.
 npm run check
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full validation and
-real-Chrome release process.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full validation and Codex
+In-app Browser release process.
 
 <details>
 <summary>Update or uninstall a local installation</summary>

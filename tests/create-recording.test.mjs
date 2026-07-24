@@ -678,7 +678,7 @@ test("maps an action-time Browser approval denial to cancellation", async () => 
   const action = handle.runAction({
     perform() {
       throw new Error(
-        "Browser Use rejected this action due to browser security policy. Reason: The user has requested that Chrome should not be used on this site. Do not attempt to circumvent this restriction or suggest alternative browser-control mechanisms.",
+        "Browser Use rejected this action due to browser security policy. Reason: The user has requested that the Codex In-app Browser should not be used on this site. Do not attempt to circumvent this restriction or suggest alternative browser-control mechanisms.",
       );
     },
     requiresPointerEvidence: false,

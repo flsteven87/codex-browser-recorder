@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +13,10 @@ import { createRecordingArtifactTransaction } from "../plugins/codex-browser-rec
 import {
   sanitizeRecordingFailure,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-outcome.mjs";
+import { resolveExecutable } from "./test-tools.mjs";
+
+const ffmpegPath = resolveExecutable("ffmpeg");
+const ffprobePath = resolveExecutable("ffprobe");
 
 const PASSED_OUTPUT = Object.freeze({
   paths: {
@@ -68,6 +73,103 @@ function createFakeClock() {
       return id;
     },
   };
+}
+
+function createControllableCodexInAppBrowser({ frame, targetUrl }) {
+  const calls = {
+    acknowledgements: 0,
+    cdpAcquisitions: 0,
+    cdpMethods: [],
+    goto: [],
+    tabClose: 0,
+    tabsNew: 0,
+  };
+  let screencastStarted = false;
+  let tabOpen = false;
+  const cdp = {
+    async readEvents({ afterSequence = 0, methods = [] } = {}) {
+      const frameAvailable =
+        screencastStarted &&
+        afterSequence < 1 &&
+        methods.includes("Page.screencastFrame");
+      if (!frameAvailable) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      return {
+        cursor: screencastStarted ? 1 : 0,
+        events: frameAvailable
+          ? [
+              {
+                method: "Page.screencastFrame",
+                params: {
+                  data: frame.toString("base64"),
+                  metadata: { timestamp: 1 },
+                  sessionId: 1,
+                },
+                sequence: 1,
+              },
+            ]
+          : [],
+        hasMore: false,
+        truncated: false,
+      };
+    },
+    async send(method) {
+      calls.cdpMethods.push(method);
+      if (method === "Page.getFrameTree") {
+        return {
+          frameTree: {
+            frame: { id: "main-frame", url: targetUrl },
+          },
+        };
+      }
+      if (method === "Page.createIsolatedWorld") {
+        return { executionContextId: 1 };
+      }
+      if (method === "Runtime.evaluate") {
+        return {
+          result: { value: { height: 180, width: 320 } },
+        };
+      }
+      if (method === "Page.startScreencast") {
+        screencastStarted = true;
+      }
+      if (method === "Page.screencastFrameAck") {
+        calls.acknowledgements += 1;
+      }
+      return {};
+    },
+  };
+  const tab = {
+    capabilities: {
+      async get(capability) {
+        assert.equal(capability, "cdp");
+        calls.cdpAcquisitions += 1;
+        return cdp;
+      },
+    },
+    async close() {
+      calls.tabClose += 1;
+      tabOpen = false;
+    },
+    async goto(url) {
+      calls.goto.push(url);
+    },
+    id: "controllable-codex-in-app-browser-tab",
+  };
+  const browser = {
+    tabs: {
+      async list() {
+        return tabOpen ? [tab] : [];
+      },
+      async new() {
+        calls.tabsNew += 1;
+        tabOpen = true;
+        return tab;
+      },
+    },
+  };
+  return { browser, calls };
 }
 
 function createCoordinatorHarness({
@@ -274,7 +376,7 @@ test("prepares an opaque action-driven plan without Browser activity", async () 
       { label: "Open the standards section", modality: "pointer" },
     ],
     approvedOrigin: "https://example.com",
-    browserSurface: "chrome",
+    browserSurface: "Codex In-app Browser",
     end: {
       hardLimitMs: 15_000,
       kind: "actions_complete",
@@ -291,15 +393,17 @@ test("prepares an opaque action-driven plan without Browser activity", async () 
   assert.equal(JSON.stringify(prepared).includes("private="), false);
 });
 
-test("fails closed on the unsupported in-app Browser surface", async () => {
+test("rejects recording surface selection before local or Browser activity", async () => {
   const harness = createHarness();
 
-  const prepared = await harness.flow.prepareRecording(
-    recordingSpec({ browserSurface: "iab" }),
-  );
+  for (const browserSurface of ["chrome", "iab"]) {
+    const prepared = await harness.flow.prepareRecording(
+      recordingSpec({ browserSurface }),
+    );
 
-  assert.equal(prepared.status, "blocked");
-  assert.equal(prepared.blockers[0].code, "browser_surface_unsupported");
+    assert.equal(prepared.status, "blocked");
+    assert.equal(prepared.blockers[0].code, "invalid_configuration");
+  }
   assert.equal(harness.calls.inspect, 0);
   assert.equal(harness.calls.createSession, 0);
 });
@@ -385,6 +489,101 @@ test("executes the approved actions and returns one completed outcome", async ()
   assert.equal(await harness.calls.runAction[0].perform(), harness.tab.id);
   assert.equal(harness.calls.stop, 1);
   assert.equal(harness.sessionOptions.requirePointerEvents, true);
+});
+
+test("produces a validated MP4 through a controllable Codex In-app Browser", async () => {
+  const repositoryRoot = await mkdtemp(
+    join(tmpdir(), "browser-recorder-iab-happy-path-"),
+  );
+  const destinationDirectory = join(repositoryRoot, "saved");
+  const temporaryRoot = join(repositoryRoot, "working");
+  const targetUrl = "https://example.com/recording";
+  await mkdir(destinationDirectory);
+  await mkdir(temporaryRoot);
+  const frame = execFileSync(ffmpegPath, [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-f",
+    "lavfi",
+    "-i",
+    "color=c=blue:s=320x180",
+    "-frames:v",
+    "1",
+    "-f",
+    "image2pipe",
+    "-vcodec",
+    "mjpeg",
+    "pipe:1",
+  ]);
+  const iab = createControllableCodexInAppBrowser({ frame, targetUrl });
+  const flow = createRecordingFlow();
+
+  try {
+    const prepared = await flow.prepareRecording({
+      actions: [
+        {
+          label: "Read the approved page",
+          modality: "programmatic",
+          async perform({ tab }) {
+            assert.equal(
+              tab.id,
+              "controllable-codex-in-app-browser-tab",
+            );
+          },
+        },
+      ],
+      destinationDirectory,
+      durationWasExplicit: false,
+      recordingName: "iab-production-happy-path",
+      targetUrl,
+      temporaryRoot,
+    });
+
+    assert.equal(prepared.status, "prepared");
+    assert.equal(prepared.consent.browserSurface, "Codex In-app Browser");
+    assert.equal(iab.calls.tabsNew, 0);
+
+    const outcome = await flow.recordApproved(prepared, {
+      browser: iab.browser,
+    });
+
+    assert.equal(outcome.status, "completed");
+    assert.equal(outcome.result.status, "passed");
+    assert.equal(outcome.result.media.codecName, "h264");
+    assert.equal(outcome.result.media.width, 320);
+    assert.equal(outcome.result.media.height, 180);
+    await access(outcome.paths.outputPath);
+    const probe = JSON.parse(
+      execFileSync(
+        ffprobePath,
+        [
+          "-v",
+          "error",
+          "-show_streams",
+          "-of",
+          "json",
+          outcome.paths.outputPath,
+        ],
+        { encoding: "utf8" },
+      ),
+    );
+    assert.equal(
+      probe.streams.filter(({ codec_type }) => codec_type === "video").length,
+      1,
+    );
+    assert.equal(
+      probe.streams.filter(({ codec_type }) => codec_type === "audio").length,
+      0,
+    );
+    assert.equal(iab.calls.tabsNew, 1);
+    assert.deepEqual(iab.calls.goto, [targetUrl]);
+    assert.equal(iab.calls.cdpAcquisitions, 2);
+    assert.equal(iab.calls.acknowledgements, 1);
+    assert.equal(iab.calls.tabClose, 1);
+  } finally {
+    await rm(repositoryRoot, { force: true, recursive: true });
+  }
 });
 
 test("keeps an explicit duration authoritative after approved actions", async () => {

@@ -90,7 +90,7 @@ function assertWorkflowContract(source) {
   assert.doesNotMatch(plan, /agent[.]browsers[.]/u);
   assert.match(consent, /before any Browser activity/iu);
   assert.match(consent, /explicit confirmation/iu);
-  assert.match(record, /agent[.]browsers[.]get[(]"extension"[)]/u);
+  assert.match(record, /agent[.]browsers[.]get[(]"iab"[)]/u);
   assert.match(record, /recordApproved[(]preparation,/u);
   assert.match(record, /consumes the preparation exactly once/iu);
   assert.doesNotMatch(record, /browser[.]tabs[.]new|capabilities[.]get/iu);
@@ -130,7 +130,7 @@ function assertPrivacyReportingContract(source) {
 test("README documents the public recording contract", () => {
   for (const required of [
     canonicalSkillInvocation,
-    "fresh Chrome tab",
+    "fresh Codex In-app Browser tab",
     "Record & Replay",
     "no audio",
     "PRIVACY.md",
@@ -139,7 +139,7 @@ test("README documents the public recording contract", () => {
   ]) {
     assert.match(readme, new RegExp(required.replaceAll("$", "\\$"), "iu"));
   }
-  assert.match(readme, /Chrome/iu);
+  assert.match(readme, /Chrome is not a fallback Recording Surface/iu);
   assert.match(
     readme,
     /Passive\s+or\s+wait-only\s+recordings\s+require\s+an\s+explicit\s+duration/iu,
@@ -244,7 +244,7 @@ test("skill is explicit and keeps minimal frontmatter", () => {
     frontmatter,
     /explicitly invokes \$codex-browser-recorder:record-browser/iu,
   );
-  assert.match(frontmatter, /Chrome Browser/iu);
+  assert.match(frontmatter, /Codex In-app Browser/iu);
   assert.match(frontmatter, /visible cursor/iu);
   assert.deepEqual(
     frontmatter
@@ -263,7 +263,7 @@ test("skill keeps preparation, consent, Browser activity, and reporting ordered"
 test("ordering guard rejects pre-consent Browser activity", () => {
   const mutant = skill.replace(
     "## Obtain One Consent",
-    'agent.browsers.get("extension")\n\n## Obtain One Consent',
+    'agent.browsers.get("iab")\n\n## Obtain One Consent',
   );
   assert.throws(
     () => assertWorkflowContract(mutant),
@@ -291,36 +291,37 @@ test("skill derives pointer policy from semantic actions", () => {
   assert.doesNotMatch(skill, /requirePointerEvents\s*=/u);
 });
 
-test("skill supports Chrome and fails closed on IAB", () => {
-  assert.match(skill, /browserSurface.*`iab`/iu);
-  assert.match(skill, /fails closed on IAB/iu);
-  assert.match(skill, /agent[.]browsers[.]get[(]"extension"[)]/u);
-  assert.match(skill, /do not use IAB, `getForUrl`/iu);
-  assert.match(skill, /Never switch surfaces automatically/iu);
-  assert.doesNotMatch(skill, /agent[.]browsers[.]get[(]"iab"[)]/u);
+test("skill uses only the Codex In-app Browser after authorization", () => {
+  assert.doesNotMatch(skill, /browserSurface/u);
+  assert.match(skill, /agent[.]browsers[.]get[(]"iab"[)]/u);
+  assert.match(
+    skill,
+    /do not use Chrome, `getForUrl`, `getDefault`/iu,
+  );
+  assert.match(skill, /Never switch to another Recording Surface/iu);
+  assert.doesNotMatch(skill, /agent[.]browsers[.]get[(]"extension"[)]/u);
+  assert.doesNotMatch(skill, /agent[.]browsers[.]getForUrl[(]/u);
+  assert.doesNotMatch(skill, /agent[.]browsers[.]getDefault[(]/u);
+  assert.equal(
+    [...skill.matchAll(/agent[.]browsers[.]get[(]"iab"[)]/gu)].length,
+    1,
+  );
 });
 
-test("Browser selection guard rejects implicit or IAB selection mutants", () => {
-  assert.throws(
-    () =>
-      assertWorkflowContract(
-        skill.replace(
-          'agent.browsers.get("extension")',
-          "agent.browsers.getForUrl(targetUrl)",
+test("Browser selection guard rejects non-IAB acquisition mutants", () => {
+  for (const acquisition of [
+    "agent.browsers.getForUrl(targetUrl)",
+    'agent.browsers.get("extension")',
+    "agent.browsers.getDefault()",
+  ]) {
+    assert.throws(
+      () =>
+        assertWorkflowContract(
+          skill.replace('agent.browsers.get("iab")', acquisition),
         ),
-      ),
-    /did not match|does not match/iu,
-  );
-  assert.throws(
-    () =>
-      assertWorkflowContract(
-        skill.replace(
-          'agent.browsers.get("extension")',
-          'agent.browsers.get("iab")',
-        ),
-      ),
-    /did not match|does not match/iu,
-  );
+      /did not match|does not match/iu,
+    );
+  }
 });
 
 test("skill enforces consent, privacy, and same-origin boundaries", () => {

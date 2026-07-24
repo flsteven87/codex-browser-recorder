@@ -1,6 +1,6 @@
 ---
 name: record-browser
-description: Check setup or record an explicitly approved, non-sensitive Chrome Browser flow as a private local MP4; pointer flows add a visible cursor and click feedback. Use only when the user explicitly invokes $codex-browser-recorder:record-browser; never record authenticated, sensitive, payment, credential, health, or confidential content.
+description: Check setup or record an explicitly approved, non-sensitive Codex In-app Browser flow as a private local MP4; pointer flows add a visible cursor and click feedback. Use only when the user explicitly invokes $codex-browser-recorder:record-browser; never record authenticated, sensitive, payment, credential, health, or confidential content.
 ---
 
 # Record Browser
@@ -15,7 +15,6 @@ Collect the request without Browser activity:
 - Set `durationWasExplicit` from the user's words. Use 15 seconds when omitted, but end after the last action and any bounded pointer-feedback tail. Require an explicit 5–60 second duration for passive or wait-only recording.
 - Classify every action as `pointer`, `keyboard`, or `programmatic`. Pointer includes click, hover, drag, and pointer-positioned scroll.
 - Accept an optional absolute destination and privacy-safe recording name. Otherwise use `~/Downloads/Codex Browser Recordings/` and a timestamp name.
-- Set `browserSurface` to `iab` only when explicitly requested; otherwise use `chrome`. This release fails closed on IAB because it has not satisfied the frame-stream contract. Never switch surfaces automatically after failure.
 
 Resolve the installed skill directory from the catalog entry that loaded this file. Never guess a cache path or use a source checkout. Import `scripts/record-browser-flow.mjs` from that exact directory with `pathToFileURL` in the persistent Node runtime.
 
@@ -32,7 +31,6 @@ const plannedActions = [
 
 const preparation = await prepareRecording({
   actions: plannedActions,
-  browserSurface,
   destinationDirectory,
   durationMs,
   durationWasExplicit,
@@ -46,7 +44,7 @@ const preparation = await prepareRecording({
 
 `prepareRecording()` performs pure request validation plus local FFmpeg/FFprobe and destination checks. It must not create, navigate, or acquire a Browser tab or CDP capability. Treat the returned preparation as opaque: do not clone, spread, reconstruct, or mutate it.
 
-If `status` is `blocked`, report every blocker in order using only its `code`, `summary`, and `remediation`, then stop. For `preflight_passed`, lead with `Local recording preflight passed`, report the planned destination, say that the Mac, FFmpeg, and folder checks passed, and explain that Chrome and site approval are checked only when recording starts. Do not expose raw booleans.
+If `status` is `blocked`, report every blocker in order using only its `code`, `summary`, and `remediation`, then stop. For `preflight_passed`, lead with `Local recording preflight passed`, report the planned destination, say that the Mac, FFmpeg, and folder checks passed, and explain that the Codex In-app Browser and site approval are checked only when recording starts. Do not expose raw booleans.
 
 ## Obtain One Consent
 
@@ -55,13 +53,28 @@ For `status: "prepared"`, present one compact confirmation before any Browser ac
 - **What:** the approved site, concrete actions, and when the recording will end;
 - **Where:** the exact local filename and folder; the MP4 has no audio and is not uploaded;
 - **What is visible:** the full page viewport, including visible embedded frames, plus cursor and click feedback for pointer actions; browser controls and other tabs are excluded;
-- **Privacy:** recording opens a fresh tab that may reuse the existing Chrome session, so continue only with public, logged-out, non-sensitive content. Never record authenticated, credential, payment, passkey, recovery, health, or confidential content.
+- **Privacy:** recording opens a fresh Codex In-app Browser tab, so continue only with public, logged-out, non-sensitive content. Never record authenticated, credential, payment, passkey, recovery, health, or confidential content.
 
 Explain that macOS may request folder access and that verification failure means no final video is saved. Continue only after explicit confirmation. Denial performs no Browser action.
 
 ## Record The Approved Plan
 
-After consent, follow the installed Browser control skill. Resolve its installed plugin root from its catalog entry, initialize `browser-client.mjs` once, and emit the Chrome Browser documentation once. Acquire only `agent.browsers.get("extension")`; do not use IAB, `getForUrl`, an existing tab, or another control surface.
+After consent, follow the installed Browser control skill. Resolve its installed plugin root from its catalog entry, initialize `browser-client.mjs` once, and emit the Codex In-app Browser documentation once. Acquire only the Codex In-app Browser:
+
+```js
+if (globalThis.agent?.browsers == null) {
+  const { setupBrowserRuntime } =
+    await import("<Browser plugin root>/scripts/browser-client.mjs");
+  await setupBrowserRuntime({ globals: globalThis });
+}
+if (globalThis.iab == null) {
+  globalThis.iab = await agent.browsers.get("iab");
+  nodeRepl.write(await iab.documentation());
+}
+const selectedBrowser = globalThis.iab;
+```
+
+Do not use Chrome, `getForUrl`, `getDefault`, an existing arbitrary tab, or any fallback Recording Surface.
 
 Call `recordApproved()` once with the exact opaque preparation and selected Browser:
 
@@ -72,7 +85,7 @@ const outcome = await recordApproved(preparation, {
 });
 ```
 
-The Recording Flow owns the fresh tab, navigation, CDP acquisition, first-frame gate, origin enforcement, per-action pointer evidence, duration, media validation, publication, rollback, verified exact-tab cleanup, and singleton release. It consumes the preparation exactly once and returns one terminal outcome. Do not call lower-level recording modules, perform extra actions, retry approval, broaden the origin, enable Developer mode, install packages, or switch browsers.
+The Recording Flow owns the fresh tab, navigation, CDP acquisition, first-frame gate, origin enforcement, per-action pointer evidence, duration, media validation, publication, rollback, verified exact-tab cleanup, and singleton release. It consumes the preparation exactly once and returns one terminal outcome. Do not call lower-level recording modules, perform extra actions, retry approval, broaden the origin, enable Developer mode, install packages, or switch the Browser. Never switch to another Recording Surface.
 
 ## Report The Terminal Outcome
 

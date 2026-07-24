@@ -97,11 +97,11 @@ test("plugin manifest and repository marketplace stay aligned", () => {
   assert.match(plugin.version, strictSemver);
   assert.match(
     plugin.description,
-    /record one approved Chrome test flow.*private local video.*cursor.*click feedback/iu,
+    /record one approved Codex In-app Browser test flow.*private local video.*cursor.*click feedback/iu,
   );
   assert.match(
     plugin.interface.shortDescription,
-    /approved Chrome flow.*local video/iu,
+    /approved Codex In-app Browser flow.*local video/iu,
   );
   assert.doesNotMatch(
     JSON.stringify(plugin.interface),
@@ -139,7 +139,7 @@ test("public plugin metadata, listing assets, and community files are complete",
     manifest.interface.defaultPrompt.some((prompt) =>
       /check recording setup on this Mac/i.test(prompt),
     ),
-    "starter prompts must expose the no-Chrome setup check",
+    "starter prompts must expose the local recording setup check",
   );
   assert.ok(
     manifest.interface.defaultPrompt.every((prompt) =>
@@ -213,11 +213,11 @@ test("record-browser is an explicit skill with one canonical script tree", () =>
   assert.match(agentManifest, /^policy:\n(?: {2}.+\n)* {2}allow_implicit_invocation: false$/m);
   assert.match(
     agentManifest,
-    /short_description: "Save Chrome flows with cursor and click feedback"/,
+    /short_description: "Save Codex In-app Browser flows with cursor and click feedback"/,
   );
   assert.match(
     agentManifest,
-    /default_prompt: "\$codex-browser-recorder:record-browser Record a short, approved Chrome flow and save it locally[.]"/,
+    /default_prompt: "\$codex-browser-recorder:record-browser Record a short, approved Codex In-app Browser flow and save it locally[.]"/,
   );
   assert.doesNotMatch(agentManifest, /integration gate/i);
   for (const script of requiredScripts) {

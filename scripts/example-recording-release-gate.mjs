@@ -17,7 +17,6 @@ export async function runExampleRecordingReleaseGate({
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const prepared = await dependencies.prepareRecording({
       actions: [],
-      browserSurface: "chrome",
       destinationDirectory: temporaryRoot,
       durationMs,
       durationWasExplicit: true,
@@ -60,6 +59,6 @@ export async function runExampleRecordingReleaseGate({
     attempts,
     contractVersion: 1,
     status: "passed",
-    surface: "chrome",
+    surface: "Codex In-app Browser",
   };
 }

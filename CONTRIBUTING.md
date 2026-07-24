@@ -64,22 +64,23 @@ must:
 
 1. Install the candidate in a clean Codex desktop task and pass the local setup
    check.
-2. Run `runChromeFrameContractGate()` from
-   `scripts/browser-frame-contract-gate.mjs` in the persistent Browser Node
-   runtime. Require `status: "passed"`, one received and acknowledged frame,
-   and a closed fresh tab.
+2. Run the direct CDP frame-contract gate with the Codex In-app Browser in the
+   persistent Browser runtime. Require `status: "passed"`, one received and
+   acknowledged frame, and a closed fresh tab. The legacy
+   `runChromeFrameContractGate()` helper is diagnostic only and is not valid
+   Codex In-app Browser release evidence.
 3. Run `runExampleRecordingReleaseGate()` from
    `scripts/example-recording-release-gate.mjs`. It must complete two full
    recordings in sequence with different output paths.
-4. Record the candidate SHA, plugin version, Codex desktop version, Chrome
-   plugin and extension version, Chrome version, and both machine-readable gate
-   results locally. Do not commit this attestation or the recordings.
+4. Record the candidate SHA, plugin version, Codex desktop version, Browser
+   plugin version, and both machine-readable gate results locally. Do not
+   commit this attestation or the recordings.
 5. Verify both videos are playable H.264 MP4 files, capped at 720p and 10 frames
    per second, with no audio or leftover tab or temporary recording. Delete the
    generated files after review.
 6. Run one approved pointer flow on the public W3C Pointer Events page and
    verify cursor and click feedback.
-7. Recheck the current official Plugins, Browser, Chrome, and Build plugins
+7. Recheck the current official Plugins, Browser, and Build plugins
    documentation linked from the README. Treat embedded-frame support as
    deterministic-fixture coverage unless the release notes record a separate
    real-browser smoke test.
@@ -87,6 +88,6 @@ must:
    replacing the Unreleased changelog section with a matching dated release,
    and synchronizing public version references.
 
-The Codex in-app Browser is not a release-smoke surface and must stop with
-`browser_surface_unsupported`. Never commit, upload, or attach generated
-recordings or Browser/CDP diagnostics.
+The Codex In-app Browser is the only release-smoke Recording Surface. Never
+switch to Chrome or another Browser after a failure, and never commit, upload,
+or attach generated recordings or Browser/CDP diagnostics.

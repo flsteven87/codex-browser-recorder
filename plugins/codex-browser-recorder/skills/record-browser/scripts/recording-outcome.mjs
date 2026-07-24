@@ -76,15 +76,9 @@ const MESSAGE_GROUPS = [
       "cdp_unavailable",
       "plugin_module_unavailable",
     ],
-    summary: "Browser Recorder could not connect to Chrome",
+    summary: "Browser Recorder could not connect to the Codex In-app Browser",
     remediation:
-      "Install or enable the Chrome plugin and extension, allow full browser access in Codex settings, then try again",
-  },
-  {
-    codes: ["browser_surface_unsupported"],
-    summary: "Browser Recorder currently works only with Chrome",
-    remediation:
-      "Choose Chrome instead of the Codex in-app Browser",
+      "Make sure the Codex In-app Browser is available and full CDP access is enabled in Codex settings, then try again",
   },
   {
     codes: ["unsupported_platform"],
@@ -138,9 +132,9 @@ const MESSAGE_GROUPS = [
       "frame_too_large",
       "invalid_frame",
     ],
-    summary: "Chrome stopped sending video frames",
+    summary: "The Codex In-app Browser stopped sending video frames",
     remediation:
-      "Keep the Chrome tab visible, confirm full browser access in Codex settings, and try again",
+      "Confirm full CDP access is enabled in Codex settings, then try again",
   },
   {
     codes: [

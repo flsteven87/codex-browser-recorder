@@ -18,7 +18,7 @@ test("completes two isolated recordings strictly in sequence", async () => {
         calls.push(`prepare:${current}`);
         assert.equal(options.destinationDirectory, "/private/tmp");
         assert.equal(options.targetUrl, EXAMPLE_PAGE_URL);
-        assert.equal(options.browserSurface, "chrome");
+        assert.equal("browserSurface" in options, false);
         assert.equal(options.durationWasExplicit, true);
         assert.deepEqual(options.actions, []);
         return { id: current, status: "prepared" };
@@ -55,7 +55,7 @@ test("completes two isolated recordings strictly in sequence", async () => {
       },
     ],
     contractVersion: 1,
-    surface: "chrome",
+    surface: "Codex In-app Browser",
     status: "passed",
   });
 });
