@@ -55,9 +55,9 @@ const CAPTURE_FAILURE_CODES = new Set([
 const MESSAGE_GROUPS = [
   {
     codes: ["cursor_recording_failed"],
-    summary: "The pointer interactions could not be recorded completely",
+    summary: "Cursor or click feedback was missing",
     remediation:
-      "Keep every participating frame available, confirm full CDP approval, and record the flow again",
+      "Keep the tab visible, make each pointer action clear, and record the flow again",
   },
   {
     codes: [
@@ -66,9 +66,9 @@ const MESSAGE_GROUPS = [
       "target_scheme_not_allowed",
       "invalid_duration",
     ],
-    summary: "The recording request is not allowed",
+    summary: "This recording request is not supported",
     remediation:
-      "Use an HTTPS or approved loopback URL without credentials and a duration from 5 to 60 seconds",
+      "Use a public HTTPS page (or localhost) without a username or password, and choose 5 to 60 seconds",
   },
   {
     codes: [
@@ -76,29 +76,42 @@ const MESSAGE_GROUPS = [
       "cdp_unavailable",
       "plugin_module_unavailable",
     ],
-    summary: "The required Chrome recording capability is unavailable",
+    summary: "Browser Recorder could not connect to Chrome",
     remediation:
-      "Install or enable the Chrome plugin and extension, approve full CDP access, then retry",
+      "Install or enable the Chrome plugin and extension, allow full browser access in Codex settings, then try again",
   },
   {
     codes: ["browser_surface_unsupported"],
-    summary: "The selected Browser surface does not satisfy the recording contract",
+    summary: "Browser Recorder currently works only with Chrome",
     remediation:
-      "Use the supported Chrome Browser surface; the Codex in-app Browser is not supported by this recorder release",
+      "Choose Chrome instead of the Codex in-app Browser",
+  },
+  {
+    codes: ["unsupported_platform"],
+    summary: "Browser Recorder currently works only on macOS",
+    remediation: "Use the Codex desktop app on a Mac",
+  },
+  {
+    codes: ["ffmpeg_missing", "ffprobe_missing"],
+    summary: "FFmpeg is not installed or is not available to Codex",
+    remediation:
+      "Install FFmpeg (Homebrew: brew install ffmpeg), then run the setup check again",
   },
   {
     codes: [
-      "unsupported_platform",
-      "ffmpeg_missing",
       "ffmpeg_h264_unavailable",
       "ffmpeg_mp4_unavailable",
-      "ffprobe_missing",
       "ffprobe_unusable",
-      "output_directory_not_writable",
     ],
-    summary: "The local recording environment is not ready",
+    summary: "This FFmpeg installation cannot create the required video",
     remediation:
-      "Resolve the reported preflight blocker, then run the recording again",
+      "Install a complete FFmpeg build with H.264 and MP4 support, then run the setup check again",
+  },
+  {
+    codes: ["output_directory_not_writable"],
+    summary: "The selected folder cannot be used for recordings",
+    remediation:
+      "Choose a writable local folder or allow folder access in macOS, then try again",
   },
   {
     codes: ["cancelled", "recording_cancelled"],
@@ -112,9 +125,9 @@ const MESSAGE_GROUPS = [
       "origin_verification_failed",
       "origin_changed_during_recording",
     ],
-    summary: "The page is outside the approved recording origin",
+    summary: "Recording stopped because the tab opened another website",
     remediation:
-      "Start a new recording and keep top-level navigation within the approved site",
+      "Start a new recording and keep the tab on the approved site",
   },
   {
     codes: [
@@ -125,9 +138,9 @@ const MESSAGE_GROUPS = [
       "frame_too_large",
       "invalid_frame",
     ],
-    summary: "The Browser frame stream could not be recorded safely",
+    summary: "Chrome stopped sending video frames",
     remediation:
-      "Use the supported Chrome Browser surface, keep the tab visible, confirm full CDP approval, and retry the recording",
+      "Keep the Chrome tab visible, confirm full browser access in Codex settings, and try again",
   },
   {
     codes: [
@@ -135,7 +148,7 @@ const MESSAGE_GROUPS = [
       "recording_duration_limit",
       "recording_output_limit",
     ],
-    summary: "A recording safety limit stopped the session",
+    summary: "Recording stopped at a safety limit",
     remediation:
       "Use a shorter or less visually intensive flow and try again",
   },
@@ -145,7 +158,7 @@ const MESSAGE_GROUPS = [
       "encoder_finalize_failed",
       "encoder_shutdown_timeout",
     ],
-    summary: "The local video encoder could not complete the recording",
+    summary: "FFmpeg could not finish the video",
     remediation:
       "Run preflight and verify local FFmpeg H.264 MP4 support before retrying",
   },
@@ -164,13 +177,13 @@ const MESSAGE_GROUPS = [
       "video_stream_count_invalid",
       "video_stream_missing",
     ],
-    summary: "The recorded media did not satisfy the H.264 MP4 contract",
+    summary: "The video could not be verified, so it was not saved",
     remediation:
       "Run preflight, keep the page visible, and record the flow again",
   },
   {
     codes: ["saved_recording_unavailable"],
-    summary: "The Saved Recording destination is unavailable",
+    summary: "The selected folder cannot be used for recordings",
     remediation:
       "Choose a writable local folder, approve macOS file access if requested, and retry",
   },
@@ -178,11 +191,11 @@ const MESSAGE_GROUPS = [
     codes: ["saved_recording_persistence_failed"],
     summary: "The recording was captured but could not be saved",
     remediation:
-      "Use the retained Working Recording recovery path or choose a writable folder, then retry",
+      "Use the temporary recovery folder shown in the result, or choose another writable folder and try again",
   },
   {
     codes: ["artifact_persistence_failed", "cleanup_failed"],
-    summary: "The private local recording artifacts could not be finalized",
+    summary: "Temporary recording files could not be cleaned up",
     remediation:
       "Check temporary storage permissions and free space, then retry",
   },
@@ -195,8 +208,8 @@ const MESSAGE_GROUPS = [
       "recording_not_started",
       "recording_failed",
     ],
-    summary: "Recording could not be completed",
-    remediation: "Run preflight and retry one recording at a time",
+    summary: "The recording could not be completed",
+    remediation: "Run the setup check, then try one recording at a time",
   },
 ];
 

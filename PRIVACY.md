@@ -3,6 +3,17 @@
 Browser Recorder for Codex is designed for private, local recording of one
 explicitly approved non-sensitive Chrome Browser test flow.
 
+## At a glance
+
+| Question | Answer |
+| --- | --- |
+| What is recorded? | One approved Chrome tab's visible page area, including visible embedded frames. Browser controls, other tabs, and audio are excluded. |
+| Where is the video saved? | A local folder you approve; the default is `~/Downloads/Codex Browser Recordings/`. |
+| Is anything uploaded? | No. The plugin has no upload, sharing, remote-retention, or telemetry feature. |
+| Can my Chrome session affect the video? | Yes. The fresh recording tab may reuse the active Chrome session, so use a logged-out profile. |
+| What should never be recorded? | Passwords, payment details, passkeys, recovery secrets, health data, private messages, or other sensitive content. |
+| How do I delete a video? | Delete the local MP4 when you no longer need it. The plugin does not delete saved videos automatically. |
+
 ## Local processing
 
 - Frames are processed by the local plugin Node runtime and local FFmpeg and

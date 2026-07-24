@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Reworked plugin descriptions and starter prompts around complete,
+  plain-language tasks.
+- Made consent, setup failures, recording failures, support guidance, privacy
+  answers, issue forms, and contribution steps easier to scan and act on.
+- Added a dedicated question form so usage questions no longer lead to a closed
+  issue-creation path.
+
 ## [0.3.2] - 2026-07-23
 
 This patch release fixes installed-plugin invocation, recording-tab cleanup,

@@ -1,21 +1,19 @@
 ## Summary
 
-Describe the focused change and the approved issue or use case.
+Describe the problem, the focused change, and the related issue when one exists.
 
 ## Privacy and security
 
-- [ ] The change preserves explicit consent, one approved origin, and local-only output.
-- [ ] Fixtures and evidence contain no recordings, raw frames, full URLs, credentials, tokens, Browser/CDP diagnostics, or personal data.
-- [ ] Authenticated and sensitive recording flows remain unsupported.
+- [ ] Fixtures and evidence contain no recordings, raw frames, private URLs, credentials, tokens, Browser/CDP diagnostics, or personal data.
+- [ ] If this changes recording behavior, it preserves explicit consent, one approved site, local-only output, and the exclusion of sensitive flows.
 
 ## Verification
 
-- [ ] For behavior changes, I observed the new or changed test fail for the expected reason before implementation.
-- [ ] `npm run check`
-- [ ] `npm run check:release-candidate`
-- [ ] Relevant validators and focused integration tests
+- [ ] `npm run check` (or explain why it does not apply)
+- [ ] Relevant focused tests or validators
+- [ ] `npm run check:release-candidate` when public docs, metadata, packaging, or release behavior changed
 - [ ] `git diff --check`
 
-For documentation-only changes, link the stale source or describe the verified
-mismatch instead of manufacturing a failing code test. List the RED and GREEN
-commands when applicable, plus every check not run.
+For behavior changes, list the failing test observed before implementation when
+applicable. For documentation-only changes, describe the verified mismatch
+instead. List anything you did not run.

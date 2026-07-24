@@ -1,0 +1,37 @@
+name: Question
+description: Ask for help using Browser Recorder.
+title: "question: "
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please keep the question public and non-sensitive. For setup or recording failures, run the built-in setup check first and share only its short error code.
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do?
+      description: Describe the outcome you want without including private page content.
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+      description: Include the setup-check result or short error code, if relevant.
+      placeholder: The setup check returned ffmpeg_missing.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Plugin version
+      description: Add the version if you know it.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Before submitting
+      options:
+        - label: This question contains no recording, private page content or URL, credential, token, personal data, local private path, or browser diagnostic.
+          required: true

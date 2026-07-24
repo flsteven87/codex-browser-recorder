@@ -130,11 +130,12 @@ function assertPrivacyReportingContract(source) {
 test("README documents the public recording contract", () => {
   for (const required of [
     canonicalSkillInvocation,
-    "same-origin",
-    "cross-origin",
+    "fresh Chrome tab",
     "Record & Replay",
-    "temporary",
     "no audio",
+    "PRIVACY.md",
+    "SUPPORT.md",
+    "docs/troubleshooting.md",
   ]) {
     assert.match(readme, new RegExp(required.replaceAll("$", "\\$"), "iu"));
   }
@@ -193,10 +194,9 @@ test("public surfaces use the canonical namespaced skill invocation", () => {
 
 test("public docs expose preflight and the complete visible boundary", () => {
   assert.match(readme, /Local recording preflight passed/iu);
-  assert.match(readme, /does not verify\s+Browser or CDP approval/iu);
+  assert.match(support, /does not verify\s+Browser or CDP approval/iu);
   assert.match(readme, /10 frames per second/iu);
   assert.match(readme, /720p/iu);
-  assert.match(readme, /all visible embedded frames/iu);
   assert.match(privacy, /all\s+visible embedded frames/iu);
   assert.match(privacy, /existing session state can affect rendered\s+content/iu);
   assert.match(support, /Local recording preflight passed/iu);
@@ -204,10 +204,10 @@ test("public docs expose preflight and the complete visible boundary", () => {
 
 test("public copy describes an observable cursor without provenance claims", () => {
   for (const [label, source, cursorPattern] of [
-    ["README", readme, /Pointer flows?[^.]*visible project cursor/iu],
+    ["README", readme, /Pointer flows?[^.]*visible cursor/iu],
     ["changelog", changelog, /visible cursor/iu],
     ["skill", skill, /pointer flows?[^.]*visible cursor/iu],
-    ["agent metadata", agent, /pointer feedback/iu],
+    ["agent metadata", agent, /cursor and click feedback/iu],
   ]) {
     assert.match(source, cursorPattern, `${label} must describe pointer feedback`);
     assert.doesNotMatch(
@@ -221,26 +221,21 @@ test("public copy describes an observable cursor without provenance claims", () 
 });
 
 test("public docs disclose failure-specific local media retention", () => {
-  for (const [label, source] of [
-    ["README", readme],
-    ["privacy policy", privacy],
-  ]) {
-    assert.match(
-      source,
-      /Capture,\s+cancellation,\s+cross-origin,\s+and\s+validation\s+failures\s+do\s+not\s+publish\s+a\s+Saved\s+Recording/iu,
-      `${label} must disclose non-publication cases`,
-    );
-    assert.match(
-      source,
-      /automatic\s+cleanup\s+fails[^.]*reports\s+the\s+local\s+path\s+for\s+deletion/iu,
-      `${label} must disclose cleanup failure handling`,
-    );
-    assert.match(
-      source,
-      /durable\s+publication\s+fails[^.]*Working\s+Recording\s+recovery\s+directory/iu,
-      `${label} must disclose publication recovery`,
-    );
-  }
+  assert.match(
+    privacy,
+    /Capture,\s+cancellation,\s+cross-origin,\s+and\s+validation\s+failures\s+do\s+not\s+publish\s+a\s+Saved\s+Recording/iu,
+    "privacy policy must disclose non-publication cases",
+  );
+  assert.match(
+    privacy,
+    /automatic\s+cleanup\s+fails[^.]*reports\s+the\s+local\s+path\s+for\s+deletion/iu,
+    "privacy policy must disclose cleanup failure handling",
+  );
+  assert.match(
+    privacy,
+    /durable\s+publication\s+fails[^.]*Working\s+Recording\s+recovery\s+directory/iu,
+    "privacy policy must disclose publication recovery",
+  );
 });
 
 test("skill is explicit and keeps minimal frontmatter", () => {
@@ -351,9 +346,9 @@ test("skill enforces consent, privacy, and same-origin boundaries", () => {
 test("skill reports one terminal product outcome before bounded diagnostics", () => {
   assert.match(skill, /Recording completed/u);
   assert.match(skill, /duration/iu);
-  assert.match(skill, /H[.]264 MP4/iu);
+  assert.match(skill, /MP4 video[^.]*H[.]264/iu);
   assert.match(skill, /no audio/iu);
-  assert.match(skill, /Saved Recording/u);
+  assert.match(skill, /Saved video/u);
   assert.match(skill, /Open in Finder/u);
   assert.match(skill, /diagnostics/iu);
   assert.match(skill, /summary/iu);

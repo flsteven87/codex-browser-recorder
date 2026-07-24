@@ -1,7 +1,7 @@
 {
   "name": "codex-browser-recorder",
   "version": "0.3.2",
-  "description": "Preflight local requirements or save one approved Chrome Browser test flow as a local H.264 MP4 with pointer feedback when applicable.",
+  "description": "Record one approved Chrome test flow as a private local video with visible cursor and click feedback.",
   "author": {
     "name": "Steven Wu",
     "url": "https://github.com/flsteven87"
@@ -19,21 +19,22 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Codex Browser Recorder",
-    "shortDescription": "Preflight or save a Chrome flow as MP4.",
-    "longDescription": "Checks local recording requirements without Browser activity, or saves one approved Chrome Browser test flow as a validated, audio-free H.264 MP4 with visible cursor and click feedback for pointer actions.",
+    "shortDescription": "Save an approved Chrome flow as a local video.",
+    "longDescription": "Check whether your Mac is ready, then record one short, approved Chrome test flow as a private local MP4. Pointer actions include a visible cursor and click feedback. The plugin records no audio and does not upload your video.",
     "developerName": "Steven Wu",
     "category": "Developer Tools",
     "capabilities": [
-      "Read-only local recording preflight",
-      "Local Chrome Browser test-flow recording with pointer cursor and click feedback"
+      "Check whether this Mac is ready to record",
+      "Record one approved Chrome flow as a local MP4",
+      "Show cursor and click feedback"
     ],
     "websiteURL": "https://github.com/flsteven87/codex-browser-recorder",
     "privacyPolicyURL": "https://github.com/flsteven87/codex-browser-recorder/blob/main/PRIVACY.md",
     "termsOfServiceURL": "https://github.com/flsteven87/codex-browser-recorder/blob/main/TERMS.md",
     "defaultPrompt": [
-      "Use $codex-browser-recorder:record-browser to preflight local recording requirements without opening a Browser tab.",
-      "Use $codex-browser-recorder:record-browser to save an approved same-origin Chrome flow as MP4.",
-      "Use $codex-browser-recorder:record-browser to record an approved pointer-driven Chrome flow with a visible cursor."
+      "$codex-browser-recorder:record-browser Check recording setup on this Mac.",
+      "$codex-browser-recorder:record-browser Record https://example.com for 5 seconds.",
+      "$codex-browser-recorder:record-browser Record clicking the link on https://example.com."
     ],
     "brandColor": "#E5484D",
     "composerIcon": "./assets/icon.png",
