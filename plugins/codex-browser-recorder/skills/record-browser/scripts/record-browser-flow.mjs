@@ -14,6 +14,7 @@ import {
 } from "./recording-policy.mjs";
 
 const ACTION_MODALITIES = new Set(["keyboard", "pointer", "programmatic"]);
+const RECORDING_SURFACE = "Codex In-app Browser";
 
 function dependenciesWith(overrides = {}) {
   return {
@@ -177,9 +178,8 @@ export function createRecordingFlow({ dependencies: overrides } = {}) {
     ) {
       return blocked(["invalid_configuration"], output);
     }
-    const browserSurface = spec.browserSurface ?? "chrome";
-    if (spec.preflightOnly !== true && browserSurface !== "chrome") {
-      return blocked(["browser_surface_unsupported"], output);
+    if (Object.hasOwn(spec, "browserSurface")) {
+      return blocked(["invalid_configuration"], output);
     }
 
     let actions;
@@ -241,7 +241,7 @@ export function createRecordingFlow({ dependencies: overrides } = {}) {
     const consent = Object.freeze({
       actions: consentActions,
       approvedOrigin: request.approvedOrigin,
-      browserSurface,
+      browserSurface: RECORDING_SURFACE,
       end: Object.freeze(
         durationWasExplicit
           ? { durationMs: request.durationMs, kind: "duration" }

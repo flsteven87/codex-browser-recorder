@@ -13,7 +13,7 @@ flowchart TD
   P -->|"preflight_passed"| L["Report local-only environment"]
   P -->|"prepared"| C["One consent projection"]
   C -->|"denied"| N["No Browser activity"]
-  C -->|"approved"| B["Acquire supported Chrome surface"]
+  C -->|"approved"| B["Acquire Codex In-app Browser"]
   B --> R["recordApproved(preparation, browser)"]
   R --> T["Create artifact transaction and owned fresh tab"]
   T --> S["Navigate, acquire CDP, verify origin, start frame stream"]
@@ -55,7 +55,7 @@ it is not the skill or caller interface.
 
 | Layer | Owns | Must not own |
 | --- | --- | --- |
-| `$codex-browser-recorder:record-browser` skill | Request interpretation, concrete action functions, one consent, Chrome acquisition, outcome reporting | Tab lifecycle, CDP, stop ordering, direct cleanup |
+| `$codex-browser-recorder:record-browser` skill | Request interpretation, concrete action functions, one consent, Codex In-app Browser acquisition, outcome reporting | Tab lifecycle, CDP, stop ordering, direct cleanup |
 | Recording Flow | Request/output preparation, opaque authorization, action sequence, single terminal outcome | New actions after consent, raw diagnostics |
 | Internal coordinator | Artifact and fresh-tab ownership, timers, per-action evidence, finalization, memoized verified tab cleanup | User-visible policy expansion |
 | Browser recording | CDP acquisition, origin checks, direct screencast-frame consumption, frame/resource limits | Publication and public error wording |
@@ -64,9 +64,9 @@ it is not the skill or caller interface.
 
 ## Browser capture contract
 
-Chrome is the supported recording surface for this release. IAB is rejected by
-preparation with `browser_surface_unsupported`; the recorder never probes one
-surface and silently falls back to another.
+The Codex In-app Browser is the only Recording Surface. Preparation rejects a
+caller-provided surface selector, and the recorder never probes or falls back
+to Chrome or another Browser.
 
 The production capture path consumes the JPEG bytes delivered in
 `Page.screencastFrame.params.data`. Each valid frame is acknowledged once and
@@ -87,10 +87,11 @@ page.
 
 ## Lifecycle invariants
 
-1. Plan output and validate target, duration, surface, action modality, and
-   local media requirements before Browser activity.
+1. Plan output and validate target, duration, action modality, and local media
+   requirements before Browser activity.
 2. Fix the prepared actions and consent projection before asking for approval.
-3. Create exactly one fresh Chrome tab only after approval.
+3. Acquire the Codex In-app Browser and create exactly one fresh owned tab only
+   after approval.
 4. Navigate, acquire CDP, verify the approved top-level origin, and require the
    first valid frame before performing an action.
 5. Run actions sequentially. Every pointer action automatically requires fresh
@@ -112,7 +113,7 @@ page.
 The fail-closed invariants are:
 
 - no Browser activity before preparation and consent;
-- no IAB recording or automatic browser switch in this release;
+- no Chrome recording or automatic Recording Surface switch;
 - one fresh tab and one normalized approved top-level origin;
 - no successful pointer flow without per-action evidence;
 - no Saved Recording before media validation and atomic publication;

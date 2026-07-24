@@ -1,20 +1,21 @@
 # Support
 
 Browser Recorder for Codex `v0.3.3` is a small, local-only tool for recording
-one approved Chrome test flow. The fastest way to get help is to start with the
-setup check, then choose the issue form that matches your question.
+one approved Codex In-app Browser test flow. The fastest way to get help is to
+start with the setup check, then choose the issue form that matches your
+question.
 
 ## Start with the setup check
 
 Invoke:
 
 ```text
-$codex-browser-recorder:record-browser Check whether this Mac is ready to record without opening Chrome.
+$codex-browser-recorder:record-browser Check whether this Mac is ready to record without opening the Browser.
 ```
 
 A passing result begins with `Local recording preflight passed`. If it fails,
 follow the next step shown beside each error code. This check does not open
-Chrome and does not verify Browser or CDP approval; those permissions are
+the Browser and does not verify Browser or CDP approval; those permissions are
 checked only when a recording starts.
 
 For symptom-based help and a searchable error-code index, see
@@ -38,7 +39,7 @@ For a bug, share only:
 - what you tried, what you expected, and what happened;
 - the plugin version, macOS version, and Codex desktop version;
 - the returned error code, such as `ffmpeg_missing`;
-- Chrome, Chrome extension, and redacted FFmpeg versions when relevant; and
+- Browser plugin and redacted FFmpeg versions when relevant; and
 - minimal steps using a public, logged-out test page.
 
 Do not attach a recording, screenshot of private content, raw frame, private or
@@ -47,9 +48,9 @@ Browser/CDP diagnostic.
 
 ## Supported scope
 
-This release supports Chrome on macOS. It records one fresh tab, one approved
-site, local MP4 output, no audio, and no upload. The Codex in-app Browser is not
-supported.
+This release supports the Codex In-app Browser on macOS. It records one fresh
+tab, one approved site, local MP4 output, no audio, and no upload. Chrome is not
+a fallback Recording Surface.
 
 Authenticated or sensitive flows, existing-tab capture, multiple tabs,
 cross-site top-level navigation, non-loopback HTTP pages, browser-profile

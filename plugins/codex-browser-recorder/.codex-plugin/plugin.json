@@ -1,7 +1,7 @@
 {
   "name": "codex-browser-recorder",
   "version": "0.3.3",
-  "description": "Record one approved Chrome test flow as a private local video with visible cursor and click feedback.",
+  "description": "Record one approved Codex In-app Browser test flow as a private local video with visible cursor and click feedback.",
   "author": {
     "name": "Steven Wu",
     "url": "https://github.com/flsteven87"
@@ -19,13 +19,13 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Codex Browser Recorder",
-    "shortDescription": "Save an approved Chrome flow as a local video.",
-    "longDescription": "Check whether your Mac is ready, then record one short, approved Chrome test flow as a private local MP4. Pointer actions include a visible cursor and click feedback. The plugin records no audio and does not upload your video.",
+    "shortDescription": "Save an approved Codex In-app Browser flow as a local video.",
+    "longDescription": "Check whether your Mac is ready, then record one short, approved Codex In-app Browser test flow as a private local MP4. Pointer actions include a visible cursor and click feedback. The plugin records no audio and does not upload your video.",
     "developerName": "Steven Wu",
     "category": "Developer Tools",
     "capabilities": [
       "Check whether this Mac is ready to record",
-      "Record one approved Chrome flow as a local MP4",
+      "Record one approved Codex In-app Browser flow as a local MP4",
       "Show cursor and click feedback"
     ],
     "websiteURL": "https://github.com/flsteven87/codex-browser-recorder",
