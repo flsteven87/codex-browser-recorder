@@ -12,7 +12,7 @@ const manifestPath = "plugins/codex-browser-recorder/.codex-plugin/plugin.json";
 const evalPath = "evals/plugin-submission-cases.json";
 const ciPath = ".github/workflows/ci.yml";
 const canonicalCiSha256 =
-  "153056e60e021b4da65838e31ffd12280f26803976db5f8bbd2274cd6f913c93";
+  "b793f777498da84394c335d7f21c95a0bcb60caa1b488ada6f874935c1b22b5f";
 const workflowPaths = [ciPath, ".github/workflows/codeql.yml"];
 const assetPaths = [
   "plugins/codex-browser-recorder/assets/icon.png",
@@ -373,7 +373,7 @@ async function validateCi(repositoryRoot, existing, failures) {
 
   const requiredFragments = [
     "node-version: 24",
-    "astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990",
+    "astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9",
     "version: 0.11.29",
     "enable-cache: false",
     "command -v ffmpeg >/dev/null || brew install ffmpeg",
