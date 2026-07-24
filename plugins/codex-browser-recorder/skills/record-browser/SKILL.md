@@ -1,6 +1,6 @@
 ---
 name: record-browser
-description: Check setup or record an explicitly approved, non-sensitive Codex In-app Browser flow as a private local MP4; pointer flows add a visible cursor and click feedback. Use only when the user explicitly invokes $codex-browser-recorder:record-browser; never record authenticated, sensitive, payment, credential, health, or confidential content.
+description: Check setup or record one explicitly approved Codex In-app Browser flow as a private local MP4; pointer flows add a visible cursor and click feedback. Use only when the user explicitly invokes $codex-browser-recorder:record-browser.
 ---
 
 # Record Browser
@@ -16,9 +16,15 @@ Collect the request without Browser activity:
 - Classify every action as `pointer`, `keyboard`, or `programmatic`. Pointer includes click, hover, drag, and pointer-positioned scroll.
 - Accept an optional absolute destination and privacy-safe recording name. Otherwise use `~/Downloads/Codex Browser Recordings/` and a timestamp name.
 
+Browser Recorder is content-neutral. Do not classify page content, redact visible
+fields, or refuse an otherwise valid request based on authentication, privacy,
+or sensitivity. It does not protect, mask, manage, or authenticate credentials
+or sensitive content; anything visible in the approved viewport may appear in
+the video.
+
 Resolve the installed skill directory from the catalog entry that loaded this file. Never guess a cache path or use a source checkout. Import `checkSetup`, `prepareRecording`, and `recordApproved` from `scripts/record-browser-flow.mjs` in that exact directory with `pathToFileURL` in the persistent Node runtime.
 
-Define each action before preparation. Its `perform({ tab })` function must contain exactly the approved Browser call. Labels must describe the visible user action without sensitive values.
+Define each action before preparation. Its `perform({ tab })` function must contain exactly the approved Browser call. Labels must describe the approved action generically; do not copy page text, form values, or full URLs into consent or diagnostics.
 
 ```js
 const plannedActions = [
@@ -43,6 +49,12 @@ const preparation = await prepareRecording({
 ```
 
 `prepareRecording()` performs pure request validation plus local FFmpeg/FFprobe and destination checks. It must not create, navigate, or acquire a Browser tab or CDP capability. Treat the returned preparation as opaque: do not clone, spread, reconstruct, or mutate it.
+
+Technical target restrictions remain content-independent: malformed URLs,
+prohibited URL credentials, unsupported schemes, an unapproved origin, an
+invalid duration, capture or encoding failure, media validation failure, and
+incomplete cleanup remain deterministic Technical Blockers or terminal
+failures.
 
 If `status` is `blocked`, report every Technical Blocker in order using only its `code`, `summary`, and `remediation`, then stop. For `preflight_prepared`, continue only with the explicit setup-check path below. For `prepared`, continue to consent. Do not expose raw booleans.
 
@@ -83,9 +95,12 @@ For `status: "prepared"`, present one compact confirmation before any Browser ac
 - **What:** the approved site, concrete actions, and when the recording will end;
 - **Where:** the exact local filename and folder; the MP4 has no audio and is not uploaded;
 - **What is visible:** the full page viewport, including visible embedded frames, plus cursor and click feedback for pointer actions; browser controls and other tabs are excluded;
-- **Privacy:** recording opens a fresh Codex In-app Browser tab, so continue only with public, logged-out, non-sensitive content. Never record authenticated, credential, payment, passkey, recovery, health, or confidential content.
+- **Content Warning:** the complete approved page viewport may include private, authenticated, or sensitive content. This warning is non-blocking; continue only if the user confirms they are authorized to record it and will handle the local file appropriately.
 
-Explain that macOS may request folder access and that verification failure means no final video is saved. Continue only after explicit confirmation. Denial performs no Browser action.
+Explain that macOS may request folder access and that verification failure means
+no final video is saved. Continue only after explicit confirmation. Treat user
+denial as declined authorization with no Browser activity; it is neither a
+platform rejection nor a Technical Blocker.
 
 ## Record The Approved Plan
 
@@ -105,6 +120,11 @@ const selectedBrowser = globalThis.iab;
 ```
 
 Do not use Chrome, `getForUrl`, `getDefault`, an existing arbitrary tab, or any fallback Recording Surface.
+
+After user authorization, a Codex or Browser permission denial is a platform
+rejection. Report the returned cancellation or rejection without relabeling it
+as user denial or a Technical Blocker, and never retry or bypass the rejected
+approval.
 
 Call `recordApproved()` once with the exact opaque preparation and selected Browser:
 

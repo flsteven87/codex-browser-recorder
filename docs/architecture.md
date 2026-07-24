@@ -9,15 +9,16 @@ Flow; Browser, CDP, media, publication, and cleanup state remain internal.
 ```mermaid
 flowchart TD
   U["User invokes $codex-browser-recorder:record-browser"] --> P["prepareRecording(spec)"]
-  P -->|"blocked"| F["Report every stable blocker"]
+  P -->|"blocked"| F["Report every deterministic Technical Blocker"]
   P -->|"preflight_prepared"| Q["Acquire Codex In-app Browser"]
   Q --> D["checkSetup(preparation, acquireBrowser)"]
   D --> I["Create one owned diagnostic tab and probe full CDP"]
   I --> J["Close and verify the exact diagnostic tab"]
   J -->|"preflight_passed"| L["Report complete setup readiness"]
-  P -->|"prepared"| C["One consent projection"]
-  C -->|"denied"| N["No Browser activity"]
+  P -->|"prepared"| C["One non-blocking Content Warning and consent projection"]
+  C -->|"user denied"| N["Report user denial; no Browser activity"]
   C -->|"approved"| B["Acquire Codex In-app Browser"]
+  B -->|"platform rejected"| K["Report platform rejection"]
   B --> R["recordApproved(preparation, browser)"]
   R --> T["Create artifact transaction and owned fresh tab"]
   T --> W["Establish initial Browser visibility"]
@@ -36,7 +37,17 @@ immutable, bound to one Recording Flow instance, and consumable once.
 Codex In-app Browser and full-CDP probe without starting the media pipeline.
 Recording consent therefore cannot be followed by a substituted target, action,
 duration, or destination. Its `end` projection contains the exact explicit
-duration or the action-driven 15-second hard limit.
+duration or the action-driven 15-second hard limit. Its Content Warning states
+that the complete approved page viewport may contain private, authenticated, or
+sensitive content and assigns authorization and downstream local-file handling
+to the user.
+
+Browser Recorder is content-neutral. It does not classify page content, redact
+visible fields, or refuse a technically valid flow based on authentication,
+privacy, or sensitivity. User denial happens before Browser activity; a Codex
+or Browser permission denial after authorization is a platform rejection;
+deterministic Technical Blockers remain reserved for conditions that prevent a
+complete, valid recording.
 
 ## External contract
 
@@ -112,8 +123,8 @@ cleanup.
 2. For an explicit setup request, acquire only the Codex In-app Browser, create
    at most one fresh diagnostic tab, probe full CDP without starting capture,
    and verify that the exact owned tab is closed.
-3. Fix prepared recording actions and the consent projection before asking for
-   recording approval.
+3. Fix prepared recording actions and the non-blocking Content Warning and
+   consent projection before asking for recording approval.
 4. For a recording, acquire the Codex In-app Browser and create exactly one
    fresh owned tab only after approval. Establish and verify initial Browser
    visibility before navigating; bound failure and use normal cleanup.

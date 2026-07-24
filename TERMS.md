@@ -1,25 +1,24 @@
 # Terms of Use
 
 Browser Recorder for Codex is experimental software for saving one explicitly
-approved, non-sensitive Browser test flow as a local H.264 MP4 recording.
+approved Browser flow as a local H.264 MP4 recording.
 
 ## Responsible use
 
-You must obtain informed consent from every person whose information or actions
-could appear in a recording. Record only the approved target, actions, and
-duration. Do not use the plugin for credentials, payment data, passkeys,
-account-recovery secrets, health data, confidential communications, or other
-sensitive or authenticated flows.
+> **Content Warning:** The complete approved page viewport may include private
+> or authenticated data and other sensitive content. Continue only if you are
+> authorized to record it and will handle the local recording appropriately.
 
 The fresh tab may reuse the selected Browser's existing session, and the video
-contains all visible embedded frames. You must use a logged-out Browser context
-and verify that neither the top-level page nor an embedded frame contains
-sensitive or personalized content.
+contains all visible embedded frames. Browser Recorder does not classify,
+redact, or refuse content based on authentication or sensitivity.
 
-You are responsible for choosing an appropriate test target, complying with
-applicable law and site rules, protecting local recordings, and deleting them
-when they are no longer needed. The plugin does not add an upload or sharing
-path.
+You must obtain informed consent from every person whose information or actions
+could appear in a recording. Record only the approved target, actions, and
+duration. You are responsible for choosing an appropriate target, complying
+with applicable law and site rules, obtaining any required authorization,
+handling and sharing the local file appropriately, and deleting it when it is
+no longer needed. The plugin does not add an upload or sharing path.
 
 ## Experimental software and warranty
 

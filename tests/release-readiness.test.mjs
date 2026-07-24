@@ -437,7 +437,7 @@ test("reports one stable missing-file failure for every release material", async
   }
 });
 
-test("rejects eval corpora without exactly five positive and three negative cases", async () => {
+test("rejects eval corpora without exactly six positive and four negative cases", async () => {
   const repositoryRoot = await createFixture();
   await mutateJson(
     repositoryRoot,

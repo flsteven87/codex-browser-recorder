@@ -32,9 +32,10 @@ Do not commit recordings, raw frames, private or authenticated URLs, page
 content, Browser/CDP diagnostics, credentials, tokens, personal data, local
 private paths, temporary results, or plugin cache contents.
 
-Tests must use deterministic synthetic fixtures. Submission examples must use a
-public, logged-out reviewer page. Changes must keep the one-site,
-explicit-consent, non-sensitive recording boundary.
+Tests must use deterministic synthetic fixtures. Submission examples that need
+real Browser access must use a public reviewer page; content-warning cases must
+use synthetic descriptions rather than real private data. Changes must keep the
+one-site, explicit-consent, content-neutral recording boundary.
 
 Use a concise conventional commit message and keep the pull request focused.
 Explain what changed, any privacy or security impact, and the validation you

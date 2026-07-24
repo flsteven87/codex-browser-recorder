@@ -41,7 +41,7 @@ For a bug, share only:
 - the plugin version, macOS version, and Codex desktop version;
 - the returned error code, such as `ffmpeg_missing`;
 - Browser plugin and redacted FFmpeg versions when relevant; and
-- minimal steps using a public, logged-out test page.
+- minimal steps using a public synthetic test page.
 
 Do not attach a recording, screenshot of private content, raw frame, private or
 authenticated URL, page content, credential, token, local private path, or
@@ -51,9 +51,10 @@ Browser/CDP diagnostic.
 
 This release supports the Codex In-app Browser on macOS. It records one fresh
 tab, one approved site, local MP4 output, no audio, and no upload. Chrome is not
-a fallback Recording Surface.
+a fallback Recording Surface. Before Browser activity, its non-blocking Content
+Warning discloses that the full viewport may contain private, authenticated, or
+sensitive content and leaves authorization and local-file handling to the user.
 
-Authenticated or sensitive flows, existing-tab capture, multiple tabs,
-cross-site top-level navigation, non-loopback HTTP pages, browser-profile
-inspection, uploads, sharing, remote storage, and alternate video formats are
-outside the supported scope.
+Existing-tab capture, multiple tabs, cross-site top-level navigation,
+non-loopback HTTP pages, browser-profile inspection, uploads, sharing, remote
+storage, and alternate video formats are outside the supported scope.

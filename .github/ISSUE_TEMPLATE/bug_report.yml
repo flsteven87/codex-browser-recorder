@@ -1,5 +1,5 @@
 name: Bug report
-description: Tell us what went wrong with a non-sensitive recording.
+description: Tell us what went wrong with Browser Recorder.
 title: "bug: "
 labels:
   - bug
@@ -23,7 +23,7 @@ body:
     id: reproduction
     attributes:
       label: Steps to reproduce
-      description: Use a public, logged-out test page or a loopback fixture. Do not include a private or signed URL.
+      description: Reproduce with a public synthetic page or loopback fixture. Do not include a private or signed URL.
       placeholder: |
         1. Run the setup check.
         2. Start a 5-second recording on a public test page.

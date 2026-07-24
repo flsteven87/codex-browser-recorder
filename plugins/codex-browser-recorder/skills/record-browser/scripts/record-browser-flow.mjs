@@ -14,6 +14,8 @@ import {
 } from "./recording-policy.mjs";
 
 const ACTION_MODALITIES = new Set(["keyboard", "pointer", "programmatic"]);
+const CONTENT_WARNING =
+  "The complete approved page viewport may include private, authenticated, or sensitive content. Continue only if you are authorized to record it and will handle the local file appropriately.";
 const RECORDING_SURFACE = "Codex In-app Browser";
 const SETUP_CLEANUP_TIMEOUT_MS = 5000;
 const SETUP_OPERATION_TIMEOUT_MS = 5000;
@@ -293,6 +295,7 @@ export function createRecordingFlow({ dependencies: overrides } = {}) {
       actions: consentActions,
       approvedOrigin: request.approvedOrigin,
       browserSurface: RECORDING_SURFACE,
+      contentWarning: CONTENT_WARNING,
       end: Object.freeze(
         durationWasExplicit
           ? { durationMs: request.durationMs, kind: "duration" }

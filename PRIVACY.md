@@ -1,7 +1,11 @@
 # Privacy
 
 Browser Recorder for Codex is designed for private, local recording of one
-explicitly approved non-sensitive Codex In-app Browser test flow.
+explicitly approved Codex In-app Browser flow.
+
+> **Content Warning:** The complete approved page viewport may include private
+> or authenticated data and other sensitive content. Continue only if you are
+> authorized to record it and will handle the local recording appropriately.
 
 ## At a glance
 
@@ -10,8 +14,8 @@ explicitly approved non-sensitive Codex In-app Browser test flow.
 | What is recorded? | One approved Codex In-app Browser tab's visible page area, including visible embedded frames. Browser controls, other tabs, and audio are excluded. |
 | Where is the video saved? | A local folder you approve; the default is `~/Downloads/Codex Browser Recordings/`. |
 | Is anything uploaded? | No. The plugin has no upload, sharing, remote-retention, or telemetry feature. |
-| Can my Browser session affect the video? | Yes. The fresh recording tab may reuse the active Codex In-app Browser session, so use a logged-out session. |
-| What should never be recorded? | Passwords, payment details, passkeys, recovery secrets, health data, private messages, or other sensitive content. |
+| Can my Browser session affect the video? | Yes. The fresh recording tab may reuse the active Codex In-app Browser session, so authenticated or personalized content can appear. |
+| Who decides whether recording is appropriate? | You must be authorized to record everything that may appear and are responsible for downstream handling of the local file. |
 | How do I delete a video? | Delete the local MP4 when you no longer need it. The plugin does not delete saved videos automatically. |
 
 ## Local processing
@@ -22,16 +26,19 @@ explicitly approved non-sensitive Codex In-app Browser test flow.
   telemetry.
 - Local recorder processing does not make the target page offline. The page and
   its embedded content can still make their normal network requests while they
-  load and run; use only a public, logged-out, non-sensitive fixture.
+  load and run.
 - The recording contains the complete visible page viewport, including all
   visible embedded frames. Browser chrome and other tabs are excluded.
 - A fresh tab may reuse the Codex In-app Browser's existing session. The plugin does
   not inspect cookies or storage, but existing session state can affect rendered
-  content. Use a logged-out Browser session without sensitive or personalized
-  content.
+  content, including authenticated or personalized content.
+- Browser Recorder does not classify page content, redact visible fields, or
+  refuse a technically valid recording based on authentication, privacy, or
+  sensitivity.
 - Raw frames, page text, full URLs, CDP payloads, subprocess output,
   credentials, and internal plugin paths are excluded from result JSON and
-  skill diagnostics.
+  skill diagnostics. These diagnostic exclusions do not remove anything from
+  the video: visible content may be recorded.
 - Cursor capture uses temporary isolated-world listeners in the approved page
   and supported embedded frames. It observes only pointer event type,
   coordinates, button state, frame identity, viewport dimensions, sequence,
@@ -72,14 +79,13 @@ absolute output path.
 
 ## User responsibilities
 
-Obtain informed consent from everyone whose information may appear. Do not
-record passwords, payment data, passkeys, account-recovery secrets, health
-data, confidential communications, or other sensitive authenticated flows.
-Before consent, confirm that the Codex In-app Browser is logged out of the target
-and that no visible top-level or embedded-frame content is sensitive or
-personalized. The user is responsible for choosing an appropriate target,
-limiting approved actions, protecting the local output, and deleting it when it
-is no longer needed.
+Obtain informed consent from everyone whose information may appear and confirm
+that you are authorized to record the complete top-level and embedded-frame
+viewport. Browser Recorder does not determine whether visible private,
+authenticated, or sensitive content may lawfully or appropriately be recorded.
+The user is responsible for choosing the target, limiting approved actions,
+handling and sharing the local output appropriately, and deleting it when it is
+no longer needed.
 
 Any future upload or sharing feature must be a separate, explicit,
 user-authorized action. It is not part of this plugin.

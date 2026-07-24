@@ -68,7 +68,7 @@ const MESSAGE_GROUPS = [
     ],
     summary: "This recording request is not supported",
     remediation:
-      "Use a public HTTPS page (or localhost) without a username or password, and choose 5 to 60 seconds",
+      "Use an HTTPS page (or localhost) without URL credentials, and choose 5 to 60 seconds",
   },
   {
     codes: [

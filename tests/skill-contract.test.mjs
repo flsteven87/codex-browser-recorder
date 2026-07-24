@@ -214,6 +214,57 @@ test("public docs expose preflight and the complete visible boundary", () => {
   assert.match(support, /Local recording preflight passed/iu);
 });
 
+test("public policies present a content-neutral Content Warning", () => {
+  for (const [label, source] of [
+    ["README", readme],
+    ["privacy policy", privacy],
+    ["terms", terms],
+  ]) {
+    assert.match(source, /Content Warning/iu, `${label} must name the warning`);
+    assert.match(
+      source,
+      /(?:complete|full)[^.]*page viewport/iu,
+      `${label} must disclose the viewport boundary`,
+    );
+    assert.match(
+      source,
+      /private[^.]*authenticated[^.]*sensitive/iu,
+      `${label} must disclose potentially private content`,
+    );
+    assert.match(source, /authoriz/iu, `${label} must assign authorization`);
+    assert.match(
+      source,
+      /local (?:file|recording)/iu,
+      `${label} must assign downstream local-file handling`,
+    );
+  }
+  assert.match(
+    privacy,
+    /does not classify[^.]*redact[^.]*refuse/iu,
+    "privacy policy must state the content-neutral behavior",
+  );
+  assert.match(
+    architecture,
+    /non-blocking Content Warning/iu,
+    "architecture must preserve the warning as a flow invariant",
+  );
+
+  for (const [label, source] of [
+    ["README", readme],
+    ["privacy policy", privacy],
+    ["terms", terms],
+    ["support", support],
+    ["troubleshooting", troubleshooting],
+    ["skill", skill],
+  ]) {
+    assert.doesNotMatch(
+      source,
+      /use a logged-out|continue only with public|no audio, authenticated flows|authenticated or sensitive flows[^.]*outside|refuse[^.]*sensitive|pre[- ]Browser refusal/iu,
+      `${label} must not impose a content-category refusal`,
+    );
+  }
+});
+
 test("keeps Background Recording as a developer-facing invariant only", () => {
   assert.match(
     architecture,
@@ -362,20 +413,42 @@ test("Browser selection guard rejects non-IAB acquisition mutants", () => {
   }
 });
 
-test("skill enforces consent, privacy, and same-origin boundaries", () => {
+test("skill uses a non-blocking Content Warning and keeps authorization explicit", () => {
   assert.match(skill, /explicit confirmation/iu);
-  assert.match(skill, /Denial performs no Browser action/iu);
+  assert.match(skill, /Content Warning/iu);
+  assert.match(skill, /complete approved page viewport/iu);
+  assert.match(skill, /private[^.]*authenticated[^.]*sensitive/iu);
+  assert.match(skill, /authorized to record/iu);
+  assert.match(skill, /handle the local file/iu);
+  assert.match(skill, /non-blocking/iu);
+  assert.match(skill, /user\s+denial[^.]*no Browser activity/iu);
+  assert.match(skill, /platform rejection/iu);
+  assert.match(skill, /Technical Blocker/iu);
   assert.match(skill, /never retry|do not.*retry approval/iu);
-  for (const term of [
-    "authenticated",
-    "credential",
-    "payment",
-    "passkey",
-    "recovery",
-    "health",
-    "confidential",
+  assert.match(skill, /do not classify[^.]*redact[^.]*refuse/iu);
+  assert.match(
+    skill,
+    /does not protect, mask, manage, or authenticate credentials/iu,
+  );
+  assert.doesNotMatch(
+    skill,
+    /logged-out|never record authenticated|refuse[^.]*content/iu,
+  );
+});
+
+test("skill preserves deterministic technical boundaries", () => {
+  for (const boundary of [
+    "malformed",
+    "URL credentials",
+    "scheme",
+    "approved origin",
+    "duration",
+    "capture",
+    "encoding",
+    "validation",
+    "cleanup",
   ]) {
-    assert.match(skill, new RegExp(term, "iu"));
+    assert.match(skill, new RegExp(boundary, "iu"));
   }
   assert.match(skill, /approved origin/iu);
   assert.match(skill, /broaden the origin/iu);
