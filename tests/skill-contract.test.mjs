@@ -207,7 +207,7 @@ test("public copy describes an observable cursor without provenance claims", () 
     ["README", readme, /Pointer flows?[^.]*visible cursor/iu],
     ["changelog", changelog, /visible cursor/iu],
     ["skill", skill, /pointer flows?[^.]*visible cursor/iu],
-    ["agent metadata", agent, /pointer feedback/iu],
+    ["agent metadata", agent, /cursor and click feedback/iu],
   ]) {
     assert.match(source, cursorPattern, `${label} must describe pointer feedback`);
     assert.doesNotMatch(
@@ -346,9 +346,9 @@ test("skill enforces consent, privacy, and same-origin boundaries", () => {
 test("skill reports one terminal product outcome before bounded diagnostics", () => {
   assert.match(skill, /Recording completed/u);
   assert.match(skill, /duration/iu);
-  assert.match(skill, /H[.]264 MP4/iu);
+  assert.match(skill, /MP4 video[^.]*H[.]264/iu);
   assert.match(skill, /no audio/iu);
-  assert.match(skill, /Saved Recording/u);
+  assert.match(skill, /Saved video/u);
   assert.match(skill, /Open in Finder/u);
   assert.match(skill, /diagnostics/iu);
   assert.match(skill, /summary/iu);

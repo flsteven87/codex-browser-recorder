@@ -95,17 +95,17 @@ test("plugin manifest and repository marketplace stay aligned", () => {
 
   assert.equal(plugin.name, "codex-browser-recorder");
   assert.match(plugin.version, strictSemver);
-  assert.equal(
+  assert.match(
     plugin.description,
-    "Preflight local requirements or save one approved Chrome Browser test flow as a local H.264 MP4 with pointer feedback when applicable.",
+    /record one approved Chrome test flow.*private local video.*cursor.*click feedback/iu,
   );
-  assert.equal(
+  assert.match(
     plugin.interface.shortDescription,
-    "Preflight or save a Chrome flow as MP4.",
+    /approved Chrome flow.*local video/iu,
   );
   assert.doesNotMatch(
     JSON.stringify(plugin.interface),
-    /integration gate|example[.]com/i,
+    /integration gate/i,
   );
   assert.equal(marketplace.name, "codex-browser-recorder");
   assert.ok(entry, "marketplace must contain the plugin entry");
@@ -137,9 +137,15 @@ test("public plugin metadata, listing assets, and community files are complete",
   }
   assert.ok(
     manifest.interface.defaultPrompt.some((prompt) =>
-      /preflight.*without opening a Browser tab/i.test(prompt),
+      /check recording setup on this Mac/i.test(prompt),
     ),
-    "starter prompts must expose the no-Browser preflight",
+    "starter prompts must expose the no-Chrome setup check",
+  );
+  assert.ok(
+    manifest.interface.defaultPrompt.every((prompt) =>
+      prompt.startsWith("$codex-browser-recorder:record-browser "),
+    ),
+    "starter prompts must be complete explicit skill requests",
   );
   assert.equal(manifest.interface.composerIcon, "./assets/icon.png");
   assert.equal(manifest.interface.logo, "./assets/icon.png");
@@ -207,13 +213,13 @@ test("record-browser is an explicit skill with one canonical script tree", () =>
   assert.match(agentManifest, /^policy:\n(?: {2}.+\n)* {2}allow_implicit_invocation: false$/m);
   assert.match(
     agentManifest,
-    /short_description: "Preflight or save a Chrome MP4 with pointer feedback"/,
+    /short_description: "Save Chrome flows with cursor and click feedback"/,
   );
   assert.match(
     agentManifest,
-    /default_prompt: "Use \$codex-browser-recorder:record-browser to preflight or record an approved, non-sensitive Chrome Browser flow[.]"/,
+    /default_prompt: "\$codex-browser-recorder:record-browser Record a short, approved Chrome flow and save it locally[.]"/,
   );
-  assert.doesNotMatch(agentManifest, /integration gate|example[.]com/i);
+  assert.doesNotMatch(agentManifest, /integration gate/i);
   for (const script of requiredScripts) {
     assert.ok(existsSync(join(skillRoot, "scripts", script)), `${script} must exist`);
   }

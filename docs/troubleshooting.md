@@ -1,15 +1,23 @@
 # Troubleshooting
 
-Start with the built-in preflight. It checks the supported platform, media
-tools, codecs, container support, and destination without opening a Browser tab:
+## Start here
+
+| What you see | First thing to try |
+| --- | --- |
+| Recording does not start | Run the setup check below. Then confirm the Chrome plugin and extension are installed. |
+| Recording stops partway through | Keep the Chrome tab visible and stay on the approved website. Search this page for the error code you received. |
+| No video appears in the chosen folder | Check whether macOS allowed folder access. Search for `saved_recording_unavailable` or `saved_recording_persistence_failed`. |
+| The record skill is missing | Follow [Installation and discovery](#installation-and-discovery), then start a new Codex task. |
+
+Run the built-in setup check:
 
 ```text
-$codex-browser-recorder:record-browser Check whether my local recording environment is ready.
+$codex-browser-recorder:record-browser Check whether this Mac is ready to record without opening Chrome.
 ```
 
-A passing result begins with `Local recording preflight passed`. Preflight does
-not confirm that the Chrome plugin and extension are installed, that a site is
-approved, or that full CDP access will be granted.
+A passing result begins with `Local recording preflight passed`. It checks the
+Mac, FFmpeg, and destination folder without opening Chrome. Chrome and site
+approval are checked only when a recording starts.
 
 ## Installation and discovery
 
@@ -28,7 +36,7 @@ If `$codex-browser-recorder:record-browser` is missing:
 Do not edit plugin cache files or copy source files into the cache. Refresh or
 reinstall from the marketplace source instead.
 
-## Preflight blockers
+## Setup-check errors
 
 | Code | Meaning | What to do |
 | --- | --- | --- |
@@ -40,18 +48,20 @@ reinstall from the marketplace source instead.
 | `ffprobe_unusable` | `ffprobe` cannot produce the JSON metadata the validator needs. | Replace or repair the FFmpeg installation, then rerun preflight. |
 | `output_directory_not_writable` | The planned destination or its nearest existing parent is not writable. | Choose another absolute local directory or approve macOS file access. |
 
-Preflight reports every blocker it finds. Resolve all of them before retrying a
-recording.
+The setup check reports every problem it finds. Resolve all of them before
+retrying a recording.
 
-## Browser or CDP unavailable
+## Chrome does not connect
 
 `browser_plugin_unavailable`, `cdp_unavailable`, and
 `plugin_module_unavailable` mean the required Chrome recording capability could
 not be loaded or approved.
 
 1. Install or enable **Chrome** plus its extension.
-2. Open **Settings > Browser** and enable **Developer mode > Enable full CDP
-   access**. Workspace policy can prevent this setting from being enabled.
+2. [Open Browser settings](codex://settings/browser-use), then enable
+   **Developer mode > Enable full CDP access**. If the link does not open, use
+   **Settings > Browser**. Workspace policy can prevent this setting from being
+   enabled.
 3. Start a new task after changing plugin installation state.
 4. Retry against a public, logged-out page and approve the requested site and
    full-CDP scope.
@@ -64,7 +74,7 @@ either result.
 Browser. This release supports Chrome only and stops before consent or Browser
 activity; choose Chrome rather than retrying or expecting an automatic switch.
 
-## Request rejected
+## The request is not supported
 
 `invalid_target`, `target_credentials_present`, `target_scheme_not_allowed`, or
 `invalid_duration` means the request is outside the supported contract. Use:
@@ -77,13 +87,12 @@ Passive or wait-only recording needs an explicit duration. Action-driven
 recording can omit it and will finish after the last approved action, with a
 15-second session cap.
 
-## Recording stopped safely
+## Recording stopped
 
-Every stable code currently recognized by the public failure sanitizer appears
-in this guide so the exact returned code is searchable. Component failures can
-be normalized to a group fallback before the final result; for example, the
-current coordinator reports `frame_too_large` and `invalid_frame` capture
-failures as `capture_failed`.
+Use the short code shown in the result to find the matching row. Every public
+code appears here so it remains searchable. Some low-level failures may be
+reported as their group code; for example, `frame_too_large` and
+`invalid_frame` can appear as `capture_failed`.
 
 | Failure group | Recognized public codes | What to do |
 | --- | --- | --- |
@@ -100,7 +109,7 @@ These failures intentionally do not publish a Saved Recording. If automatic
 cleanup is incomplete, follow the returned bounded local path and delete the
 private Working Recording after confirming it is no longer needed.
 
-## Saved Recording failures
+## Video was not saved
 
 - `saved_recording_unavailable` occurs before Browser activity when the
   destination cannot support safe publication. Choose a writable absolute local

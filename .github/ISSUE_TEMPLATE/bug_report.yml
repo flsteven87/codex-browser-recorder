@@ -1,56 +1,61 @@
 name: Bug report
-description: Report a reproducible, non-sensitive defect in Browser Recorder.
+description: Tell us what went wrong with a non-sensitive recording.
 title: "bug: "
 labels:
   - bug
 body:
-  - type: markdown
+  - type: textarea
+    id: symptom
     attributes:
-      value: |
-        Use only synthetic or fully redacted evidence. A public, no-login fixture URL is allowed when required for reproduction. Do not attach recordings, raw frames, private or authenticated URLs, page content, credentials, tokens, private paths, or Browser/CDP diagnostics.
-  - type: input
-    id: revision
-    attributes:
-      label: Affected revision
-      description: Provide the plugin version or commit SHA.
-    validations:
-      required: true
-  - type: input
-    id: environment
-    attributes:
-      label: Redacted environment
-      description: Include macOS and Codex desktop app versions, the selected Browser, and redacted FFmpeg/FFprobe versions. Include Node.js only for repository development failures.
+      label: What happened?
+      description: Describe the problem and the step that failed.
+      placeholder: The setup check passed, but recording stopped after I clicked the link.
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Expected behavior
-      description: Describe the expected outcome without identifying a real target or person.
-    validations:
-      required: true
-  - type: textarea
-    id: actual
-    attributes:
-      label: Actual behavior
-      description: Include only an allowlisted status or failure code and bounded result counters.
+      label: What did you expect?
+      description: Describe the result you expected.
     validations:
       required: true
   - type: textarea
     id: reproduction
     attributes:
-      label: Synthetic reproduction
-      description: Give minimal steps using a disposable public no-login test page or loopback fixture. Never include a private, authenticated, tokenized, or signed URL.
+      label: Steps to reproduce
+      description: Use a public, logged-out test page or a loopback fixture. Do not include a private or signed URL.
+      placeholder: |
+        1. Run the setup check.
+        2. Start a 5-second recording on a public test page.
+        3. Click the first link.
+    validations:
+      required: true
+  - type: input
+    id: error_code
+    attributes:
+      label: Error code
+      description: If one was shown, paste only the short code.
+      placeholder: ffmpeg_missing
+  - type: input
+    id: revision
+    attributes:
+      label: Plugin version
+      description: Provide the plugin version or commit SHA.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include macOS and Codex desktop versions. Add Chrome, extension, and redacted FFmpeg versions when relevant.
     validations:
       required: true
   - type: checkboxes
     id: safety
     attributes:
-      label: Safety confirmation
+      label: Before submitting
       options:
-        - label: The affected flow is non-sensitive and all participants approved recording.
+        - label: This report contains no recording, private page content or URL, credential, token, personal data, local private path, or browser diagnostic.
           required: true
-        - label: I removed recordings, frames, private or authenticated URLs, credentials, page content, private paths, and Browser diagnostics.
-          required: true
-        - label: This report does not disclose a vulnerability; security reports use GitHub private vulnerability reporting.
+        - label: This is not a security vulnerability. I will use private vulnerability reporting for security issues.
           required: true

@@ -1,63 +1,57 @@
 # Support
 
-Browser Recorder for Codex `v0.3.2` has a deliberately narrow support boundary.
-It supersedes `v0.3.1` with canonical installed-skill invocation, verified
-recording-tab cleanup, and corrected click-feedback rendering.
+Browser Recorder for Codex `v0.3.2` is a small, local-only tool for recording
+one approved Chrome test flow. The fastest way to get help is to start with the
+setup check, then choose the issue form that matches your question.
 
-## Browser support
+## Start with the setup check
 
-| Surface | Status | Behavior |
-| --- | --- | --- |
-| Chrome plugin and extension | Supported release target | Every candidate must pass the real Chrome contract and full MP4 smoke before submission. |
-| Codex in-app Browser | Unsupported in this release | Preparation returns `browser_surface_unsupported` before consent or Browser activity. |
-
-The recorder does not switch surfaces after a failure. Deterministic tests cover
-cross-origin and out-of-process embedded frames, but they are not a claim of
-real-browser OOPIF compatibility.
-
-## Local preflight
-
-Before filing an environment issue, invoke:
+Invoke:
 
 ```text
-$codex-browser-recorder:record-browser Check whether my local recording environment is ready.
+$codex-browser-recorder:record-browser Check whether this Mac is ready to record without opening Chrome.
 ```
 
-A passing result begins with `Local recording preflight passed`. Otherwise,
-include every returned stable blocker code and its remediation. This local check
-does not open a Browser tab and does not verify Browser or CDP approval.
+A passing result begins with `Local recording preflight passed`. If it fails,
+follow the next step shown beside each error code. This check does not open
+Chrome and does not verify Browser or CDP approval; those permissions are
+checked only when a recording starts.
 
-See [Troubleshooting](docs/troubleshooting.md) for installation checks, every
-local preflight blocker, common recording failure groups, and safe recovery
-steps.
+For symptom-based help and a searchable error-code index, see
+[Troubleshooting](docs/troubleshooting.md).
 
-## Non-sensitive bugs and questions
+## Choose where to ask
 
-Use a [GitHub issue](https://github.com/flsteven87/codex-browser-recorder/issues/new/choose)
-for a reproducible, non-sensitive bug or usage question. Include only the
-affected commit or plugin version, operating-system version, Codex desktop app
-version, Chrome and extension versions, redacted FFmpeg/FFprobe version
-information, the
-allowlisted status or failure code, and bounded capture counters when relevant.
-Include the Node.js version only for repository development failures. A fully
-public, synthetic, no-login fixture URL may be included when it is required for
-reproduction; never include a private, authenticated, personalized, tokenized,
-or signed URL.
+| I need to… | Use |
+| --- | --- |
+| Ask how to use the tool | [Question form](https://github.com/flsteven87/codex-browser-recorder/issues/new?template=question.yml) |
+| Report a reproducible problem | [Bug report](https://github.com/flsteven87/codex-browser-recorder/issues/new?template=bug_report.yml) |
+| Suggest a focused improvement | [Feature request](https://github.com/flsteven87/codex-browser-recorder/issues/new?template=feature_request.yml) |
+| Report a vulnerability | [Private vulnerability report](https://github.com/flsteven87/codex-browser-recorder/security/advisories/new) |
 
-Do not attach recordings, raw frames, Browser diagnostics, CDP payloads, private
-or authenticated URLs, page content, credentials, tokens, private paths, or
-personal data.
-
-## Security reports
-
-Report vulnerabilities through
-[GitHub private vulnerability reporting](https://github.com/flsteven87/codex-browser-recorder/security/advisories/new).
 Do not open a public issue for a vulnerability or sensitive recording content.
 
-## Unsupported flows
+## What to include
+
+For a bug, share only:
+
+- what you tried, what you expected, and what happened;
+- the plugin version, macOS version, and Codex desktop version;
+- the returned error code, such as `ffmpeg_missing`;
+- Chrome, Chrome extension, and redacted FFmpeg versions when relevant; and
+- minimal steps using a public, logged-out test page.
+
+Do not attach a recording, screenshot of private content, raw frame, private or
+authenticated URL, page content, credential, token, local private path, or
+Browser/CDP diagnostic.
+
+## Supported scope
+
+This release supports Chrome on macOS. It records one fresh tab, one approved
+site, local MP4 output, no audio, and no upload. The Codex in-app Browser is not
+supported.
 
 Authenticated or sensitive flows, existing-tab capture, multiple tabs,
-cross-origin top-level navigation, audio, non-loopback HTTP targets,
-browser-profile inspection, the Codex in-app Browser, uploads, sharing,
-alternate video formats, and remote storage are unsupported. Support requests
-cannot make those flows safe or supported.
+cross-site top-level navigation, non-loopback HTTP pages, browser-profile
+inspection, uploads, sharing, remote storage, and alternate video formats are
+outside the supported scope.

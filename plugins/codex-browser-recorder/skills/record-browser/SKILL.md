@@ -1,6 +1,6 @@
 ---
 name: record-browser
-description: Preflight or record an explicitly approved, non-sensitive Chrome Browser flow as a local H.264 MP4; pointer flows add a visible cursor and click feedback. Use only when the user explicitly invokes $codex-browser-recorder:record-browser; never record authenticated, sensitive, payment, credential, health, or confidential content.
+description: Check setup or record an explicitly approved, non-sensitive Chrome Browser flow as a private local MP4; pointer flows add a visible cursor and click feedback. Use only when the user explicitly invokes $codex-browser-recorder:record-browser; never record authenticated, sensitive, payment, credential, health, or confidential content.
 ---
 
 # Record Browser
@@ -11,6 +11,7 @@ Collect the request without Browser activity:
 
 - Set `preflightOnly` only for an explicit doctor, diagnose, check, or preflight request.
 - For recording, require an HTTPS or approved loopback target plus either one or more concrete actions or an explicit passive duration.
+- Treat the normalized target site as the approved origin for the whole recording.
 - Set `durationWasExplicit` from the user's words. Use 15 seconds when omitted, but end after the last action and any bounded pointer-feedback tail. Require an explicit 5–60 second duration for passive or wait-only recording.
 - Classify every action as `pointer`, `keyboard`, or `programmatic`. Pointer includes click, hover, drag, and pointer-positioned scroll.
 - Accept an optional absolute destination and privacy-safe recording name. Otherwise use `~/Downloads/Codex Browser Recordings/` and a timestamp name.
@@ -45,20 +46,18 @@ const preparation = await prepareRecording({
 
 `prepareRecording()` performs pure request validation plus local FFmpeg/FFprobe and destination checks. It must not create, navigate, or acquire a Browser tab or CDP capability. Treat the returned preparation as opaque: do not clone, spread, reconstruct, or mutate it.
 
-If `status` is `blocked`, report every blocker in order using only its `code`, `summary`, and `remediation`, then stop. For `preflight_passed`, lead with `Local recording preflight passed`, report the planned destination and returned platform/media booleans, state that Browser/CDP was not tested, then stop.
+If `status` is `blocked`, report every blocker in order using only its `code`, `summary`, and `remediation`, then stop. For `preflight_passed`, lead with `Local recording preflight passed`, report the planned destination, say that the Mac, FFmpeg, and folder checks passed, and explain that Chrome and site approval are checked only when recording starts. Do not expose raw booleans.
 
 ## Obtain One Consent
 
 For `status: "prepared"`, present one compact confirmation before any Browser activity:
 
-- approved origin, concrete action labels, Chrome surface, and the exact returned `consent.end` duration or action-driven hard limit;
-- destination, filename, H.264 MP4, no audio, and visible project cursor/click feedback when pointer actions occur;
-- complete page viewport including visible embedded frames, excluding browser chrome and other tabs;
-- a fresh tab that may reuse the user's existing Chrome session;
-- exclusion of authenticated, sensitive, credential, payment, passkey, recovery, health, and confidential content;
-- fail-closed behavior for missing frames, pointer evidence, origin changes, or publication, plus explicit bounded cleanup warnings.
+- **What:** the approved site, concrete actions, and when the recording will end;
+- **Where:** the exact local filename and folder; the MP4 has no audio and is not uploaded;
+- **What is visible:** the full page viewport, including visible embedded frames, plus cursor and click feedback for pointer actions; browser controls and other tabs are excluded;
+- **Privacy:** recording opens a fresh tab that may reuse the existing Chrome session, so continue only with public, logged-out, non-sensitive content. Never record authenticated, credential, payment, passkey, recovery, health, or confidential content.
 
-Explain that macOS may request file access and page-scripted synthetic pointer events can be observed. Continue only after explicit confirmation. Denial performs no Browser action.
+Explain that macOS may request folder access and that verification failure means no final video is saved. Continue only after explicit confirmation. Denial performs no Browser action.
 
 ## Record The Approved Plan
 
@@ -77,7 +76,7 @@ The Recording Flow owns the fresh tab, navigation, CDP acquisition, first-frame 
 
 ## Report The Terminal Outcome
 
-For `completed`, require `outcome.result.status === "passed"`. Lead with `Recording completed`, then report duration, dimensions, H.264 MP4, and no audio. For a pointer plan, also report the visible project cursor, successful per-action pointer evidence, and click feedback. For a plan with no pointer action, do not claim that a cursor is visible. Then provide `[Saved Recording](<absolute output path>)` plus the same plain absolute path. Offer `Open in Finder`; do not open or play it without a request.
+For `completed`, require `outcome.result.status === "passed"`. Lead with `Recording completed`, then report duration, dimensions, and `MP4 video (H.264, no audio)`. For a pointer plan, also report the visible project cursor and click feedback. For a plan with no pointer action, do not claim that a cursor is visible. Then provide `[Saved video](<absolute output path>)` plus the same plain absolute path. Offer `Open in Finder`; do not open or play it without a request.
 
 Offer bounded capture counters only as diagnostics after the product result.
 
@@ -85,7 +84,7 @@ For `failed` or `cancelled`, report only `outcome.failure.code`, `.summary`, and
 
 Report bounded cleanup state after the primary result:
 
-- `cleanup.directory`: `Cleanup incomplete; delete locally: <path>`. For `saved_recording_persistence_failed`, instead identify it as a temporary Working Recording to copy before deletion.
+- `cleanup.directory`: `Cleanup incomplete; delete locally: <path>`. For `saved_recording_persistence_failed`, instead identify it as a temporary unfinished video to copy before deletion.
 - `cleanup.file`: `Cleanup incomplete; delete local file: <path>`.
 - `artifactCleanupIncomplete` without a directory: inspect the operating-system temporary directory for a `codex-browser-recorder-` entry.
 - `browserTabCleanupIncomplete`: close the fresh recording tab manually without reporting its URL.

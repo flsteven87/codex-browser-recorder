@@ -1,6 +1,6 @@
 interface:
   display_name: "Record Browser"
-  short_description: "Preflight or save a Chrome MP4 with pointer feedback"
-  default_prompt: "Use $codex-browser-recorder:record-browser to preflight or record an approved, non-sensitive Chrome Browser flow."
+  short_description: "Save Chrome flows with cursor and click feedback"
+  default_prompt: "$codex-browser-recorder:record-browser Record a short, approved Chrome flow and save it locally."
 policy:
   allow_implicit_invocation: false
