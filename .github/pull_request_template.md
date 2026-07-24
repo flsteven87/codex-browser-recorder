@@ -5,7 +5,7 @@ Describe the problem, the focused change, and the related issue when one exists.
 ## Privacy and security
 
 - [ ] Fixtures and evidence contain no recordings, raw frames, private URLs, credentials, tokens, Browser/CDP diagnostics, or personal data.
-- [ ] If this changes recording behavior, it preserves explicit consent, one approved site, local-only output, and the exclusion of sensitive flows.
+- [ ] If this changes recording behavior, it preserves explicit consent, the non-blocking Content Warning, one approved site, and local-only output.
 
 ## Verification
 

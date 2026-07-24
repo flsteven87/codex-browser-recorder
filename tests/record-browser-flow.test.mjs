@@ -497,6 +497,8 @@ test("prepares an opaque action-driven plan without Browser activity", async () 
     ],
     approvedOrigin: "https://example.com",
     browserSurface: "Codex In-app Browser",
+    contentWarning:
+      "The complete approved page viewport may include private, authenticated, or sensitive content. Continue only if you are authorized to record it and will handle the local file appropriately.",
     end: {
       hardLimitMs: 15_000,
       kind: "actions_complete",
@@ -511,6 +513,47 @@ test("prepares an opaque action-driven plan without Browser activity", async () 
   assert.equal(Object.isFrozen(prepared), true);
   assert.equal(Object.isFrozen(prepared.consent), true);
   assert.equal(JSON.stringify(prepared).includes("private="), false);
+});
+
+test("proceeds with an authenticated private flow after authorization", async () => {
+  const harness = createHarness();
+  let actionPerformed = false;
+
+  const prepared = await harness.flow.prepareRecording(
+    recordingSpec({
+      actions: [
+        {
+          label: "Open the authenticated private message thread",
+          modality: "programmatic",
+          async perform({ tab }) {
+            actionPerformed = true;
+            return tab.id;
+          },
+        },
+      ],
+    }),
+  );
+
+  assert.equal(prepared.status, "prepared");
+  assert.deepEqual(prepared.consent.actions, [
+    {
+      label: "Open the authenticated private message thread",
+      modality: "programmatic",
+    },
+  ]);
+  assert.match(prepared.consent.contentWarning, /complete approved page viewport/iu);
+  assert.match(prepared.consent.contentWarning, /private, authenticated, or sensitive/iu);
+  assert.match(prepared.consent.contentWarning, /authorized to record/iu);
+  assert.match(prepared.consent.contentWarning, /handle the local file/iu);
+  assert.equal(harness.calls.createSession, 0);
+
+  const outcome = await harness.flow.recordApproved(prepared, {
+    browser: { id: "selected-browser" },
+  });
+
+  assert.equal(outcome.status, "completed");
+  assert.equal(actionPerformed, true);
+  assert.equal(harness.calls.createSession, 1);
 });
 
 test("rejects recording surface selection before local or Browser activity", async () => {

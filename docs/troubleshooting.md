@@ -67,12 +67,15 @@ capability could not be loaded or approved.
    **Settings > Browser**. Workspace policy can prevent this setting from being
    enabled.
 3. Start a new task after changing plugin installation state.
-4. Retry against a public, logged-out page and approve the requested site and
-   full-CDP scope.
+4. Retry against an approved HTTPS or loopback target and approve the requested
+   site and full-CDP scope.
 
-Approval denial returns `cancelled`; cancellation after a Recording Session has
-started can return `recording_cancelled`. The recorder does not retry or bypass
-either result.
+Declining Browser Recorder's own consent is user denial: it stops before Browser
+activity and does not produce a failure code. After user authorization, a Codex
+or Browser approval rejection is a platform rejection and may return
+`cancelled`; cancellation after a Recording Session starts can return
+`recording_cancelled`. Neither result is a deterministic Technical Blocker, and
+the recorder does not retry or bypass it.
 
 ## The request is not supported
 
@@ -86,6 +89,11 @@ either result.
 Passive or wait-only recording needs an explicit duration. Action-driven
 recording can omit it and will finish after the last approved action, with a
 15-second session cap.
+
+Private, authenticated, or sensitive page content is not a Technical Blocker.
+The non-blocking Content Warning assigns authorization and downstream
+local-file handling to the user; Browser Recorder does not classify, redact, or
+refuse content based on those categories.
 
 ## Recording stopped
 

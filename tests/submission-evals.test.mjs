@@ -13,12 +13,15 @@ const expectedCaseIds = [
   "positive-pointer-click",
   "positive-minimum-duration",
   "positive-maximum-duration",
-  "negative-sensitive-flow",
+  "positive-authenticated-private-flow",
+  "negative-user-denial",
+  "negative-platform-rejection",
   "negative-credentialed-url",
   "negative-cross-origin-action",
 ];
 const allowedNegativeOutcomes = new Set([
-  "cancelled",
+  "user_denied",
+  "platform_rejected",
   "target_credentials_present",
   "origin_changed_during_recording",
 ]);
@@ -210,14 +213,14 @@ function assertPositivePolicyContract(cases) {
   );
 }
 
-test("defines exactly five positive and three negative submission cases", async () => {
+test("defines exactly six positive and four negative submission cases", async () => {
   const corpus = await loadCases();
   assertExactCorpusSchema(corpus);
   assert.equal(corpus.schemaVersion, 1);
   assert.equal(corpus.plugin, "codex-browser-recorder");
-  assert.equal(corpus.cases.filter(({ kind }) => kind === "positive").length, 5);
-  assert.equal(corpus.cases.filter(({ kind }) => kind === "negative").length, 3);
-  assert.equal(new Set(corpus.cases.map(({ id }) => id)).size, 8);
+  assert.equal(corpus.cases.filter(({ kind }) => kind === "positive").length, 6);
+  assert.equal(corpus.cases.filter(({ kind }) => kind === "negative").length, 4);
+  assert.equal(new Set(corpus.cases.map(({ id }) => id)).size, 10);
   assert.deepEqual(
     corpus.cases.map(({ id }) => id).toSorted(),
     expectedCaseIds.toSorted(),
@@ -294,13 +297,25 @@ test("gives reviewers one public fixture with no account or setup dependency", a
       url: "https://www.w3.org/TR/pointerevents/",
     },
   });
-  for (const item of corpus.cases.filter(({ kind }) => kind === "positive")) {
+  for (const item of corpus.cases.filter(
+    ({ id, kind }) =>
+      kind === "positive" && id !== "positive-authenticated-private-flow",
+  )) {
     assert.equal(item.setup.fixtureId, "w3c-pointer-events");
     assert.equal(item.setup.targetUrl, corpus.fixtures[item.setup.fixtureId].url);
     assert.match(item.expected.reviewerExpectation, /Saved Recording|recording/i);
   }
+  const authenticated = corpus.cases.find(
+    ({ id }) => id === "positive-authenticated-private-flow",
+  );
+  assert.equal(authenticated.setup.fixtureId, undefined);
+  assert.match(authenticated.prompt, /authenticated confidential message thread/iu);
+  assert.match(
+    authenticated.expected.reviewerExpectation,
+    /proceed[^.]*Content Warning[^.]*authorization/iu,
+  );
   for (const item of corpus.cases.filter(({ kind }) => kind === "negative")) {
-    assert.match(item.expected.reviewerExpectation, /must|refus|stop|discard/i);
+    assert.match(item.expected.reviewerExpectation, /must|stop|discard|distinguish/i);
   }
 });
 
@@ -392,7 +407,7 @@ test("proves the sole credentialed negative through production policy", async ()
   );
 });
 
-test("keeps every eval explicit, consent-bound, and free of sensitive flows", async () => {
+test("keeps every eval explicit, consent-bound, and content-neutral", async () => {
   const { cases } = await loadCases();
   for (const item of cases) {
     assert.ok(
@@ -406,17 +421,19 @@ test("keeps every eval explicit, consent-bound, and free of sensitive flows", as
     assert.equal(item.setup.approvalBypassAllowed, false);
     assert.ok(
       typeof item.setup.approvedOrigin === "string" ||
-        item.setup.preBrowserRefusal === true,
-      `${item.id} must declare an approved origin or a pre-Browser refusal`,
+        item.setup.technicalBlockerBeforeConsent === true,
+      `${item.id} must declare an approved origin or a pre-Browser Technical Blocker`,
     );
-    if (item.setup.preBrowserRefusal === true) {
-      assert.deepEqual(item.expected.requiredSignals, ["pre_browser_refusal"]);
+    if (item.setup.technicalBlockerBeforeConsent === true) {
+      assert.deepEqual(item.expected.requiredSignals, ["technical_blocker"]);
     } else {
       assert.ok(item.expected.requiredSignals.includes("consolidated_consent"));
-      assert.ok(item.expected.requiredSignals.includes("saved_recording_destination"));
-      assert.ok(item.expected.requiredSignals.includes("h264_mp4"));
+      assert.ok(item.expected.requiredSignals.includes("content_warning"));
     }
-    assert.doesNotMatch(JSON.stringify(item), /password|payment|passkey|health record/i);
+    assert.doesNotMatch(
+      JSON.stringify(item),
+      /preBrowserRefusal|pre_browser_refusal|content_category|classify (?:the|page)|redact (?:the|visible)|logged-out/iu,
+    );
   }
 });
 
@@ -431,13 +448,19 @@ test("keeps positive outcomes deterministic and failure-free", async () => {
 test("uses only exact allowlisted outcomes for negative cases", async () => {
   const { cases } = await loadCases();
   for (const item of cases.filter(({ kind }) => kind === "negative")) {
-    assert.ok(item.expected.allowedFailureCodes.length > 0);
     assert.ok(allowedNegativeOutcomes.has(item.expected.outcome));
-    assert.deepEqual(item.expected.allowedFailureCodes, [item.expected.outcome]);
   }
+  assert.deepEqual(
+    cases.find(({ id }) => id === "negative-user-denial").expected.allowedFailureCodes,
+    [],
+  );
+  assert.deepEqual(
+    cases.find(({ id }) => id === "negative-platform-rejection").expected.allowedFailureCodes,
+    ["cancelled"],
+  );
 });
 
-test("covers the requested duration, navigation, and refusal boundaries", async () => {
+test("distinguishes content-neutral authorization from platform and technical stops", async () => {
   const { cases } = await loadCases();
   const byId = new Map(cases.map((item) => [item.id, item]));
 
@@ -461,14 +484,29 @@ test("covers the requested duration, navigation, and refusal boundaries", async 
   assert.equal(maximum.setup.durationSeconds, 60);
   assert.equal(maximum.setup.hardLimitSeconds, 65);
 
-  const sensitive = byId.get("negative-sensitive-flow");
-  assert.equal(sensitive.setup.preBrowserRefusal, true);
-  assert.equal(sensitive.expected.outcome, "cancelled");
+  const authenticated = byId.get("positive-authenticated-private-flow");
+  assert.equal(authenticated.expected.outcome, "success");
+  assert.ok(authenticated.expected.requiredSignals.includes("content_warning"));
+  assert.ok(authenticated.expected.requiredSignals.includes("consolidated_consent"));
+
+  const userDenial = byId.get("negative-user-denial");
+  assert.equal(userDenial.setup.userDecision, "denied");
+  assert.equal(userDenial.expected.outcome, "user_denied");
+  assert.deepEqual(userDenial.expected.allowedFailureCodes, []);
+  assert.ok(userDenial.expected.requiredSignals.includes("no_browser_activity"));
+
+  const platformRejection = byId.get("negative-platform-rejection");
+  assert.equal(platformRejection.setup.userDecision, "authorized");
+  assert.equal(platformRejection.setup.platformDecision, "rejected");
+  assert.equal(platformRejection.expected.outcome, "platform_rejected");
+  assert.deepEqual(platformRejection.expected.allowedFailureCodes, ["cancelled"]);
+  assert.ok(platformRejection.expected.requiredSignals.includes("platform_rejection"));
 
   const credentialed = byId.get("negative-credentialed-url");
   assert.notEqual(new URL(credentialed.setup.targetUrl).username, "");
-  assert.equal(credentialed.setup.preBrowserRefusal, true);
+  assert.equal(credentialed.setup.technicalBlockerBeforeConsent, true);
   assert.equal(credentialed.expected.outcome, "target_credentials_present");
+  assert.deepEqual(credentialed.expected.requiredSignals, ["technical_blocker"]);
 
   const crossOrigin = byId.get("negative-cross-origin-action");
   assert.notEqual(
@@ -477,4 +515,5 @@ test("covers the requested duration, navigation, and refusal boundaries", async 
   );
   assert.equal(crossOrigin.expected.outcome, "origin_changed_during_recording");
   assert.ok(crossOrigin.expected.requiredSignals.includes("media_discard"));
+  assert.ok(crossOrigin.expected.requiredSignals.includes("technical_blocker"));
 });

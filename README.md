@@ -25,17 +25,20 @@ telemetry, capture audio, or record your other tabs.
 ## Before you record
 
 > [!WARNING]
-> Record only public, non-sensitive pages and actions that everyone affected
-> has agreed may be recorded.
+> **Content Warning:** The complete approved page viewport may include private
+> or authenticated data and other sensitive content. Continue only if you are
+> authorized to record it and will handle the local recording appropriately.
 
-- A fresh tab may reuse the Codex In-app Browser's existing session. Use a
-  logged-out session without sensitive or personalized content.
+- A fresh tab may reuse the Codex In-app Browser's existing session, so
+  authenticated or personalized content can appear.
 - The recording includes the complete visible page viewport, including all
   visible embedded frames.
 - If the page sends the tab to another website, recording stops without saving
   a video.
-- Never record credentials, payment details, private messages, health data,
-  account-recovery secrets, or other sensitive content.
+- Browser Recorder does not classify page content, redact visible fields, or
+  refuse technically valid recordings based on authentication or sensitivity.
+- You control the approved actions and are responsible for consent,
+  authorization, storage, sharing, and deletion of the local file.
 
 See the [privacy policy](PRIVACY.md) for the complete data boundary, retention,
 cleanup, and failure behavior.
@@ -78,7 +81,7 @@ start a Recording Session, create a video or raw frame dump, or upload anything.
 
 ### 3. Record your first flow
 
-Try a short, public, logged-out page:
+Try the public reviewer page:
 
 ```text
 $codex-browser-recorder:record-browser Open https://www.w3.org/TR/pointerevents/, click the 1. Introduction link in the table of contents, and save the approved flow as pointer-events-intro.
@@ -95,7 +98,7 @@ and output name for your approval. When the flow finishes, the video is saved to
 | **A focused capture** | One approved flow in one fresh Codex In-app Browser tab—never the Codex UI, browser controls, or your other tabs. |
 | **A ready-to-use file** | A local H.264 MP4, capped at 720p and encoded at 10 frames per second with no audio. |
 | **Visible actions** | Pointer flows show the cursor and click feedback. |
-| **Private by default** | The video is created on your Mac, and page images are not sent to the model. There is no automatic upload, sharing, or telemetry. |
+| **Local by default** | The video is created on your Mac, and page images are not sent to the model. There is no automatic upload, sharing, or telemetry. |
 
 The fixed video profile is designed for short test evidence, not high-motion
 product demos.
@@ -104,13 +107,13 @@ product demos.
 
 - macOS and the Codex In-app Browser only; Chrome is not a fallback Recording Surface.
 - One fresh tab and one approved website at a time.
-- Public `https:` pages, plus explicit loopback development pages on
+- `https:` pages, plus explicit loopback development pages on
   `localhost`, `127.0.0.1`, or `[::1]`.
 - An optional duration from 5 to 60 seconds. Action-driven recordings can stop
   after the approved actions; passive or wait-only recordings require an
   explicit duration.
-- No audio, authenticated flows, multiple tabs, uploads, remote storage, or
-  navigation to another website.
+- No audio, multiple tabs, uploads, remote storage, or navigation to another
+  website.
 
 ## Install from a local checkout
 

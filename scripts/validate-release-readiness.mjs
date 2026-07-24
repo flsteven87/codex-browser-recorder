@@ -204,8 +204,8 @@ function validateEvalCorpus(corpus, failures) {
   const cases = corpus?.cases;
   if (
     !Array.isArray(cases) ||
-    cases.filter(({ kind }) => kind === "positive").length !== 5 ||
-    cases.filter(({ kind }) => kind === "negative").length !== 3
+    cases.filter(({ kind }) => kind === "positive").length !== 6 ||
+    cases.filter(({ kind }) => kind === "negative").length !== 4
   ) {
     addFailure(failures, "EVAL_COUNT_INVALID", evalPath);
   }
