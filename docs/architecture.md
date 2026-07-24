@@ -84,8 +84,8 @@ it is not the skill or caller interface.
 ## Browser capture contract
 
 The Codex In-app Browser is the only Recording Surface. Preparation rejects a
-caller-provided surface selector, and the recorder never probes or falls back
-to Chrome or another Browser.
+caller-provided surface selector, and the recorder never probes or switches to
+another Browser.
 
 Background Recording is the developer-facing invariant that Browser visibility
 is presentation state, not a capture correctness dependency. After approval,
@@ -154,7 +154,7 @@ The fail-closed invariants are:
 - no Browser activity before local preparation;
 - no recording Browser activity before consent;
 - no setup recording artifact, raw frame dump, or upload;
-- no Chrome recording or automatic Recording Surface switch;
+- no alternate Recording Surface or automatic Browser switch;
 - no recording navigation or approved action before initial Browser visibility
   is established and verified;
 - one fresh tab and one normalized approved top-level origin;

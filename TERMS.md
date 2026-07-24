@@ -1,7 +1,7 @@
 # Terms of Use
 
 Browser Recorder for Codex is experimental software for saving one explicitly
-approved Browser flow as a local H.264 MP4 recording.
+approved Codex In-app Browser flow as a local H.264 MP4 recording.
 
 ## Responsible use
 
@@ -9,8 +9,8 @@ approved Browser flow as a local H.264 MP4 recording.
 > or authenticated data and other sensitive content. Continue only if you are
 > authorized to record it and will handle the local recording appropriately.
 
-The fresh tab may reuse the selected Browser's existing session, and the video
-contains all visible embedded frames. Browser Recorder does not classify,
+The fresh tab may reuse the Codex In-app Browser's existing session, and the
+video contains all visible embedded frames. Browser Recorder does not classify,
 redact, or refuse content based on authentication or sensitivity.
 
 You must obtain informed consent from every person whose information or actions

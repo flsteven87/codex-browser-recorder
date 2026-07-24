@@ -1,9 +1,8 @@
 # Support
 
-Browser Recorder for Codex `v0.3.3` is a small, local-only tool for recording
-one approved Codex In-app Browser test flow. The fastest way to get help is to
-start with the setup check, then choose the issue form that matches your
-question.
+Browser Recorder for Codex `v0.4.0` records one approved Codex In-app Browser
+flow as a local MP4. Start with the setup check, then choose the issue form that
+matches your question.
 
 ## Start with the setup check
 
@@ -49,11 +48,11 @@ Browser/CDP diagnostic.
 
 ## Supported scope
 
-This release supports the Codex In-app Browser on macOS. It records one fresh
-tab, one approved site, local MP4 output, no audio, and no upload. Chrome is not
-a fallback Recording Surface. Before Browser activity, its non-blocking Content
-Warning discloses that the full viewport may contain private, authenticated, or
-sensitive content and leaves authorization and local-file handling to the user.
+Browser Recorder requires macOS and the Codex In-app Browser. It records one
+fresh tab and one approved site as a local MP4 with no audio or upload. Before
+Browser activity, the Content Warning explains that the full viewport may
+contain private, authenticated, or sensitive content. The user is responsible
+for authorization and the local file.
 
 Existing-tab capture, multiple tabs, cross-site top-level navigation,
 non-loopback HTTP pages, browser-profile inspection, uploads, sharing, remote

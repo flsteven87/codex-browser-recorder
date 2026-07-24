@@ -148,13 +148,56 @@ test("README documents the public recording contract", () => {
   ]) {
     assert.match(readme, new RegExp(required.replaceAll("$", "\\$"), "iu"));
   }
-  assert.match(readme, /Chrome is not a fallback Recording Surface/iu);
+  assert.match(readme, /macOS[^.]*Codex In-app Browser/iu);
   assert.match(
     readme,
     /Passive\s+or\s+wait-only\s+recordings\s+require\s+an\s+explicit\s+duration/iu,
   );
   assert.doesNotMatch(readme, /cursor-complete/iu);
   assert.doesNotMatch(readme, /diagnostic `status[(][)]`/iu);
+});
+
+test("public product copy describes only the current product", () => {
+  const currentRelease = changelog.slice(
+    changelog.indexOf("## [0.4.0] - 2026-07-25"),
+    changelog.indexOf("\n## [0.3.3]"),
+  );
+  const revisionNarrative =
+    /\b(?:this|current|previous) release\b|\b(?:upgrade|migrate|migration)\s+(?:from|to)\s+(?:v?\d|Chrome|the previous)\b|\blegacy\s+(?:release|version|implementation|path|flow)\b|production path|Chrome is not a fallback/iu;
+  assert.match("Upgrade from v0.3.3 to use this release.", revisionNarrative);
+  assert.doesNotMatch("Upgrade FFmpeg to enable H.264.", revisionNarrative);
+  assert.doesNotMatch(
+    "A Working Recording is retained after publication failure.",
+    revisionNarrative,
+  );
+  for (const [label, source] of [
+    ["README", readme],
+    ["support", support],
+    ["privacy policy", privacy],
+    ["terms", terms],
+    ["plugin metadata", manifest],
+    ["architecture", architecture],
+    ["troubleshooting", troubleshooting],
+    ["agent metadata", agent],
+    ["current release notes", currentRelease],
+  ]) {
+    assert.doesNotMatch(
+      source,
+      revisionNarrative,
+      `${label} must describe the current product instead of a revision`,
+    );
+  }
+  for (const [label, source] of [
+    ["README", readme],
+    ["support", support],
+    ["current release notes", currentRelease],
+  ]) {
+    assert.doesNotMatch(
+      source,
+      /\bChrome\b/u,
+      `${label} must name the supported Browser without discussing alternatives`,
+    );
+  }
 });
 
 test("public surfaces use the canonical namespaced skill invocation", () => {
@@ -263,6 +306,8 @@ test("public policies present a content-neutral Content Warning", () => {
       `${label} must not impose a content-category refusal`,
     );
   }
+  assert.match(terms, /Codex In-app Browser flow/iu);
+  assert.doesNotMatch(terms, /\bselected Browser\b/iu);
 });
 
 test("keeps Background Recording as a developer-facing invariant only", () => {

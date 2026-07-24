@@ -1,8 +1,32 @@
 # Changelog
 
-All notable changes to this project will be documented in this file. The format
-follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions
-follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+This file records published versions and their release notes. Versions follow
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.4.0] - 2026-07-25
+
+Browser Recorder 0.4.0 saves one approved Codex In-app Browser flow as a local
+silent H.264 MP4 on macOS.
+
+### What it does
+
+- Records one fresh tab and one approved site.
+- Shows a visible cursor and click feedback for pointer actions.
+- Saves the verified MP4 locally without uploading it.
+
+### What you need
+
+- The Codex desktop app on macOS and the official Browser plugin.
+- Full CDP access in Codex Browser settings.
+- FFmpeg and FFprobe with H.264 and MP4 support.
+
+### Recording boundary
+
+- A Content Warning shows the target, actions, output, and full-viewport
+  visibility before Browser activity.
+- Cross-site navigation, failed validation, and cancellation do not publish a
+  Saved Recording.
+- Cleanup is limited to the exact recording tab and private temporary files.
 
 ## [0.3.3] - 2026-07-24
 
