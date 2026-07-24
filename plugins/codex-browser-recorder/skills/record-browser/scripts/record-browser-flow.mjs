@@ -154,6 +154,12 @@ function cleanupDetails({ errors = [], output } = {}) {
         ({ browserTabCleanupIncomplete }) =>
           browserTabCleanupIncomplete === true,
       ),
+    resourceCleanupIncomplete:
+      output?.cleanup?.resourceCleanupIncomplete === true ||
+      details.some(
+        ({ resourceCleanupIncomplete }) =>
+          resourceCleanupIncomplete === true,
+      ),
     directory:
       details.find(({ directory }) => typeof directory === "string")
         ?.directory ?? output?.paths?.cleanupDirectory ?? null,

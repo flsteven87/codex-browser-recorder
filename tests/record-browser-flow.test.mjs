@@ -1422,6 +1422,7 @@ test("executes the approved actions and returns one completed outcome", async ()
     browserTabCleanupIncomplete: false,
     directory: null,
     file: null,
+    resourceCleanupIncomplete: false,
   });
   assert.equal(harness.calls.createSession, 1);
   assert.equal(harness.calls.runAction.length, 1);
@@ -1663,7 +1664,10 @@ test("resolves cancellation and cleanup metadata as one terminal outcome", async
   const prepared = await harness.flow.prepareRecording(recordingSpec());
   const cancelled = sanitizeRecordingFailure(
     { code: "recording_cancelled" },
-    { browserTabCleanupIncomplete: true },
+    {
+      browserTabCleanupIncomplete: true,
+      resourceCleanupIncomplete: true,
+    },
   );
   const cleanupFailure = sanitizeRecordingFailure(
     { code: "cleanup_failed" },
@@ -1688,6 +1692,7 @@ test("resolves cancellation and cleanup metadata as one terminal outcome", async
       browserTabCleanupIncomplete: true,
       directory: "/private/recording",
       file: null,
+      resourceCleanupIncomplete: true,
     },
     failure: {
       code: "recording_cancelled",

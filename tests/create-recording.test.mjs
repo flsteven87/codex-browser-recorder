@@ -91,6 +91,7 @@ function createHarness({
     stop: 0,
     tabClose: 0,
     tabNew: 0,
+    unrelatedTabClose: 0,
     visibilityAcquisition: 0,
   };
   const paths = {
@@ -160,7 +161,14 @@ function createHarness({
     },
     tabs: {
       async list() {
-        return [];
+        return [
+          {
+            async close() {
+              calls.unrelatedTabClose += 1;
+            },
+            id: "unrelated-browser-tab",
+          },
+        ];
       },
       async new() {
         calls.tabNew += 1;
@@ -885,6 +893,44 @@ test("cannot publish when stop races an in-flight action", async () => {
   assert.equal((await handle.finished).result.failureCode, "integration_failed");
 });
 
+test("cancels an in-flight approved action without publication", async () => {
+  const harness = createHarness({ autoStop: false });
+  const controller = new AbortController();
+  const performDeferred = deferred();
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    signal: controller.signal,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+  const action = handle.runAction({
+    perform: () => performDeferred.promise,
+    requiresPointerEvidence: false,
+  });
+  void action.catch(() => {});
+  await settleWorkflow();
+
+  controller.abort();
+  await settleWorkflow();
+  assert.equal(
+    harness.rawFinalizationOptions.failureCode,
+    "recording_cancelled",
+  );
+  harness.stopDeferred.resolve({
+    paths: {},
+    result: { failureCode: "recording_cancelled", status: "failed" },
+  });
+
+  await assert.rejects(action, (error) => error.code === "recording_cancelled");
+  const output = await handle.finished;
+  assert.deepEqual(output.paths, {});
+  assert.equal(output.result.failureCode, "recording_cancelled");
+  assert.equal(harness.calls.tabClose, 1);
+  performDeferred.resolve("late action completion");
+  await assertSingletonReleased();
+});
+
 test("cannot publish when capture completion races an in-flight action", async () => {
   const harness = createHarness({ autoStop: false });
   const performDeferred = deferred();
@@ -1130,6 +1176,213 @@ test("cancels an in-flight environment check and closes its fresh tab", async ()
   assert.equal(harness.calls.startRecording, 0);
   doctorDeferred.resolve({ supported: true });
   await assertSingletonReleased();
+});
+
+test("bounds cancellation while lower-level startup cleanup is stalled", async () => {
+  const harness = createHarness();
+  const controller = new AbortController();
+  harness.dependencies.startBrowserRecordingForTab = () =>
+    new Promise(() => {});
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    signal: controller.signal,
+    targetUrl: "https://example.com/",
+  });
+  await settleWorkflow();
+
+  controller.abort();
+  await settleWorkflow();
+  harness.clock.advance(5_000);
+  const observed = await handle.ready.then(
+    () => ({ status: "fulfilled" }),
+    (error) => ({ error, status: "rejected" }),
+  );
+
+  assert.equal(observed.status, "rejected");
+  assert.equal(observed.error.code, "recording_cancelled");
+  assert.deepEqual(getRecordingCleanupDetails(observed.error), {
+    resourceCleanupIncomplete: true,
+  });
+  assert.equal(harness.calls.artifactRollback, 1);
+  assert.equal(harness.calls.tabClose, 1);
+  await assert.rejects(
+    handle.finished,
+    (error) => error.code === "recording_cancelled",
+  );
+  await assertSingletonReleased();
+});
+
+test("stops a Recording Session that starts while cancellation settles", async () => {
+  const harness = createHarness();
+  const controller = new AbortController();
+  const startup = deferred();
+  let sessionStops = 0;
+  harness.dependencies.startBrowserRecordingForTab = () => startup.promise;
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    signal: controller.signal,
+    targetUrl: "https://example.com/",
+  });
+  await settleWorkflow();
+
+  controller.abort();
+  startup.resolve({
+    async stop() {
+      sessionStops += 1;
+    },
+  });
+
+  await assert.rejects(handle.ready, (error) => {
+    assert.equal(error.code, "recording_cancelled");
+    assert.equal(getRecordingCleanupDetails(error), null);
+    return true;
+  });
+  assert.equal(sessionStops, 1);
+  assert.equal(harness.calls.artifactRollback, 1);
+  assert.equal(harness.calls.tabClose, 1);
+  await assertSingletonReleased();
+});
+
+test("surfaces a late Recording Session without a stop operation", async () => {
+  const harness = createHarness();
+  const controller = new AbortController();
+  const startup = deferred();
+  harness.dependencies.startBrowserRecordingForTab = () => startup.promise;
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    signal: controller.signal,
+    targetUrl: "https://example.com/",
+  });
+  await settleWorkflow();
+
+  controller.abort();
+  startup.resolve({});
+
+  await assert.rejects(handle.ready, (error) => {
+    assert.equal(error.code, "recording_cancelled");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      resourceCleanupIncomplete: true,
+    });
+    return true;
+  });
+  assert.equal(harness.calls.artifactRollback, 1);
+  assert.equal(harness.calls.tabClose, 1);
+  await assertSingletonReleased();
+});
+
+test("surfaces a rejected late Recording Session stop", async () => {
+  const harness = createHarness();
+  const controller = new AbortController();
+  const startup = deferred();
+  harness.dependencies.startBrowserRecordingForTab = () => startup.promise;
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    signal: controller.signal,
+    targetUrl: "https://example.com/",
+  });
+  await settleWorkflow();
+
+  controller.abort();
+  startup.resolve({
+    async stop() {
+      throw new Error("private late stop diagnostic");
+    },
+  });
+
+  await assert.rejects(handle.ready, (error) => {
+    assert.equal(error.code, "recording_cancelled");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      resourceCleanupIncomplete: true,
+    });
+    assert.doesNotMatch(
+      `${error.message}\n${JSON.stringify(error)}`,
+      /private late stop diagnostic/u,
+    );
+    return true;
+  });
+  assert.equal(harness.calls.artifactRollback, 1);
+  assert.equal(harness.calls.tabClose, 1);
+  await assertSingletonReleased();
+});
+
+test("bounds and surfaces a stalled late Recording Session stop", async () => {
+  const harness = createHarness();
+  const controller = new AbortController();
+  const startup = deferred();
+  harness.dependencies.startBrowserRecordingForTab = () => startup.promise;
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    signal: controller.signal,
+    targetUrl: "https://example.com/",
+  });
+  await settleWorkflow();
+
+  controller.abort();
+  startup.resolve({
+    stop() {
+      return new Promise(() => {});
+    },
+  });
+  await settleWorkflow();
+  harness.clock.advance(5_000);
+
+  await assert.rejects(handle.ready, (error) => {
+    assert.equal(error.code, "recording_cancelled");
+    assert.deepEqual(getRecordingCleanupDetails(error), {
+      resourceCleanupIncomplete: true,
+    });
+    return true;
+  });
+  assert.equal(harness.calls.artifactRollback, 1);
+  assert.equal(harness.calls.tabClose, 1);
+  await assertSingletonReleased();
+});
+
+test("cancels navigation and CDP acquisition with exact owned cleanup", async (t) => {
+  for (const phase of ["navigation", "cdp_acquisition"]) {
+    await t.test(phase, async () => {
+      const harness = createHarness();
+      const controller = new AbortController();
+      const pending = deferred();
+      if (phase === "navigation") {
+        harness.freshTab.goto = () => pending.promise;
+      } else {
+        harness.freshTab.capabilities.get = () => pending.promise;
+      }
+      const handle = createRecording({
+        _dependencies: harness.dependencies,
+        browser: harness.browser,
+        signal: controller.signal,
+        targetUrl: "https://example.com/",
+      });
+      await settleWorkflow();
+
+      controller.abort();
+
+      await assert.rejects(
+        handle.ready,
+        (error) => error.code === "recording_cancelled",
+      );
+      await assert.rejects(
+        handle.finished,
+        (error) => error.code === "recording_cancelled",
+      );
+      assert.equal(harness.calls.artifactRollback, 1);
+      assert.equal(harness.calls.tabClose, 1);
+      assert.equal(harness.calls.startRecording, 0);
+      pending.resolve(
+        phase === "navigation"
+          ? undefined
+          : { readEvents() {}, send() {} },
+      );
+      await assertSingletonReleased();
+    });
+  }
 });
 
 test("rolls back late artifact preparation after cancellation", async () => {
@@ -1624,6 +1877,7 @@ test("bounds a hanging finalization and releases the singleton", async () => {
     assert.equal(error.code, "integration_failed");
     assert.deepEqual(getRecordingCleanupDetails(error), {
       artifactCleanupIncomplete: true,
+      resourceCleanupIncomplete: true,
     });
     return true;
   });
@@ -1871,6 +2125,40 @@ test("an external abort cannot publish after earlier pointer evidence", async ()
   assert.equal(output, await handle.finished);
 });
 
+test("bounds external cancellation while finalization is stalled", async () => {
+  const harness = createHarness({ autoStop: false });
+  const controller = new AbortController();
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    signal: controller.signal,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  controller.abort();
+  await settleWorkflow();
+  harness.clock.advance(10_000);
+  await settleWorkflow();
+
+  const observed = await Promise.race([
+    handle.finished.then(
+      () => ({ status: "fulfilled" }),
+      (error) => ({ error, status: "rejected" }),
+    ),
+    settleWorkflow().then(() => ({ status: "test_deadline_expired" })),
+  ]);
+  assert.equal(observed.status, "rejected");
+  assert.equal(observed.error.code, "recording_cancelled");
+  assert.deepEqual(getRecordingCleanupDetails(observed.error), {
+    artifactCleanupIncomplete: true,
+    resourceCleanupIncomplete: true,
+  });
+  assert.equal(harness.calls.stop, 1);
+  assert.equal(harness.calls.tabClose, 1);
+  await assertSingletonReleased();
+});
+
 test("bounds readiness cleanup when lower-level stop never settles", async () => {
   const harness = createHarness({ autoReady: false, autoStop: false });
   const handle = createRecording({
@@ -1891,6 +2179,7 @@ test("bounds readiness cleanup when lower-level stop never settles", async () =>
     assert.equal(error.code, "frame_stream_unavailable");
     assert.deepEqual(getRecordingCleanupDetails(error), {
       artifactCleanupIncomplete: true,
+      resourceCleanupIncomplete: true,
     });
     return true;
   });
@@ -2080,12 +2369,16 @@ test("reserves and releases the singleton across every terminal path", async () 
   await first.ready;
   assert.equal(first.stop(), first.finished);
   await first.finished;
+  assert.equal(firstOptions.harness.calls.tabClose, 1);
+  assert.equal(firstOptions.harness.calls.unrelatedTabClose, 0);
 
   const nextOptions = validOptions();
   const next = createRecording(nextOptions.options);
   await next.ready;
   assert.equal(next.stop(), next.finished);
   await next.finished;
+  assert.equal(nextOptions.harness.calls.tabClose, 1);
+  assert.equal(nextOptions.harness.calls.unrelatedTabClose, 0);
 });
 
 const terminalCases = [
@@ -2293,6 +2586,8 @@ test("keeps terminal outcomes stable and releases every terminal reservation", a
       }
       assert.equal(handle.finished, handle.stop());
       assert.equal(harness.rawFinalizationOptions.capture.framesReceived, 12);
+      assert.equal(harness.calls.tabClose, 1);
+      assert.equal(harness.calls.unrelatedTabClose, 0);
       harness.readyDeferred.resolve(true);
       await settleWorkflow();
       assert.equal(handle.finished, handle.stop());

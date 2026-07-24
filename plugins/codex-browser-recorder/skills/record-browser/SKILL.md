@@ -151,5 +151,6 @@ Report bounded cleanup state after the primary result:
 - `cleanup.file`: `Cleanup incomplete; delete local file: <path>`.
 - `artifactCleanupIncomplete` without a directory: inspect the operating-system temporary directory for a `codex-browser-recorder-` entry.
 - `browserTabCleanupIncomplete`: close the fresh recording tab manually without reporting its URL.
+- `resourceCleanupIncomplete`: quit Codex before retrying if recording activity continues.
 
 Never convert a failed outcome into success or publish a failed recording.

@@ -41,8 +41,10 @@ const CAPTURE_FAILURE_CODES = new Set([
   "frame_ack_failed",
   "frame_stream_stalled",
   "frame_stream_unavailable",
+  "frame_too_large",
   "integration_failed",
   "invalid_configuration",
+  "invalid_frame",
   "origin_not_allowed",
   "origin_changed_during_recording",
   "origin_verification_failed",
@@ -256,6 +258,7 @@ export function sanitizeRecordingFailure(
     browserTabCleanupIncomplete = false,
     cleanupDirectory,
     cleanupFile,
+    resourceCleanupIncomplete = false,
   } = {},
 ) {
   const code = USER_MESSAGES.has(error?.code)
@@ -275,6 +278,9 @@ export function sanitizeRecordingFailure(
       : {}),
     ...(browserTabCleanupIncomplete === true
       ? { browserTabCleanupIncomplete: true }
+      : {}),
+    ...(resourceCleanupIncomplete === true
+      ? { resourceCleanupIncomplete: true }
       : {}),
     ...(typeof cleanupDirectory === "string" && cleanupDirectory.length > 0
       ? {

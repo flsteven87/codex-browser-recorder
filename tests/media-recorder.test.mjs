@@ -72,6 +72,39 @@ function deferred() {
   return { promise, reject, resolve };
 }
 
+function createFakeClock() {
+  let now = 0;
+  let nextId = 1;
+  const timers = new Map();
+
+  return {
+    advance(ms) {
+      now += ms;
+      while (true) {
+        const due = [...timers.entries()]
+          .filter(([, timer]) => timer.at <= now)
+          .sort((left, right) => left[1].at - right[1].at)[0];
+        if (due === undefined) return;
+        const [id, timer] = due;
+        timers.delete(id);
+        timer.callback();
+      }
+    },
+    clearTimeout(id) {
+      timers.delete(id);
+    },
+    get pending() {
+      return timers.size;
+    },
+    setTimeout(callback, delayMs) {
+      const id = nextId;
+      nextId += 1;
+      timers.set(id, { at: now + delayMs, callback });
+      return id;
+    },
+  };
+}
+
 function frameEvent(overrides = {}) {
   return {
     method: "Page.screencastFrame",
@@ -622,7 +655,7 @@ test("starts reading after a cursor captured before screencast startup", async (
   assert.equal(reads[0].afterSequence, 11);
 });
 
-test("acknowledges an oversized frame before dropping it", async () => {
+test("acknowledges an oversized frame before failing closed", async () => {
   const acknowledgements = [];
   let readCount = 0;
   const cdp = {
@@ -639,8 +672,7 @@ test("acknowledges an oversized frame before dropping it", async () => {
           truncated: false,
         };
       }
-      await new Promise((resolve) => setTimeout(resolve, 2));
-      return { cursor: 1, events: [], hasMore: false, truncated: false };
+      return { cursor: "invalid", events: null };
     },
   };
 
@@ -653,12 +685,20 @@ test("acknowledges an oversized frame before dropping it", async () => {
     readTimeoutMs: 1,
   });
 
-  await new Promise((resolve) => setTimeout(resolve, 2));
-  await pump.stop();
+  const outcome = await pump.completion;
 
   assert.deepEqual(acknowledgements, [7]);
+  assert.equal(outcome.error?.code, "frame_too_large");
   assert.equal(pump.stats.invalidFrames, 1);
   assert.equal(pump.stats.framesAcknowledged, 1);
+  await assert.rejects(
+    pump.ready,
+    (error) => error.code === "frame_too_large",
+  );
+  await assert.rejects(
+    pump.stop(),
+    (error) => error.code === "frame_too_large",
+  );
 });
 
 test("normalizes an odd Browser frame into a parseable H.264 MP4", async () => {
@@ -1103,6 +1143,139 @@ test("rejects malformed CDP event batches with a stable failure code", async () 
   await assert.rejects(
     pump.stop(),
     (error) => error.code === "event_stream_invalid",
+  );
+});
+
+test("maps CDP detachment to a privacy-safe stream failure", async () => {
+  const privateDiagnostic = "private detached target diagnostic";
+  let reads = 0;
+  const pump = startFramePump({
+    cdp: {
+      async readEvents() {
+        reads += 1;
+        if (reads === 1) {
+          return {
+            cursor: 1,
+            events: [frameEvent()],
+            hasMore: false,
+            truncated: false,
+          };
+        }
+        throw new Error(privateDiagnostic);
+      },
+      async send() {},
+    },
+    maxDecodedBytes: 1024,
+    onFrame: () => true,
+    onTopFrameNavigation() {},
+    readTimeoutMs: 1,
+  });
+
+  await pump.ready;
+  const outcome = await pump.completion;
+
+  assert.equal(outcome.error?.code, "frame_stream_stalled");
+  assert.doesNotMatch(
+    `${outcome.error?.message}\n${JSON.stringify(outcome.error)}`,
+    /private detached target diagnostic/u,
+  );
+  await assert.rejects(
+    pump.stop(),
+    (error) => error.code === "frame_stream_stalled",
+  );
+});
+
+test("allows a healthy production-length static-page long poll", async () => {
+  const clock = createFakeClock();
+  const longPoll = deferred();
+  const longPollStarted = deferred();
+  let reads = 0;
+  const pump = startFramePump({
+    _dependencies: {
+      clearTimeout: clock.clearTimeout,
+      readStallTimeoutMs: 5_000,
+      setTimeout: clock.setTimeout,
+    },
+    cdp: {
+      async readEvents() {
+        reads += 1;
+        if (reads === 1) {
+          return {
+            cursor: 1,
+            events: [frameEvent()],
+            hasMore: false,
+            truncated: false,
+          };
+        }
+        longPollStarted.resolve();
+        return longPoll.promise;
+      },
+      async send() {},
+    },
+    maxDecodedBytes: 1024,
+    onFrame: () => true,
+    onTopFrameNavigation() {},
+    readTimeoutMs: 1_000,
+  });
+
+  await pump.ready;
+  await longPollStarted.promise;
+  assert.equal(clock.pending, 1);
+  clock.advance(1_251);
+  const stopping = pump.stop();
+  longPoll.resolve({
+    cursor: 1,
+    events: [],
+    hasMore: false,
+    truncated: false,
+  });
+
+  const result = await stopping;
+  assert.equal(result.framesReceived, 1);
+  assert.equal(clock.pending, 0);
+});
+
+test("bounds a stalled CDP event read with a stable failure", async () => {
+  const clock = createFakeClock();
+  const stalledReadStarted = deferred();
+  let reads = 0;
+  const pump = startFramePump({
+    _dependencies: {
+      clearTimeout: clock.clearTimeout,
+      readStallTimeoutMs: 5,
+      setTimeout: clock.setTimeout,
+    },
+    cdp: {
+      async readEvents() {
+        reads += 1;
+        if (reads === 1) {
+          return {
+            cursor: 1,
+            events: [frameEvent()],
+            hasMore: false,
+            truncated: false,
+          };
+        }
+        stalledReadStarted.resolve();
+        return new Promise(() => {});
+      },
+      async send() {},
+    },
+    maxDecodedBytes: 1024,
+    onFrame: () => true,
+    onTopFrameNavigation() {},
+    readTimeoutMs: 1,
+  });
+
+  await pump.ready;
+  await stalledReadStarted.promise;
+  clock.advance(5);
+  const observed = await pump.completion;
+
+  assert.equal(observed.error?.code, "frame_stream_stalled");
+  await assert.rejects(
+    pump.stop(),
+    (error) => error.code === "frame_stream_stalled",
   );
 });
 
@@ -2199,7 +2372,7 @@ test("fails closed when the first streamed frame is malformed", async () => {
   cdp.publish(frameEvent({ data: privateDiagnostic }));
 
   await assert.rejects(session.ready, (error) => {
-    assert.equal(error.code, "frame_stream_unavailable");
+    assert.equal(error.code, "invalid_frame");
     assert.doesNotMatch(
       `${error.message}\n${JSON.stringify(error)}`,
       /private-frame-diagnostic/,
@@ -2208,7 +2381,7 @@ test("fails closed when the first streamed frame is malformed", async () => {
   });
   await assert.rejects(
     session.stop(),
-    (error) => error.code === "frame_stream_unavailable",
+    (error) => error.code === "invalid_frame",
   );
   assert.deepEqual(stopOptions, [{ discard: true }]);
 });
