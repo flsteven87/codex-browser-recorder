@@ -16,7 +16,7 @@ Collect the request without Browser activity:
 - Classify every action as `pointer`, `keyboard`, or `programmatic`. Pointer includes click, hover, drag, and pointer-positioned scroll.
 - Accept an optional absolute destination and privacy-safe recording name. Otherwise use `~/Downloads/Codex Browser Recordings/` and a timestamp name.
 
-Resolve the installed skill directory from the catalog entry that loaded this file. Never guess a cache path or use a source checkout. Import `scripts/record-browser-flow.mjs` from that exact directory with `pathToFileURL` in the persistent Node runtime.
+Resolve the installed skill directory from the catalog entry that loaded this file. Never guess a cache path or use a source checkout. Import `checkSetup`, `prepareRecording`, and `recordApproved` from `scripts/record-browser-flow.mjs` in that exact directory with `pathToFileURL` in the persistent Node runtime.
 
 Define each action before preparation. Its `perform({ tab })` function must contain exactly the approved Browser call. Labels must describe the visible user action without sensitive values.
 
@@ -44,7 +44,37 @@ const preparation = await prepareRecording({
 
 `prepareRecording()` performs pure request validation plus local FFmpeg/FFprobe and destination checks. It must not create, navigate, or acquire a Browser tab or CDP capability. Treat the returned preparation as opaque: do not clone, spread, reconstruct, or mutate it.
 
-If `status` is `blocked`, report every blocker in order using only its `code`, `summary`, and `remediation`, then stop. For `preflight_passed`, lead with `Local recording preflight passed`, report the planned destination, say that the Mac, FFmpeg, and folder checks passed, and explain that the Codex In-app Browser and site approval are checked only when recording starts. Do not expose raw booleans.
+If `status` is `blocked`, report every Technical Blocker in order using only its `code`, `summary`, and `remediation`, then stop. For `preflight_prepared`, continue only with the explicit setup-check path below. For `prepared`, continue to consent. Do not expose raw booleans.
+
+## Complete The Setup Check
+
+For `status: "preflight_prepared"`, follow the installed Browser control skill. Resolve its installed plugin root from its catalog entry, and pass one bounded Codex In-app Browser acquisition callback to the Recording Flow:
+
+```js
+const acquireBrowser = async () => {
+  if (globalThis.agent?.browsers == null) {
+    const { setupBrowserRuntime } =
+      await import("<Browser plugin root>/scripts/browser-client.mjs");
+    await setupBrowserRuntime({ globals: globalThis });
+  }
+  if (globalThis.iab == null) {
+    globalThis.iab = await agent.browsers.get("iab");
+    nodeRepl.write(await iab.documentation());
+  }
+  return globalThis.iab;
+};
+
+const setupOutcome = await checkSetup(preparation, {
+  acquireBrowser,
+  signal,
+});
+```
+
+Do not use Chrome, `getForUrl`, `getDefault`, an existing arbitrary tab, or any fallback Recording Surface. The Recording Flow owns the bounded Browser acquisition, one fresh diagnostic tab when needed, full-CDP capability probe, and verified exact-tab cleanup. It consumes the setup preparation exactly once. Do not call lower-level tab creation or capability APIs directly.
+
+The setup check must not navigate to a requested recording site, start a Recording Session, create an MP4 or raw frame dump, or upload anything.
+
+If `status` is `blocked`, report every Technical Blocker in order using only its `code`, `summary`, and `remediation`, then stop. For `preflight_passed`, lead with `Local recording preflight passed`, report the planned destination, and state that the local media toolchain, destination, Codex In-app Browser, and full CDP access checks passed. Do not expose raw booleans. Stop after this setup result; do not request recording consent or start a recording.
 
 ## Obtain One Consent
 

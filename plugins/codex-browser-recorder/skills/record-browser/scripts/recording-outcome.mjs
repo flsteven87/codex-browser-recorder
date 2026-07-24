@@ -114,6 +114,23 @@ const MESSAGE_GROUPS = [
       "Start again when you are ready and approve the requested scope",
   },
   {
+    codes: ["setup_cancelled"],
+    summary: "Setup check was cancelled",
+    remediation: "Run the setup check again when you are ready",
+  },
+  {
+    codes: ["setup_timeout"],
+    summary: "Setup check timed out while testing the Codex In-app Browser",
+    remediation:
+      "Keep Codex open, confirm the Codex In-app Browser is available, and run the setup check again",
+  },
+  {
+    codes: ["browser_tab_cleanup_failed"],
+    summary: "The setup diagnostic tab could not be cleaned up",
+    remediation:
+      "Close the fresh setup diagnostic tab manually, then run the setup check again",
+  },
+  {
     codes: [
       "origin_not_allowed",
       "origin_verification_failed",

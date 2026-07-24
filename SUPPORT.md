@@ -10,13 +10,14 @@ question.
 Invoke:
 
 ```text
-$codex-browser-recorder:record-browser Check whether this Mac is ready to record without opening the Browser.
+$codex-browser-recorder:record-browser Check whether this recording setup is ready.
 ```
 
 A passing result begins with `Local recording preflight passed`. If it fails,
-follow the next step shown beside each error code. This check does not open
-the Browser and does not verify Browser or CDP approval; those permissions are
-checked only when a recording starts.
+follow the next step shown beside each error code. A passing result states that
+the local media toolchain, destination, Codex In-app Browser, and full CDP access
+checks passed. The check may briefly open one fresh diagnostic tab that it owns
+and closes; it does not create a recording or upload an artifact.
 
 For symptom-based help and a searchable error-code index, see
 [Troubleshooting](docs/troubleshooting.md).

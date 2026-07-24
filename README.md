@@ -68,12 +68,13 @@ listed for your account or workspace, use the
 Ask Codex to run the recorder's read-only preflight:
 
 ```text
-$codex-browser-recorder:record-browser Check whether my local recording environment is ready.
+$codex-browser-recorder:record-browser Check whether my recording setup is ready.
 ```
 
 A successful check begins with `Local recording preflight passed`. It checks
-your Mac, media tools, and output folder without opening the Browser. Browser
-and full-CDP permissions are requested later, when you record.
+your Mac, media tools, output folder, Codex In-app Browser, and full CDP access.
+The check opens and closes one fresh diagnostic tab when needed, but it does not
+start a Recording Session, create a video or raw frame dump, or upload anything.
 
 ### 3. Record your first flow
 

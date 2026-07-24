@@ -15,15 +15,53 @@ import {
 
 const ACTION_MODALITIES = new Set(["keyboard", "pointer", "programmatic"]);
 const RECORDING_SURFACE = "Codex In-app Browser";
+const SETUP_CLEANUP_TIMEOUT_MS = 5000;
+const SETUP_OPERATION_TIMEOUT_MS = 5000;
 
 function dependenciesWith(overrides = {}) {
   return {
     createSession: createRecording,
     inspectLocalEnvironment: inspectLocalRecordingEnvironment,
     planOutput: planSavedRecording,
+    setupCleanupTimeoutMs: SETUP_CLEANUP_TIMEOUT_MS,
+    setupOperationTimeoutMs: SETUP_OPERATION_TIMEOUT_MS,
     validateRequest: validateRecordingRequest,
     ...overrides,
   };
+}
+
+function setupOperationFailure(code) {
+  return Object.assign(new Error(code), { code });
+}
+
+function runSetupOperation(
+  operation,
+  { signal, timeoutMs },
+) {
+  const operationPromise = Promise.resolve().then(operation);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      callback(value);
+    };
+    const abort = () => {
+      finish(reject, setupOperationFailure("setup_cancelled"));
+    };
+    const timer = setTimeout(() => {
+      finish(reject, setupOperationFailure("setup_timeout"));
+    }, timeoutMs);
+
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted === true) abort();
+    operationPromise.then(
+      (value) => finish(resolve, value),
+      (error) => finish(reject, error),
+    );
+  });
 }
 
 function blocker(code) {
@@ -39,11 +77,20 @@ function blocked(codes, output = null) {
   });
 }
 
-function publicEnvironment(environment) {
+function publicEnvironment(
+  environment,
+  { codexInAppBrowserAvailable, fullCdpAvailable } = {},
+) {
   return Object.freeze({
+    ...(typeof codexInAppBrowserAvailable === "boolean"
+      ? { codexInAppBrowserAvailable }
+      : {}),
     ffmpegH264Available: environment?.ffmpegH264Available === true,
     ffmpegMp4Available: environment?.ffmpegMp4Available === true,
     ffprobeUsable: environment?.ffprobeUsable === true,
+    ...(typeof fullCdpAvailable === "boolean"
+      ? { fullCdpAvailable }
+      : {}),
     outputDirectoryWritable: environment?.outputDirectoryWritable === true,
     platform:
       typeof environment?.platform === "string"
@@ -157,6 +204,8 @@ export function createRecordingFlow({ dependencies: overrides } = {}) {
   const dependencies = dependenciesWith(overrides);
   const preparedPlans = new WeakMap();
   const consumedPlans = new WeakSet();
+  const setupPlans = new WeakMap();
+  const consumedSetupPlans = new WeakSet();
 
   async function prepareRecording(spec = {}) {
     let savedRecording;
@@ -228,11 +277,13 @@ export function createRecordingFlow({ dependencies: overrides } = {}) {
     }
 
     if (spec.preflightOnly === true) {
-      return Object.freeze({
+      const prepared = Object.freeze({
         environment: publicEnvironment(environment),
         output,
-        status: "preflight_passed",
+        status: "preflight_prepared",
       });
+      setupPlans.set(prepared, Object.freeze({ environment, output }));
+      return prepared;
     }
 
     const consentActions = Object.freeze(
@@ -265,6 +316,147 @@ export function createRecordingFlow({ dependencies: overrides } = {}) {
       }),
     );
     return prepared;
+  }
+
+  async function checkSetup(
+    prepared,
+    { acquireBrowser, signal } = {},
+  ) {
+    const plan = setupPlans.get(prepared);
+    if (
+      plan === undefined ||
+      consumedSetupPlans.has(prepared) ||
+      typeof acquireBrowser !== "function" ||
+      (signal != null && !(signal instanceof AbortSignal))
+    ) {
+      return blocked(["invalid_configuration"]);
+    }
+    consumedSetupPlans.add(prepared);
+    if (signal?.aborted === true) {
+      return blocked(["setup_cancelled"], plan.output);
+    }
+
+    let browser;
+    let cleanupFailed = false;
+    let diagnosticTab;
+    let failureCode = null;
+    let stage = "acquire_browser";
+    let tabCreationSettlement;
+    const cleanupDiagnosticTab = async (tab) => {
+      const tabId =
+        typeof tab?.id === "string" && tab.id.length > 0
+          ? tab.id
+          : null;
+      await tab.close();
+      const tabs = await browser.tabs.list();
+      if (
+        tabId === null ||
+        !Array.isArray(tabs) ||
+        tabs.some(({ id }) => id === tabId)
+      ) {
+        throw new Error("Owned setup diagnostic tab remains open");
+      }
+    };
+    const cleanupOwnedDiagnosticTab = (tab) =>
+      runSetupOperation(() => cleanupDiagnosticTab(tab), {
+        timeoutMs: dependencies.setupCleanupTimeoutMs,
+      });
+    const bounded = (operation) =>
+      runSetupOperation(operation, {
+        signal,
+        timeoutMs: dependencies.setupOperationTimeoutMs,
+      });
+    try {
+      browser = await bounded(acquireBrowser);
+      if (typeof browser?.tabs?.new !== "function") {
+        failureCode = "browser_plugin_unavailable";
+      } else {
+        stage = "create_tab";
+        const tabCreation = Promise.resolve().then(() =>
+          browser.tabs.new(),
+        );
+        tabCreationSettlement = tabCreation.then(
+          (value) => ({ status: "fulfilled", value }),
+          (reason) => ({ reason, status: "rejected" }),
+        );
+        diagnosticTab = await bounded(() => tabCreation);
+        if (typeof diagnosticTab?.capabilities?.get !== "function") {
+          failureCode = "cdp_unavailable";
+        } else {
+          stage = "acquire_cdp";
+          const cdp = await bounded(() =>
+            diagnosticTab.capabilities.get("cdp"),
+          );
+          if (
+            typeof cdp?.readEvents !== "function" ||
+            typeof cdp?.send !== "function"
+          ) {
+            failureCode = "cdp_unavailable";
+          }
+        }
+      }
+    } catch (error) {
+      failureCode = ["setup_cancelled", "setup_timeout"].includes(error?.code)
+        ? error.code
+        : ["acquire_browser", "create_tab"].includes(stage)
+          ? "browser_plugin_unavailable"
+          : "cdp_unavailable";
+      if (
+        ["setup_cancelled", "setup_timeout"].includes(failureCode) &&
+        stage === "create_tab" &&
+        tabCreationSettlement != null
+      ) {
+        try {
+          const settlement = await runSetupOperation(
+            () => tabCreationSettlement,
+            { timeoutMs: dependencies.setupCleanupTimeoutMs },
+          );
+          if (settlement.status === "fulfilled") {
+            diagnosticTab = settlement.value;
+          }
+        } catch {
+          cleanupFailed = true;
+          // The terminal result already reports cleanup incomplete. If the tab
+          // appears later, make one best-effort close with its own deadline.
+          void tabCreationSettlement
+            .then((settlement) =>
+              settlement.status === "fulfilled"
+                ? cleanupOwnedDiagnosticTab(settlement.value)
+                : undefined,
+            )
+            .catch(() => {});
+        }
+      }
+    } finally {
+      if (diagnosticTab != null) {
+        try {
+          await cleanupOwnedDiagnosticTab(diagnosticTab);
+        } catch {
+          cleanupFailed = true;
+        }
+      }
+    }
+
+    if (failureCode === null && signal?.aborted === true) {
+      failureCode = "setup_cancelled";
+    }
+    if (failureCode !== null || cleanupFailed) {
+      return blocked(
+        [
+          failureCode,
+          ...(cleanupFailed ? ["browser_tab_cleanup_failed"] : []),
+        ].filter(Boolean),
+        plan.output,
+      );
+    }
+    return Object.freeze({
+      environment: publicEnvironment(plan.environment, {
+        codexInAppBrowserAvailable: true,
+        fullCdpAvailable: true,
+      }),
+      output: plan.output,
+      status: "preflight_passed",
+    });
   }
 
   async function recordApproved(prepared, { browser, signal } = {}) {
@@ -327,10 +519,11 @@ export function createRecordingFlow({ dependencies: overrides } = {}) {
     }
   }
 
-  return Object.freeze({ prepareRecording, recordApproved });
+  return Object.freeze({ checkSetup, prepareRecording, recordApproved });
 }
 
 const defaultFlow = createRecordingFlow();
 
+export const checkSetup = defaultFlow.checkSetup;
 export const prepareRecording = defaultFlow.prepareRecording;
 export const recordApproved = defaultFlow.recordApproved;
