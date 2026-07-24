@@ -1435,6 +1435,46 @@ test("executes the approved actions and returns one completed outcome", async ()
   assert.equal(harness.sessionOptions.requirePointerEvents, true);
 });
 
+test("forwards internal pointer evidence requirements without exposing them in consent", async () => {
+  const harness = createHarness();
+  const action = recordingSpec().actions[0];
+  const prepared = await harness.flow.prepareRecording(
+    recordingSpec({
+      actions: [
+        {
+          ...action,
+          requiresChildFramePointerEvidence: true,
+          requiresFrameEvidence: true,
+        },
+      ],
+    }),
+  );
+
+  assert.deepEqual(prepared.consent.actions, [
+    {
+      label: "Open the standards section",
+      modality: "pointer",
+    },
+  ]);
+  const outcome = await harness.flow.recordApproved(prepared, {
+    browser: { id: "selected-browser" },
+  });
+
+  assert.equal(outcome.status, "completed");
+  assert.equal(
+    harness.calls.runAction[0].requiresChildFramePointerEvidence,
+    true,
+  );
+  assert.equal(
+    harness.calls.runAction[0].requiresFrameEvidence,
+    true,
+  );
+  assert.equal(
+    harness.calls.runAction[0].requiresPointerEvidence,
+    true,
+  );
+});
+
 test("returns a deterministic visibility blocker before approved actions and cleans up", async () => {
   const harness = createCoordinatorHarness();
   const secret = "private Browser visibility diagnostic";

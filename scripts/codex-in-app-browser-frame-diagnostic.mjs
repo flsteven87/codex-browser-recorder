@@ -13,10 +13,8 @@ const EVENT_METHODS = [
 ];
 const MAX_DECODED_FRAME_BYTES = 5 * 1024 * 1024;
 
-function gateError(code, message, { cause } = {}) {
-  const error =
-    cause === undefined ? new Error(message) : new Error(message, { cause });
-  return Object.assign(error, { code });
+function gateError(code, message) {
+  return Object.assign(new Error(message), { code });
 }
 
 function settleWithin(operation, timeoutMs, dependencies) {
@@ -54,7 +52,12 @@ async function runBounded(
 ) {
   const settlement = await settleWithin(operation, timeoutMs, dependencies);
   if (settlement.status === "fulfilled") return settlement.value;
-  if (settlement.status === "rejected") throw settlement.reason;
+  if (settlement.status === "rejected") {
+    throw gateError(
+      "diagnostic_operation_failed",
+      "Codex In-app Browser frame diagnostic operation failed",
+    );
+  }
   if (typeof onLateSuccess === "function") {
     registerLateCleanup(
       settlement.pending.then(onLateSuccess, () => undefined),
@@ -73,16 +76,31 @@ function validateBatch(batch, cursor) {
   ) {
     throw gateError(
       "event_stream_invalid",
-      "Chrome returned an invalid frame event batch",
+      "Codex In-app Browser returned an invalid frame event batch",
     );
   }
 }
 
-async function closeTab(tab, { cleanupTimeoutMs, dependencies }) {
-  let error;
+async function closeTab(browser, tab, { cleanupTimeoutMs, dependencies }) {
+  let requiresClose = true;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const settlement = await settleWithin(
-      () => tab.close(),
+      async () => {
+        if (requiresClose) {
+          await tab.close();
+          requiresClose = false;
+        }
+        const tabs = await browser.tabs.list();
+        if (
+          typeof tab.id !== "string" ||
+          tab.id.length === 0 ||
+          !Array.isArray(tabs) ||
+          tabs.some(({ id }) => id === tab.id)
+        ) {
+          requiresClose = true;
+          throw new Error("Owned diagnostic tab remains open");
+        }
+      },
       cleanupTimeoutMs,
       dependencies,
     );
@@ -91,16 +109,14 @@ async function closeTab(tab, { cleanupTimeoutMs, dependencies }) {
     }
     if (settlement.status === "timed_out") {
       throw gateError(
-        "release_gate_cleanup_failed",
-        "Chrome contract gate timed out while closing its fresh tab",
+        "diagnostic_cleanup_failed",
+        "Codex In-app Browser frame diagnostic timed out while closing its fresh tab",
       );
     }
-    error = settlement.reason;
   }
   throw gateError(
-    "release_gate_cleanup_failed",
-    "Chrome contract gate could not close its fresh tab",
-    { cause: error },
+    "diagnostic_cleanup_failed",
+    "Codex In-app Browser frame diagnostic could not close its fresh tab",
   );
 }
 
@@ -112,11 +128,10 @@ async function stopScreencast(cdp, { cleanupTimeoutMs, dependencies }) {
   );
   if (settlement.status === "fulfilled") return;
   throw gateError(
-    "release_gate_cleanup_failed",
+    "diagnostic_cleanup_failed",
     settlement.status === "timed_out"
-      ? "Chrome contract gate timed out while stopping its frame stream"
-      : "Chrome contract gate could not stop its frame stream",
-    { cause: settlement.reason },
+      ? "Codex In-app Browser frame diagnostic timed out while stopping its frame stream"
+      : "Codex In-app Browser frame diagnostic could not stop its frame stream",
   );
 }
 
@@ -129,11 +144,11 @@ function createCleanupError({
   if (frameStreamCleanupIncomplete) resources.push("frame stream");
   if (lateResourceCleanupIncomplete) resources.push("late Browser resource");
   if (browserTabCleanupIncomplete) resources.push("fresh Browser tab");
-  const summary = `Chrome contract gate could not clean up its ${resources.join(
+  const summary = `Codex In-app Browser frame diagnostic could not clean up its ${resources.join(
     resources.length === 2 ? " and " : ", ",
   )}`;
   return Object.assign(
-    gateError("release_gate_cleanup_failed", summary),
+    gateError("diagnostic_cleanup_failed", summary),
     {
       browserTabCleanupIncomplete,
       frameStreamCleanupIncomplete,
@@ -146,7 +161,7 @@ function attachCleanupFailure(primaryError, cleanupError) {
   primaryError.cleanupFailure = Object.freeze({
     browserTabCleanupIncomplete:
       cleanupError.browserTabCleanupIncomplete === true,
-    code: cleanupError.code ?? "release_gate_cleanup_failed",
+    code: cleanupError.code ?? "diagnostic_cleanup_failed",
     frameStreamCleanupIncomplete:
       cleanupError.frameStreamCleanupIncomplete === true,
     lateResourceCleanupIncomplete:
@@ -155,7 +170,7 @@ function attachCleanupFailure(primaryError, cleanupError) {
   });
 }
 
-export async function runChromeFrameContractGate({
+export async function runCodexInAppBrowserFrameDiagnostic({
   browser,
   cleanupTimeoutMs = 5_000,
   dependencies: overrides = {},
@@ -165,6 +180,7 @@ export async function runChromeFrameContractGate({
 }) {
   if (
     typeof browser?.tabs?.new !== "function" ||
+    typeof browser?.tabs?.list !== "function" ||
     !Number.isInteger(cleanupTimeoutMs) ||
     cleanupTimeoutMs <= 0 ||
     !Number.isInteger(firstFrameTimeoutMs) ||
@@ -201,7 +217,7 @@ export async function runChromeFrameContractGate({
       onLateSuccess,
     ) =>
       runBounded(operation, {
-        code: "release_gate_timeout",
+        code: "diagnostic_timeout",
         dependencies,
         message,
         onLateSuccess,
@@ -212,47 +228,50 @@ export async function runChromeFrameContractGate({
       });
     tab = await boundedOperation(
       () => browser.tabs.new(),
-      "Chrome contract gate timed out while creating its fresh tab",
+      "Codex In-app Browser frame diagnostic timed out while creating its fresh tab",
       operationTimeoutMs,
-      (lateTab) => closeTab(lateTab, { cleanupTimeoutMs, dependencies }),
+      (lateTab) =>
+        closeTab(browser, lateTab, { cleanupTimeoutMs, dependencies }),
     );
     await boundedOperation(
       () => tab.goto(targetUrl),
-      "Chrome contract gate timed out while navigating its fresh tab",
+      "Codex In-app Browser frame diagnostic timed out while navigating its fresh tab",
     );
     cdp = await boundedOperation(
       () => tab.capabilities.get("cdp"),
-      "Chrome contract gate timed out while acquiring CDP",
+      "Codex In-app Browser frame diagnostic timed out while acquiring CDP",
     );
     if (
       typeof cdp?.send !== "function" ||
       typeof cdp?.readEvents !== "function"
     ) {
-      throw gateError("cdp_unavailable", "Chrome CDP is unavailable");
+      throw gateError(
+        "cdp_unavailable",
+        "Codex In-app Browser CDP is unavailable",
+      );
     }
 
     await boundedOperation(
       () => cdp.send("Page.enable"),
-      "Chrome contract gate timed out while enabling Page events",
+      "Codex In-app Browser frame diagnostic timed out while enabling Page events",
     );
     const frameTree = await boundedOperation(
       () => cdp.send("Page.getFrameTree"),
-      "Chrome contract gate timed out while verifying the main frame",
+      "Codex In-app Browser frame diagnostic timed out while verifying the main frame",
     );
     let observedOrigin;
     try {
       observedOrigin = new URL(frameTree?.frameTree?.frame?.url).origin;
-    } catch (error) {
+    } catch {
       throw gateError(
         "origin_verification_failed",
-        "Chrome contract fixture returned an invalid main-frame URL",
-        { cause: error },
+        "Codex In-app Browser diagnostic fixture returned an invalid main-frame URL",
       );
     }
     if (observedOrigin !== approvedOrigin) {
       throw gateError(
         "origin_verification_failed",
-        "Chrome contract fixture left its approved origin",
+        "Codex In-app Browser diagnostic fixture left its approved origin",
       );
     }
     const baseline = await boundedOperation(
@@ -261,7 +280,7 @@ export async function runChromeFrameContractGate({
           methods: EVENT_METHODS,
           timeoutMs: 1_000,
         }),
-      "Chrome contract gate timed out while reading its event baseline",
+      "Codex In-app Browser frame diagnostic timed out while reading its event baseline",
     );
     validateBatch(baseline, 0);
     let cursor = baseline.cursor;
@@ -275,7 +294,7 @@ export async function runChromeFrameContractGate({
           maxWidth: 1280,
           quality: 70,
         }),
-      "Chrome contract gate timed out while starting the frame stream",
+      "Codex In-app Browser frame diagnostic timed out while starting the frame stream",
       operationTimeoutMs,
       () => stopScreencast(cdp, { cleanupTimeoutMs, dependencies }),
     );
@@ -291,7 +310,7 @@ export async function runChromeFrameContractGate({
             methods: EVENT_METHODS,
             timeoutMs: readTimeoutMs,
           }),
-        "Chrome contract gate timed out while waiting for a frame",
+        "Codex In-app Browser frame diagnostic timed out while waiting for a frame",
         readTimeoutMs + 250,
       );
       validateBatch(batch, cursor);
@@ -308,21 +327,23 @@ export async function runChromeFrameContractGate({
             cdp.send("Page.screencastFrameAck", {
               sessionId: frame.sessionId,
             }),
-          "Chrome contract gate timed out while acknowledging a frame",
+          "Codex In-app Browser frame diagnostic timed out while acknowledging a frame",
         );
         return {
-          contractVersion: 1,
+          contractVersion: 2,
+          diagnostic: "low_level_cdp_frame_probe",
           framesAcknowledged: 1,
           framesReceived: 1,
+          releaseAcceptance: false,
           status: "passed",
-          surface: "chrome",
+          surface: "Codex In-app Browser",
         };
       }
       await dependencies.waitTurn();
     }
     throw gateError(
       "frame_stream_unavailable",
-      "Chrome produced no frame before the contract deadline",
+      "Codex In-app Browser produced no frame before the diagnostic deadline",
     );
   } catch (error) {
     primaryError = error;
@@ -355,7 +376,7 @@ export async function runChromeFrameContractGate({
     }
     if (tab != null) {
       try {
-        await closeTab(tab, { cleanupTimeoutMs, dependencies });
+        await closeTab(browser, tab, { cleanupTimeoutMs, dependencies });
       } catch (error) {
         cleanup.browserTabCleanupIncomplete = true;
       }

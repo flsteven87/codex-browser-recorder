@@ -65,27 +65,80 @@ must:
 
 1. Install the candidate in a clean Codex desktop task and pass the local setup
    check.
-2. Run the direct CDP frame-contract gate with the Codex In-app Browser in the
-   persistent Browser runtime. Require `status: "passed"`, one received and
-   acknowledged frame, and a closed fresh tab. The legacy
-   `runChromeFrameContractGate()` helper is diagnostic only and is not valid
-   Codex In-app Browser release evidence.
-3. Run `runExampleRecordingReleaseGate()` from
-   `scripts/example-recording-release-gate.mjs`. It must complete two full
-   recordings in sequence with different output paths.
-4. Record the candidate SHA, plugin version, Codex desktop version, Browser
-   plugin version, and both machine-readable gate results locally. Do not
-   commit this attestation or the recordings.
-5. Verify both videos are playable H.264 MP4 files, capped at 720p and 10 frames
-   per second, with no audio or leftover tab or temporary recording. Delete the
-   generated files after review.
-6. Run one approved pointer flow on the public W3C Pointer Events page and
-   verify cursor and click feedback.
-7. Recheck the current official Plugins, Browser, and Build plugins
-   documentation linked from the README. Treat embedded-frame support as
-   deterministic-fixture coverage unless the release notes record a separate
-   real-browser smoke test.
-8. Run `npm run check:release` only after setting the final manifest version,
+2. In the persistent Browser runtime, read the current Codex In-app Browser
+   documentation and acquire only `agent.browsers.get("iab")`. Import
+   `runCodexInAppBrowserFrameDiagnostic()` from
+   `scripts/codex-in-app-browser-frame-diagnostic.mjs`, pass the acquired
+   Browser as `browser`, and require diagnostic contract version 2,
+   `releaseAcceptance: false`, one received and acknowledged frame, and exact
+   diagnostic-tab cleanup. This is a low-level CDP probe, not product
+   acceptance.
+3. Define privacy-safe actions against public HTTPS fixtures using only APIs
+   exposed by the current Browser documentation. Import
+   `runCodexInAppBrowserReleaseGate()` from
+   `scripts/codex-in-app-browser-release-gate.mjs` and provide:
+   `approveQualification`, `acquireBrowser`, `codexDesktopVersion`,
+   `browserPluginVersion`, `confirmPointerVisualEvidence`,
+   `pointerHiddenFlow`, `sequentialFlow`, `crossOriginFlow`, and
+   `embeddedFrame`.
+4. Define `pointerHiddenFlow.actions` as exactly `pointer`, `programmatic`,
+   `pointer`, in that order. The first action must change `await tab.url()`
+   without changing its origin, the second must change the Browser visibility
+   capability from `true` to `false`, and the third must perform its pointer
+   interaction only after the gate verifies the Browser is hidden. For example:
+
+   ```js
+   actions: [
+     { label: "Follow same-origin link", modality: "pointer", perform: ({ tab }) => tab.playwright.getByRole("link", { name: "Next" }).click() },
+     { label: "Hide Browser", modality: "programmatic", perform: () => visibility.set(false) },
+     { label: "Click while hidden", modality: "pointer", perform: ({ tab }) => tab.playwright.getByRole("link", { name: "Previous" }).click() },
+   ]
+   ```
+
+   The gate observes the Browser capability changing from visible to hidden and
+   requires the final hidden pointer action to add both fresh pointer evidence
+   and a fresh captured frame inside the same production action boundary. CDP
+   page-visibility events are recorded as diagnostic evidence only; they are
+   not the source of truth for whether the Codex Browser panel is shown. Let
+   the visual-evidence callback independently confirm both pointer movement and
+   click feedback.
+5. The sequential flow must be a second real action-driven recording. The
+   cross-origin flow must navigate outside its approved origin. Declare
+   embedded-frame coverage as `exercised` only with exactly one pointer action
+   that targets a child frame, for example:
+
+   ```js
+   embeddedFrame: {
+     status: "exercised",
+     targetUrl,
+     actions: [{
+       label: "Use child-frame control",
+       modality: "pointer",
+       perform: ({ tab }) => tab.playwright.frameLocator("#fixture").getByRole("button", { name: "Run" }).click(),
+     }],
+   }
+   ```
+
+   The gate must observe a valid main frame and one or more child-frame
+   identities through that owned tab, and the production capture must report a
+   bounded child-frame pointer-event count that increases across that exact
+   action boundary. A child-frame event captured before the action, or a fresh
+   main-frame event alone, does not qualify. If either fact cannot be proved,
+   use `runtime_unsupported` with
+   `runtime_does_not_expose_embedded_frame_control`.
+6. Require the production gate to return contract version 2 and
+   `status: "passed"`, and confirm every
+   scenario, independent H.264/yuv420p MP4 validation with no audio, candidate
+   and runtime versions, restored tab state, deleted recordings, and a removed
+   temporary workspace. The cancellation scenario is created by the gate and
+   aborts only after the production action seam becomes active.
+7. Keep the two machine-readable results only in the private task transcript.
+   Do not write, commit, upload, or attach an attestation, recording, raw frame,
+   page content, URL, or CDP diagnostic. The production gate deletes its exact
+   owned recordings and workspace after validation.
+8. Recheck the current official Plugins, Browser, and Build plugins
+   documentation linked from the README.
+9. Run `npm run check:release` only after setting the final manifest version,
    replacing the Unreleased changelog section with a matching dated release,
    and synchronizing public version references.
 

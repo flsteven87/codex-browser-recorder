@@ -268,7 +268,10 @@ test("keeps combined artifact and Browser cleanup state bounded", () => {
 test("builds the schema-v3 result without performing persistence", () => {
   assert.deepEqual(
     createRecordingOutcome({
-      capture: { framesReceived: 3 },
+      capture: {
+        cursorChildFrameEventsCaptured: 1,
+        framesReceived: 3,
+      },
       failureCode: null,
       outputFile: "recording.mp4",
       validation: { codec: "h264" },
@@ -276,6 +279,7 @@ test("builds the schema-v3 result without performing persistence", () => {
     {
       capture: {
         backpressureDrops: null,
+        cursorChildFrameEventsCaptured: 1,
         elapsedMs: null,
         encoderExitCode: null,
         framesAcknowledged: null,

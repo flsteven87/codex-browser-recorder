@@ -421,6 +421,81 @@ test("shows the Browser before navigating its owned fresh tab", async () => {
   ]);
 });
 
+test("waits for an eventually visible Browser before navigating", async () => {
+  const harness = createHarness();
+  let visibilityGets = 0;
+  harness.browser.capabilities.get = async () => ({
+    async get() {
+      visibilityGets += 1;
+      return visibilityGets >= 3;
+    },
+    async set(visible) {
+      assert.equal(visible, true);
+    },
+  });
+  let navigated = false;
+  harness.freshTab.goto = async () => {
+    navigated = true;
+  };
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+
+  await settleWorkflow();
+  assert.equal(visibilityGets, 1);
+  assert.equal(navigated, false);
+  harness.clock.advance(100);
+  await settleWorkflow();
+  assert.equal(visibilityGets, 2);
+  assert.equal(navigated, false);
+  harness.clock.advance(100);
+  await handle.ready;
+
+  assert.equal(visibilityGets, 3);
+  assert.equal(navigated, true);
+  await handle.stop();
+});
+
+test("fails closed after the visibility deadline when the Browser stays hidden", async () => {
+  const harness = createHarness();
+  let visibilityGets = 0;
+  harness.browser.capabilities.get = async () => ({
+    async get() {
+      visibilityGets += 1;
+      return false;
+    },
+    async set(visible) {
+      assert.equal(visible, true);
+    },
+  });
+  let navigated = false;
+  harness.freshTab.goto = async () => {
+    navigated = true;
+  };
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    targetUrl: "https://example.com/",
+  });
+
+  await settleWorkflow();
+  harness.clock.advance(100);
+  await settleWorkflow();
+  assert.ok(visibilityGets >= 2);
+  harness.clock.advance(4_900);
+
+  await assert.rejects(
+    handle.ready,
+    (error) => error.code === "browser_visibility_unavailable",
+  );
+  assert.equal(navigated, false);
+  assert.equal(harness.calls.startRecording, 0);
+  assert.equal(harness.calls.artifactRollback, 1);
+  assert.equal(harness.calls.tabClose, 1);
+});
+
 test("returns a deterministic Technical Blocker and cleans up when the Browser cannot be shown", async () => {
   const harness = createHarness();
   const secret = "private Browser visibility diagnostic";
@@ -529,6 +604,158 @@ test("runs a pointer action only after fresh evidence crosses its boundary", asy
 
   assert.equal(result, "clicked");
   assert.equal(actionsPerformed, 1);
+  await handle.stop();
+});
+
+test("rejects pre-existing child pointer evidence when the action adds only a main-frame pointer", async () => {
+  const capture = {
+    cursorChildFrameEventsCaptured: 1,
+    cursorEventsCaptured: 1,
+    cursorFramesObserved: 1,
+    cursorLastEventEpochMs: 0,
+    framesReceived: 12,
+  };
+  const harness = createHarness({ autoStop: false, capture });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    requirePointerEvents: true,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  const action = handle.runAction({
+    perform() {
+      capture.cursorEventsCaptured += 1;
+      capture.cursorLastEventEpochMs = harness.clock.now();
+      return "main-frame click";
+    },
+    requiresChildFramePointerEvidence: true,
+    requiresPointerEvidence: true,
+  });
+  void action.catch(() => {});
+  await settleWorkflow();
+  harness.clock.advance(1_000);
+  await settleWorkflow();
+
+  assert.equal(
+    harness.rawFinalizationOptions.failureCode,
+    "cursor_recording_failed",
+  );
+  harness.stopDeferred.resolve({
+    paths: {},
+    result: { failureCode: "cursor_recording_failed", status: "failed" },
+  });
+  await assert.rejects(action, { code: "cursor_recording_failed" });
+});
+
+test("accepts child pointer evidence added inside the same action boundary", async () => {
+  const capture = {
+    cursorChildFrameEventsCaptured: 1,
+    cursorEventsCaptured: 1,
+    cursorFramesObserved: 1,
+    cursorLastEventEpochMs: 0,
+    framesReceived: 12,
+  };
+  const harness = createHarness({ capture });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    requirePointerEvents: true,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  const action = handle.runAction({
+    perform() {
+      capture.cursorChildFrameEventsCaptured += 1;
+      capture.cursorEventsCaptured += 1;
+      capture.cursorLastEventEpochMs = harness.clock.now();
+      return "child-frame click";
+    },
+    requiresChildFramePointerEvidence: true,
+    requiresPointerEvidence: true,
+  });
+  await settleWorkflow();
+  harness.clock.advance(200);
+
+  assert.equal(await action, "child-frame click");
+  await handle.stop();
+});
+
+test("rejects a hidden pointer action when no fresh frame crosses its boundary", async () => {
+  const capture = {
+    cursorChildFrameEventsCaptured: 0,
+    cursorEventsCaptured: 1,
+    cursorFramesObserved: 1,
+    cursorLastEventEpochMs: 0,
+    framesReceived: 12,
+  };
+  const harness = createHarness({ autoStop: false, capture });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    requirePointerEvents: true,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  const action = handle.runAction({
+    perform() {
+      capture.cursorEventsCaptured += 1;
+      capture.cursorLastEventEpochMs = harness.clock.now();
+      return "hidden pointer click";
+    },
+    requiresFrameEvidence: true,
+    requiresPointerEvidence: true,
+  });
+  void action.catch(() => {});
+  await settleWorkflow();
+  harness.clock.advance(1_000);
+  await settleWorkflow();
+
+  assert.equal(
+    harness.rawFinalizationOptions.failureCode,
+    "frame_stream_stalled",
+  );
+  harness.stopDeferred.resolve({
+    paths: {},
+    result: { failureCode: "frame_stream_stalled", status: "failed" },
+  });
+  await assert.rejects(action, { code: "frame_stream_stalled" });
+});
+
+test("accepts fresh pointer and frame evidence inside the same action boundary", async () => {
+  const capture = {
+    cursorChildFrameEventsCaptured: 0,
+    cursorEventsCaptured: 1,
+    cursorFramesObserved: 1,
+    cursorLastEventEpochMs: 0,
+    framesReceived: 12,
+  };
+  const harness = createHarness({ capture });
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    requirePointerEvents: true,
+    targetUrl: "https://example.com/",
+  });
+  await handle.ready;
+
+  const action = handle.runAction({
+    perform() {
+      capture.cursorEventsCaptured += 1;
+      capture.cursorLastEventEpochMs = harness.clock.now();
+      capture.framesReceived += 1;
+      return "captured hidden pointer click";
+    },
+    requiresFrameEvidence: true,
+    requiresPointerEvidence: true,
+  });
+  await settleWorkflow();
+  harness.clock.advance(200);
+
+  assert.equal(await action, "captured hidden pointer click");
   await handle.stop();
 });
 

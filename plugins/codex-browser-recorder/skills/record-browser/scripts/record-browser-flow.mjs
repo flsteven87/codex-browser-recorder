@@ -119,12 +119,22 @@ function normalizeActions(actions, durationWasExplicit) {
   return Object.freeze(
     actions.map((action) => {
       const label = action?.label?.trim();
+      const requiresChildFramePointerEvidence =
+        action?.requiresChildFramePointerEvidence === true;
+      const requiresFrameEvidence =
+        action?.requiresFrameEvidence === true;
       if (
         typeof label !== "string" ||
         label.length === 0 ||
         label.length > 200 ||
         !ACTION_MODALITIES.has(action?.modality) ||
-        typeof action?.perform !== "function"
+        typeof action?.perform !== "function" ||
+        (action?.requiresChildFramePointerEvidence !== undefined &&
+          typeof action.requiresChildFramePointerEvidence !== "boolean") ||
+        (action?.requiresFrameEvidence !== undefined &&
+          typeof action.requiresFrameEvidence !== "boolean") ||
+        ((requiresChildFramePointerEvidence || requiresFrameEvidence) &&
+          action.modality !== "pointer")
       ) {
         throw sanitizeRecordingFailure({ code: "invalid_configuration" });
       }
@@ -132,6 +142,8 @@ function normalizeActions(actions, durationWasExplicit) {
         label,
         modality: action.modality,
         perform: action.perform,
+        requiresChildFramePointerEvidence,
+        requiresFrameEvidence,
       });
     }),
   );
@@ -500,6 +512,9 @@ export function createRecordingFlow({ dependencies: overrides } = {}) {
       for (const action of plan.actions) {
         await session.runAction({
           perform: () => action.perform({ tab }),
+          requiresChildFramePointerEvidence:
+            action.requiresChildFramePointerEvidence,
+          requiresFrameEvidence: action.requiresFrameEvidence,
           requiresPointerEvidence: action.modality === "pointer",
         });
       }

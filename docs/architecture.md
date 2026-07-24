@@ -133,7 +133,9 @@ cleanup.
    changes do not affect the healthy Recording Session lifecycle.
 6. Run actions sequentially. Every pointer action automatically requires fresh
    observed evidence after its action boundary. Action-driven pointer plans keep
-   a 200 ms visual tail after their final action.
+   a 200 ms visual tail after their final action. Embedded-frame release
+   qualification additionally requires the child-frame pointer-event counter to
+   increase across its exact production action boundary.
 7. For action-driven plans, finalize immediately after the last action. For an
    explicit duration, keep that duration authoritative from capture readiness.
 8. Stop frame delivery, screencast, cursor capture, and encoder before cursor
@@ -177,6 +179,8 @@ The fail-closed invariants are:
 | Failure catalog and bounded results | [`recording-outcome.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-outcome.mjs) | [`recording-outcome.test.mjs`](../tests/recording-outcome.test.mjs) |
 | Media verification | [`validate-video.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/validate-video.mjs) | [`validate-video.test.mjs`](../tests/validate-video.test.mjs) |
 | Agent workflow | [`SKILL.md`](../plugins/codex-browser-recorder/skills/record-browser/SKILL.md) | [`skill-contract.test.mjs`](../tests/skill-contract.test.mjs) |
+| Real Browser release qualification and bounded action evidence | [`codex-in-app-browser-release-gate.mjs`](../scripts/codex-in-app-browser-release-gate.mjs), [`codex-in-app-browser-release-evidence.mjs`](../scripts/codex-in-app-browser-release-evidence.mjs) | [`codex-in-app-browser-release-gate.test.mjs`](../tests/codex-in-app-browser-release-gate.test.mjs) |
+| Low-level CDP frame diagnostic | [`codex-in-app-browser-frame-diagnostic.mjs`](../scripts/codex-in-app-browser-frame-diagnostic.mjs) | [`codex-in-app-browser-frame-diagnostic.test.mjs`](../tests/codex-in-app-browser-frame-diagnostic.test.mjs) |
 
 When documentation and implementation disagree, change them and their tests
 together. Historical behavior belongs only in [CHANGELOG.md](../CHANGELOG.md).

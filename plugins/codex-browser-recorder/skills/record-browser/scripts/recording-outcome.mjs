@@ -1,5 +1,6 @@
 const CAPTURE_RESULT_FIELDS = [
   "backpressureDrops",
+  "cursorChildFrameEventsCaptured",
   "elapsedMs",
   "encoderExitCode",
   "framesAcknowledged",
