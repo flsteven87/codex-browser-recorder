@@ -1,52 +1,32 @@
 # Changelog
 
-All notable changes to this project will be documented in this file. The format
-follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions
-follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+This file records published versions and their release notes. Versions follow
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.4.0] - 2026-07-25
 
-Version 0.4.0 removes the Chrome production path and makes the Codex In-app
-Browser the only Recording Surface. This breaking release records one
-explicitly approved site and action plan in a fresh Browser tab on macOS,
-producing one validated local silent H.264 MP4 with no uploaded recording data.
-It retains FFmpeg and FFprobe for local media processing plus full CDP access
-for Browser capture.
+Browser Recorder 0.4.0 saves one approved Codex In-app Browser flow as a local
+silent H.264 MP4 on macOS.
 
-### Added
+### What it does
 
-- Added a Content Warning before Browser activity that discloses the complete
-  viewport boundary and lets users review the planned target, actions, and
-  local output before authorizing the flow.
-- Added a setup check for platform, media-tool, codec, container, destination,
-  Codex In-app Browser, and full CDP blockers without starting a Recording
-  Session or creating media.
-- Added release gates for public plugin structure, installed-plugin behavior,
-  documentation links, submission evals, cursor coverage, and recording
-  lifecycle regressions.
+- Records one fresh tab and one approved site.
+- Shows a visible cursor and click feedback for pointer actions.
+- Saves the verified MP4 locally without uploading it.
 
-### Changed
+### What you need
 
-- Rebuilt the capture path around the Codex In-app Browser's full CDP access,
-  including video frames, cursor evidence, navigation policy, and action
-  ordering.
-- Required every approved interaction to pass through the Browser action
-  boundary so the recording and its action evidence describe the same journey.
-- Published one explicit `$codex-browser-recorder:record-browser` invocation and
-  one canonical set of install, support, privacy, and release instructions.
+- The Codex desktop app on macOS and the official Browser plugin.
+- Full CDP access in Codex Browser settings.
+- FFmpeg and FFprobe with H.264 and MP4 support.
 
-### Removed
+### Recording boundary
 
-- Removed Chrome as a recording surface, fallback, or supported production
-  path. Existing Chrome automation does not satisfy the v0.4.0 recording
-  contract.
-
-### Fixed
-
-- Bound cleanup, retries, and manual-cleanup guidance to the exact owned
-  recording tab without closing unrelated Browser tabs.
-- Prevented failed or cancelled sessions from publishing partial output while
-  preserving the last valid local recording when publication succeeds.
+- A Content Warning shows the target, actions, output, and full-viewport
+  visibility before Browser activity.
+- Cross-site navigation, failed validation, and cancellation do not publish a
+  Saved Recording.
+- Cleanup is limited to the exact recording tab and private temporary files.
 
 ## [0.3.3] - 2026-07-24
 

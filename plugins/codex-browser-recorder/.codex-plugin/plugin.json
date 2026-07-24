@@ -1,7 +1,7 @@
 {
   "name": "codex-browser-recorder",
   "version": "0.4.0",
-  "description": "Record one approved Codex In-app Browser test flow as a private local video with visible cursor and click feedback.",
+  "description": "Save one approved Codex In-app Browser flow as a private local MP4 with visible cursor and click feedback.",
   "author": {
     "name": "Steven Wu",
     "url": "https://github.com/flsteven87"

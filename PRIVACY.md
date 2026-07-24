@@ -18,46 +18,43 @@ explicitly approved Codex In-app Browser flow.
 | Who decides whether recording is appropriate? | You must be authorized to record everything that may appear and are responsible for downstream handling of the local file. |
 | How do I delete a video? | Delete the local MP4 when you no longer need it. The plugin does not delete saved videos automatically. |
 
-## Local processing
+## What stays local
 
-- Frames are processed by the local plugin Node runtime and local FFmpeg and
-  are not placed in model context by the skill.
-- The plugin does not automatically upload, share, retain remotely, or send
-  telemetry.
-- Local recorder processing does not make the target page offline. The page and
-  its embedded content can still make their normal network requests while they
-  load and run.
-- The recording contains the complete visible page viewport, including all
-  visible embedded frames. Browser chrome and other tabs are excluded.
-- A fresh tab may reuse the Codex In-app Browser's existing session. The plugin does
-  not inspect cookies or storage, but existing session state can affect rendered
-  content, including authenticated or personalized content.
+- Frames are processed by local Node.js and FFmpeg processes, not placed in
+  model context.
+- The plugin does not upload recordings, share them, retain them remotely, or
+  send telemetry.
+- The target page and its embedded content may continue their normal network
+  activity during recording.
+
+## What can appear
+
+- The complete visible page viewport is recorded.
+- It includes all visible embedded frames. Browser controls and other tabs are
+  excluded.
+- Each run opens a fresh tab, but the Codex In-app Browser session may reuse
+  existing cookies, storage, and authenticated state.
+- The plugin does not inspect or copy cookies or storage.
+- Existing session state can affect rendered content.
 - Browser Recorder does not classify page content, redact visible fields, or
-  refuse a technically valid recording based on authentication, privacy, or
-  sensitivity.
+  refuse a recording based on authentication, privacy, or sensitivity.
+
+## Cursor and result data
+
+- Cursor capture observes only pointer type, coordinates, button state, frame
+  identity, viewport dimensions, sequence, and timing.
+- Page-scripted synthetic events may also be observed.
+- The recorder does not authenticate the source of an observed event.
+- Cursor capture does not read event targets, selectors, form values, storage,
+  credentials, or network traffic.
+- The bounded cursor timeline is discarded after rendering. It is not saved
+  beside the video or returned in result data.
+- Results contain bounded counters, media validation facts, a filename, and an
+  allowlisted status or failure code. A successful result includes the saved
+  local path.
 - Raw frames, page text, full URLs, CDP payloads, subprocess output,
-  credentials, and internal plugin paths are excluded from result JSON and
-  skill diagnostics. These diagnostic exclusions do not remove anything from
-  the video: visible content may be recorded.
-- Cursor capture uses temporary isolated-world listeners in the approved page
-  and supported embedded frames. It observes only pointer event type,
-  coordinates, button state, frame identity, viewport dimensions, sequence,
-  page-event occurrence time, and recorder-relative time. Browser controls can
-  expose pointer events with the same DOM trust flag as script-dispatched
-  events, so page-scripted synthetic events may also be observed. The recorder
-  uses occurrence time only to require new evidence after an approved action
-  begins; it does not authenticate the source of an observed event or persist
-  the occurrence time in result JSON. The plugin does not read event targets,
-  selectors, form values, storage, credentials, or network traffic.
-
-For a pointer flow, the bounded cursor timeline is held locally only long enough
-to composite the project-owned cursor and click feedback. It is not written
-beside the Saved Recording or returned in result JSON.
-
-The local result contains only bounded counters, media validation metadata, an
-output filename, and an allowlisted status or failure code with its fixed
-summary and remediation. On success, the skill reports the Saved Recording
-path after durable publication and private Working Recording cleanup.
+  credentials, and internal plugin paths are excluded from result data and
+  diagnostics. Visible content may still appear in the video.
 
 ## Retention and deletion
 
@@ -87,5 +84,4 @@ The user is responsible for choosing the target, limiting approved actions,
 handling and sharing the local output appropriately, and deleting it when it is
 no longer needed.
 
-Any future upload or sharing feature must be a separate, explicit,
-user-authorized action. It is not part of this plugin.
+Uploading and sharing are outside this plugin.

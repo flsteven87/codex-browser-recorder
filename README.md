@@ -19,8 +19,8 @@ Recordings stay on your Mac. The plugin does not upload or share them, add
 telemetry, capture audio, or record your other tabs.
 
 > [!NOTE]
-> This is an experimental, community-developed Codex plugin. The current
-> release supports the Codex desktop app on macOS with the Codex In-app Browser.
+> Browser Recorder is an experimental, community-developed plugin for the Codex
+> desktop app on macOS with the Codex In-app Browser.
 
 ## Before you record
 
@@ -103,9 +103,9 @@ and output name for your approval. When the flow finishes, the video is saved to
 The fixed video profile is designed for short test evidence, not high-motion
 product demos.
 
-## Current limits
+## Limits
 
-- macOS and the Codex In-app Browser only; Chrome is not a fallback Recording Surface.
+- Requires macOS and the Codex In-app Browser.
 - One fresh tab and one approved website at a time.
 - `https:` pages, plus explicit loopback development pages on
   `localhost`, `127.0.0.1`, or `[::1]`.
@@ -128,7 +128,7 @@ Start a new Codex task after installing. Do not copy files into the plugin cache
 or edit cache contents by hand.
 
 <details>
-<summary>Install and verify the current versioned release</summary>
+<summary>Install and verify version 0.4.0</summary>
 
 Use a release tag when you need to reproduce the published plugin:
 
@@ -183,7 +183,7 @@ In-app Browser release process.
 <details>
 <summary>Update or uninstall a local installation</summary>
 
-Reinstall after updating the local checkout:
+Install again from the local checkout:
 
 ```sh
 codex plugin remove codex-browser-recorder@codex-browser-recorder

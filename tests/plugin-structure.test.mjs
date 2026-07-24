@@ -97,7 +97,7 @@ test("plugin manifest and repository marketplace stay aligned", () => {
   assert.match(plugin.version, strictSemver);
   assert.match(
     plugin.description,
-    /record one approved Codex In-app Browser test flow.*private local video.*cursor.*click feedback/iu,
+    /save one approved Codex In-app Browser flow.*private local MP4.*cursor.*click feedback/iu,
   );
   assert.match(
     plugin.interface.shortDescription,
@@ -119,7 +119,7 @@ test("plugin manifest and repository marketplace stay aligned", () => {
   assert.equal(entry.category, "Developer Tools");
 });
 
-test("documents the historical v0.4.0 product contract", () => {
+test("documents the v0.4.0 product as a current-state contract", () => {
   const changelog = readFileSync(join(repositoryRoot, "CHANGELOG.md"), "utf8");
   const heading = "## [0.4.0] - 2026-07-25";
   const releaseStart = changelog.indexOf(heading);
@@ -133,14 +133,18 @@ test("documents the historical v0.4.0 product contract", () => {
     releaseStart,
     nextRelease === -1 ? undefined : nextRelease,
   );
-  assert.match(
-    release,
-    /removes? the Chrome production path[^.]*Codex In-app\s+Browser/iu,
-  );
-  assert.match(release, /retains FFmpeg and FFprobe[^.]*full CDP/iu);
+  assert.match(release, /Codex In-app Browser/iu);
+  assert.match(release, /FFmpeg and FFprobe/iu);
+  assert.match(release, /full CDP/iu);
   assert.match(release, /macOS/iu);
   assert.match(release, /H[.]264/iu);
   assert.match(release, /(?:no audio|silent)/iu);
+  assert.doesNotMatch(release, /^###\s+(?:Added|Changed|Removed)\s*$/imu);
+  assert.doesNotMatch(
+    release,
+    /\b(?:breaking release|production path|previously|formerly)\b/iu,
+  );
+  assert.doesNotMatch(release, /\bChrome\b/u);
 });
 
 test("public plugin metadata, listing assets, and community files are complete", () => {

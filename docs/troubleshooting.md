@@ -39,7 +39,7 @@ reinstall from the marketplace source instead.
 
 | Code | Meaning | What to do |
 | --- | --- | --- |
-| `unsupported_platform` | Recording is currently limited to macOS. | Run it in the supported Codex desktop environment on macOS. |
+| `unsupported_platform` | Recording requires macOS. | Run it in the Codex desktop app on macOS. |
 | `ffmpeg_missing` | `ffmpeg` was not found on `PATH`. | Install FFmpeg and ensure the Codex desktop runtime can resolve it. Homebrew users can run `brew install ffmpeg`. |
 | `ffmpeg_h264_unavailable` | FFmpeg does not expose the required `libx264` encoder. | Install an FFmpeg build that includes `libx264`. |
 | `ffmpeg_mp4_unavailable` | FFmpeg does not expose the required MP4 muxer. | Install an FFmpeg build with MP4 support. |
