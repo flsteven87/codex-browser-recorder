@@ -1,8 +1,8 @@
 # Architecture
 
-Browser Recorder separates authorization from the recording implementation. The
-caller sees one two-phase Recording Flow; Browser, CDP, media, publication, and
-cleanup state remain internal.
+Browser Recorder separates setup readiness and authorization from the recording
+implementation. The caller sees one setup-check path and one two-phase Recording
+Flow; Browser, CDP, media, publication, and cleanup state remain internal.
 
 ## System flow
 
@@ -10,7 +10,11 @@ cleanup state remain internal.
 flowchart TD
   U["User invokes $codex-browser-recorder:record-browser"] --> P["prepareRecording(spec)"]
   P -->|"blocked"| F["Report every stable blocker"]
-  P -->|"preflight_passed"| L["Report local-only environment"]
+  P -->|"preflight_prepared"| Q["Acquire Codex In-app Browser"]
+  Q --> D["checkSetup(preparation, acquireBrowser)"]
+  D --> I["Create one owned diagnostic tab and probe full CDP"]
+  I --> J["Close and verify the exact diagnostic tab"]
+  J -->|"preflight_passed"| L["Report complete setup readiness"]
   P -->|"prepared"| C["One consent projection"]
   C -->|"denied"| N["No Browser activity"]
   C -->|"approved"| B["Acquire Codex In-app Browser"]
@@ -26,26 +30,29 @@ flowchart TD
 
 `prepareRecording()` performs request policy, output planning, and local
 environment inspection without Browser activity. Its prepared value is opaque,
-immutable, bound to one Recording Flow instance, and consumable once. Consent
-therefore cannot be followed by a substituted target, action, duration, or
-destination. Its `end` projection contains the exact explicit duration or the
-action-driven 15-second hard limit.
+immutable, bound to one Recording Flow instance, and consumable once.
+`checkSetup()` consumes only a `preflight_prepared` value and performs a bounded
+Codex In-app Browser and full-CDP probe without starting the media pipeline.
+Recording consent therefore cannot be followed by a substituted target, action,
+duration, or destination. Its `end` projection contains the exact explicit
+duration or the action-driven 15-second hard limit.
 
 ## External contract
 
-The public module has two operations:
+The public module has three operations:
 
 | Operation | Contract |
 | --- | --- |
-| `prepareRecording(spec)` | Returns `blocked`, `preflight_passed`, or an opaque `prepared` value with a bounded consent projection. Derives pointer requirements from action modality. |
+| `prepareRecording(spec)` | Returns `blocked`, an opaque `preflight_prepared` setup value, or an opaque `prepared` value with a bounded consent projection. Derives pointer requirements from action modality. |
+| `checkSetup(prepared, { acquireBrowser, signal })` | Consumes the exact setup value once, bounds Codex In-app Browser acquisition and CDP probing, verifies cleanup of its exact fresh diagnostic tab, and returns `preflight_passed` or stable Technical Blockers. It never starts recording or creates media. |
 | `recordApproved(prepared, { browser, signal })` | Consumes the exact prepared value once, runs the whole authorized transaction, and resolves one terminal outcome. |
 
-Expected runtime failures resolve as `completed`, `failed`, or `cancelled`.
-Failure outcomes contain one allowlisted code, fixed summary and remediation,
-plus bounded cleanup state. Callers never coordinate `ready`, `runAction()`,
-`finished`, or `stop()`. The fresh tab exists only inside each fixed action
-callback and is never exposed as a reusable lifecycle handle; CDP is never
-exposed.
+Expected setup failures resolve as `blocked`; expected recording failures
+resolve as `failed` or `cancelled`. Blockers and failure outcomes contain
+allowlisted codes with fixed summaries and remediation, plus bounded cleanup
+state where applicable. Callers never coordinate `ready`, `runAction()`,
+`finished`, or `stop()`. Fresh tabs and CDP are never exposed as reusable
+lifecycle handles.
 
 The lower-level `createRecording()` handle remains an internal coordinator. It
 exists to concentrate timers, action evidence, finalization, and cleanup races;
@@ -55,8 +62,8 @@ it is not the skill or caller interface.
 
 | Layer | Owns | Must not own |
 | --- | --- | --- |
-| `$codex-browser-recorder:record-browser` skill | Request interpretation, concrete action functions, one consent, Codex In-app Browser acquisition, outcome reporting | Tab lifecycle, CDP, stop ordering, direct cleanup |
-| Recording Flow | Request/output preparation, opaque authorization, action sequence, single terminal outcome | New actions after consent, raw diagnostics |
+| `$codex-browser-recorder:record-browser` skill | Request interpretation, concrete action functions, one consent, bounded Codex In-app Browser acquisition callback, outcome reporting | Tab lifecycle, CDP, stop ordering, direct cleanup |
+| Recording Flow | Request/output preparation, setup diagnostic-tab ownership, opaque authorization, action sequence, terminal outcomes | New actions after consent, raw diagnostics |
 | Internal coordinator | Artifact and fresh-tab ownership, timers, per-action evidence, finalization, memoized verified tab cleanup | User-visible policy expansion |
 | Browser recording | CDP acquisition, origin checks, direct screencast-frame consumption, frame/resource limits | Publication and public error wording |
 | Cursor recording | Pointer observation, frame-coordinate mapping, cursor and click-feedback composition | Authenticating whether an event came from a person |
@@ -87,32 +94,39 @@ page.
 
 ## Lifecycle invariants
 
-1. Plan output and validate target, duration, action modality, and local media
-   requirements before Browser activity.
-2. Fix the prepared actions and consent projection before asking for approval.
-3. Acquire the Codex In-app Browser and create exactly one fresh owned tab only
-   after approval.
-4. Navigate, acquire CDP, verify the approved top-level origin, and require the
+1. Plan output and validate local media requirements before all Browser
+   activity; validate target, duration, and action modality before recording
+   consent.
+2. For an explicit setup request, acquire only the Codex In-app Browser, create
+   at most one fresh diagnostic tab, probe full CDP without starting capture,
+   and verify that the exact owned tab is closed.
+3. Fix prepared recording actions and the consent projection before asking for
+   recording approval.
+4. For a recording, acquire the Codex In-app Browser and create exactly one
+   fresh owned tab only after approval.
+5. Navigate, acquire CDP, verify the approved top-level origin, and require the
    first valid frame before performing an action.
-5. Run actions sequentially. Every pointer action automatically requires fresh
+6. Run actions sequentially. Every pointer action automatically requires fresh
    observed evidence after its action boundary. Action-driven pointer plans keep
    a 200 ms visual tail after their final action.
-6. For action-driven plans, finalize immediately after the last action. For an
+7. For action-driven plans, finalize immediately after the last action. For an
    explicit duration, keep that duration authoritative from capture readiness.
-7. Stop frame delivery, screencast, cursor capture, and encoder before cursor
+8. Stop frame delivery, screencast, cursor capture, and encoder before cursor
    composition and media validation.
-8. Publish only one validated H.264 `yuv420p` video stream with no audio, using
+9. Publish only one validated H.264 `yuv420p` video stream with no audio, using
    collision-safe atomic publication.
-9. Remove private artifacts and close the exact owned tab. Concurrent close
+10. Remove private artifacts and close the exact owned tab. Concurrent close
    requests share one promise, and successful closure requires the exact tab to
    disappear from the Browser tab inventory. One shared retry covers an
    immediate close rejection, inventory failure, or still-listed tab; timeouts
    remain bounded and are reported for manual cleanup.
-10. Preserve the primary recording result when cleanup also fails.
+11. Preserve the primary recording or setup result when cleanup also fails.
 
 The fail-closed invariants are:
 
-- no Browser activity before preparation and consent;
+- no Browser activity before local preparation;
+- no recording Browser activity before consent;
+- no setup recording artifact, raw frame dump, or upload;
 - no Chrome recording or automatic Recording Surface switch;
 - one fresh tab and one normalized approved top-level origin;
 - no successful pointer flow without per-action evidence;
@@ -125,9 +139,9 @@ The fail-closed invariants are:
 
 | Concern | Canonical source | Primary tests |
 | --- | --- | --- |
-| External two-phase flow and outcome | [`record-browser-flow.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/record-browser-flow.mjs) | [`record-browser-flow.test.mjs`](../tests/record-browser-flow.test.mjs) |
+| External setup, two-phase recording flow, and outcomes | [`record-browser-flow.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/record-browser-flow.mjs) | [`record-browser-flow.test.mjs`](../tests/record-browser-flow.test.mjs) |
 | Request policy and media limits | [`recording-policy.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-policy.mjs) | [`recording-policy.test.mjs`](../tests/recording-policy.test.mjs) |
-| Local preflight | [`doctor.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/doctor.mjs) | [`doctor.test.mjs`](../tests/doctor.test.mjs) |
+| Local environment inspection | [`doctor.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/doctor.mjs) | [`doctor.test.mjs`](../tests/doctor.test.mjs) |
 | Internal session and owned-tab lifecycle | [`create-recording.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/create-recording.mjs) | [`create-recording.test.mjs`](../tests/create-recording.test.mjs) |
 | Browser/CDP capture and origin enforcement | [`browser-recording.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/browser-recording.mjs) | [`browser-recording.test.mjs`](../tests/browser-recording.test.mjs) |
 | Frame parsing, pumping, and encoding | [`media-recorder.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/media-recorder.mjs) | [`media-recorder.test.mjs`](../tests/media-recorder.test.mjs) |

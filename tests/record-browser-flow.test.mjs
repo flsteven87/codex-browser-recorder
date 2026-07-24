@@ -287,7 +287,11 @@ function createCoordinatorHarness({
   };
 }
 
-function createHarness({ environment, output = PASSED_OUTPUT } = {}) {
+function createHarness({
+  environment,
+  flowDependencies = {},
+  output = PASSED_OUTPUT,
+} = {}) {
   const calls = {
     createSession: 0,
     inspect: 0,
@@ -327,6 +331,7 @@ function createHarness({ environment, output = PASSED_OUTPUT } = {}) {
           supported: true,
         };
       },
+      ...flowDependencies,
     },
   });
 
@@ -339,6 +344,60 @@ function createHarness({ environment, output = PASSED_OUTPUT } = {}) {
       return sessionOptions;
     },
   };
+}
+
+function createSetupBrowser() {
+  const calls = {
+    cdpReadEvents: 0,
+    cdpSend: 0,
+    tabClose: 0,
+    tabsList: 0,
+    tabsNew: 0,
+  };
+  const unrelatedTab = {
+    async close() {
+      assert.fail("setup check must not close an unrelated tab");
+    },
+    id: "unrelated-tab",
+  };
+  let diagnosticOpen = false;
+  const cdp = {
+    async readEvents() {
+      calls.cdpReadEvents += 1;
+    },
+    async send() {
+      calls.cdpSend += 1;
+    },
+  };
+  const diagnosticTab = {
+    capabilities: {
+      async get(name) {
+        assert.equal(name, "cdp");
+        return cdp;
+      },
+    },
+    async close() {
+      calls.tabClose += 1;
+      diagnosticOpen = false;
+    },
+    id: "owned-setup-diagnostic-tab",
+  };
+  const browser = {
+    tabs: {
+      async list() {
+        calls.tabsList += 1;
+        return diagnosticOpen
+          ? [unrelatedTab, diagnosticTab]
+          : [unrelatedTab];
+      },
+      async new() {
+        calls.tabsNew += 1;
+        diagnosticOpen = true;
+        return diagnosticTab;
+      },
+    },
+  };
+  return { browser, calls, unrelatedTab };
 }
 
 function recordingSpec(overrides = {}) {
@@ -431,20 +490,75 @@ test("reports every local blocker and never creates a Browser session", async ()
   assert.equal(harness.calls.createSession, 0);
 });
 
-test("returns a bounded local-only preflight report", async () => {
-  const harness = createHarness();
+for (const code of [
+  "unsupported_platform",
+  "ffmpeg_missing",
+  "ffmpeg_h264_unavailable",
+  "ffmpeg_mp4_unavailable",
+  "ffprobe_missing",
+  "ffprobe_unusable",
+  "output_directory_not_writable",
+]) {
+  test(`stops the setup request at the ${code} Technical Blocker`, async () => {
+    const harness = createHarness({
+      environment: {
+        blockingReasons: [code],
+        ffmpegH264Available: ![
+          "ffmpeg_missing",
+          "ffmpeg_h264_unavailable",
+        ].includes(code),
+        ffmpegMp4Available: ![
+          "ffmpeg_missing",
+          "ffmpeg_mp4_unavailable",
+        ].includes(code),
+        ffprobeUsable: ![
+          "ffprobe_missing",
+          "ffprobe_unusable",
+        ].includes(code),
+        outputDirectoryWritable:
+          code !== "output_directory_not_writable",
+        platform: code === "unsupported_platform" ? "linux" : "darwin",
+        supported: false,
+      },
+    });
 
-  const report = await harness.flow.prepareRecording({
+    const report = await harness.flow.prepareRecording({
+      destinationDirectory:
+        "/Users/example/Downloads/Codex Browser Recordings",
+      preflightOnly: true,
+    });
+
+    assert.equal(report.status, "blocked");
+    assert.deepEqual(
+      report.blockers.map(({ code: blockerCode }) => blockerCode),
+      [code],
+    );
+    assert.equal(harness.calls.createSession, 0);
+  });
+}
+
+test("checks complete setup readiness without starting a recording", async () => {
+  const harness = createHarness();
+  const setup = createSetupBrowser();
+
+  const preparation = await harness.flow.prepareRecording({
     destinationDirectory:
       "/Users/example/Downloads/Codex Browser Recordings",
     preflightOnly: true,
   });
+  assert.equal(preparation.status, "preflight_prepared");
+  assert.equal(setup.calls.tabsNew, 0);
 
+  const report = await harness.flow.checkSetup(preparation, {
+    acquireBrowser: async () => setup.browser,
+  });
   assert.deepEqual(report, {
     environment: {
+      codexInAppBrowserAvailable: true,
       ffmpegH264Available: true,
       ffmpegMp4Available: true,
       ffprobeUsable: true,
+      fullCdpAvailable: true,
       outputDirectoryWritable: true,
       platform: "darwin",
       supported: true,
@@ -461,6 +575,731 @@ test("returns a bounded local-only preflight report", async () => {
     /^browser-recording-\d{4}-\d{2}-\d{2}-\d{6}[.]mp4$/u,
   );
   assert.equal(harness.calls.createSession, 0);
+  assert.equal(setup.calls.tabsNew, 1);
+  assert.equal(setup.calls.tabClose, 1);
+  assert.equal(setup.calls.tabsList, 1);
+  assert.equal(setup.calls.cdpSend, 0);
+  assert.equal(setup.calls.cdpReadEvents, 0);
+});
+
+test("reports a Codex In-app Browser Technical Blocker when a diagnostic tab cannot be created", async () => {
+  const harness = createHarness();
+  const preparation = await harness.flow.prepareRecording({
+    destinationDirectory:
+      "/Users/example/Downloads/Codex Browser Recordings",
+    preflightOnly: true,
+  });
+
+  const report = await harness.flow.checkSetup(preparation, {
+    acquireBrowser: async () => ({
+      tabs: {
+        async new() {
+          throw new Error("private Browser diagnostic");
+        },
+      },
+    }),
+  });
+
+  assert.equal(report.status, "blocked");
+  assert.deepEqual(
+    report.blockers.map(({ code }) => code),
+    ["browser_plugin_unavailable"],
+  );
+  assert.match(report.blockers[0].summary, /Codex In-app Browser/u);
+  assert.doesNotMatch(JSON.stringify(report), /private Browser diagnostic/u);
+  assert.equal(harness.calls.createSession, 0);
+});
+
+for (const variant of [
+  {
+    expectedCode: "browser_plugin_unavailable",
+    name: "Browser acquisition failure",
+    async setup() {
+      throw new Error("private acquisition diagnostic");
+    },
+  },
+  {
+    expectedCode: "browser_plugin_unavailable",
+    name: "missing diagnostic-tab API",
+    async setup() {
+      return { tabs: {} };
+    },
+  },
+  {
+    expectedCode: "cdp_unavailable",
+    name: "missing CDP capability API",
+    tab: { capabilities: {} },
+  },
+  {
+    expectedCode: "cdp_unavailable",
+    name: "CDP acquisition failure",
+    tab: {
+      capabilities: {
+        async get() {
+          throw new Error("private CDP diagnostic");
+        },
+      },
+    },
+  },
+  {
+    expectedCode: "cdp_unavailable",
+    name: "missing CDP command interface",
+    tab: {
+      capabilities: {
+        async get() {
+          return { readEvents() {} };
+        },
+      },
+    },
+  },
+  {
+    expectedCode: "cdp_unavailable",
+    name: "missing CDP event interface",
+    tab: {
+      capabilities: {
+        async get() {
+          return { send() {} };
+        },
+      },
+    },
+  },
+]) {
+  test(`reports ${variant.name} as ${variant.expectedCode}`, async () => {
+    const harness = createHarness();
+    const preparation = await harness.flow.prepareRecording({
+      destinationDirectory:
+        "/Users/example/Downloads/Codex Browser Recordings",
+      preflightOnly: true,
+    });
+    let closeCalls = 0;
+    const tab =
+      variant.tab == null
+        ? null
+        : {
+            ...variant.tab,
+            async close() {
+              closeCalls += 1;
+            },
+            id: `owned-${variant.name}`,
+          };
+    const acquireBrowser =
+      variant.setup ??
+      (async () => ({
+        tabs: {
+          async list() {
+            return [{ id: "unrelated-tab" }];
+          },
+          async new() {
+            return tab;
+          },
+        },
+      }));
+
+    const report = await harness.flow.checkSetup(preparation, {
+      acquireBrowser,
+    });
+
+    assert.equal(report.status, "blocked");
+    assert.deepEqual(
+      report.blockers.map(({ code }) => code),
+      [variant.expectedCode],
+    );
+    assert.doesNotMatch(
+      JSON.stringify(report),
+      /private (?:acquisition|CDP) diagnostic/u,
+    );
+    assert.equal(closeCalls, tab == null ? 0 : 1);
+    assert.equal(harness.calls.createSession, 0);
+  });
+}
+
+test("cancels a setup check before acquiring the Codex In-app Browser", async () => {
+  const harness = createHarness();
+  const preparation = await harness.flow.prepareRecording({
+    destinationDirectory:
+      "/Users/example/Downloads/Codex Browser Recordings",
+    preflightOnly: true,
+  });
+  const cancellation = new AbortController();
+  cancellation.abort();
+
+  const report = await harness.flow.checkSetup(preparation, {
+    async acquireBrowser() {
+      assert.fail("cancelled setup must not acquire the Browser");
+    },
+    signal: cancellation.signal,
+  });
+
+  assert.equal(report.status, "blocked");
+  assert.deepEqual(
+    report.blockers.map(({ code }) => code),
+    ["setup_cancelled"],
+  );
+  assert.equal(report.blockers[0].summary, "Setup check was cancelled");
+  assert.equal(harness.calls.createSession, 0);
+});
+
+test("cancels a pending CDP probe and closes only its owned diagnostic tab", async () => {
+  const harness = createHarness();
+  const preparation = await harness.flow.prepareRecording({
+    destinationDirectory:
+      "/Users/example/Downloads/Codex Browser Recordings",
+    preflightOnly: true,
+  });
+  const pendingCdp = deferred();
+  const cancellation = new AbortController();
+  const calls = { tabClose: 0 };
+  let diagnosticOpen = false;
+  const diagnosticTab = {
+    capabilities: {
+      async get() {
+        return pendingCdp.promise;
+      },
+    },
+    async close() {
+      calls.tabClose += 1;
+      diagnosticOpen = false;
+    },
+    id: "cancelled-owned-diagnostic-tab",
+  };
+  const browser = {
+    tabs: {
+      async list() {
+        return diagnosticOpen
+          ? [{ id: "unrelated-tab" }, diagnosticTab]
+          : [{ id: "unrelated-tab" }];
+      },
+      async new() {
+        diagnosticOpen = true;
+        return diagnosticTab;
+      },
+    },
+  };
+
+  const outcome = harness.flow.checkSetup(preparation, {
+    acquireBrowser: async () => browser,
+    signal: cancellation.signal,
+  });
+  await settleWorkflow();
+  cancellation.abort();
+  const report = await outcome;
+
+  assert.deepEqual(
+    report.blockers.map(({ code }) => code),
+    ["setup_cancelled"],
+  );
+  assert.equal(calls.tabClose, 1);
+  assert.equal(diagnosticOpen, false);
+  assert.equal(harness.calls.createSession, 0);
+});
+
+test("preserves cancellation while finishing owned diagnostic-tab cleanup", async () => {
+  const harness = createHarness();
+  const preparation = await harness.flow.prepareRecording({
+    destinationDirectory:
+      "/Users/example/Downloads/Codex Browser Recordings",
+    preflightOnly: true,
+  });
+  const cancellation = new AbortController();
+  const closing = deferred();
+  let closeStarted = false;
+  const diagnosticTab = {
+    capabilities: {
+      async get() {
+        return { readEvents() {}, send() {} };
+      },
+    },
+    async close() {
+      closeStarted = true;
+      return closing.promise;
+    },
+    id: "cancelled-during-cleanup-tab",
+  };
+  const browser = {
+    tabs: {
+      async list() {
+        return [{ id: "unrelated-tab" }];
+      },
+      async new() {
+        return diagnosticTab;
+      },
+    },
+  };
+
+  const outcome = harness.flow.checkSetup(preparation, {
+    acquireBrowser: async () => browser,
+    signal: cancellation.signal,
+  });
+  while (!closeStarted) await settleWorkflow();
+  cancellation.abort();
+  closing.resolve();
+  const report = await outcome;
+
+  assert.deepEqual(
+    report.blockers.map(({ code }) => code),
+    ["setup_cancelled"],
+  );
+});
+
+test("bounds a setup check when Codex In-app Browser acquisition does not settle", async () => {
+  const harness = createHarness({
+    flowDependencies: { setupOperationTimeoutMs: 5 },
+  });
+  const preparation = await harness.flow.prepareRecording({
+    destinationDirectory:
+      "/Users/example/Downloads/Codex Browser Recordings",
+    preflightOnly: true,
+  });
+
+  const report = await Promise.race([
+    harness.flow.checkSetup(preparation, {
+      acquireBrowser: async () => new Promise(() => {}),
+    }),
+    new Promise((resolve) => {
+      setTimeout(() => resolve({ status: "test_deadline" }), 100);
+    }),
+  ]);
+
+  assert.equal(report.status, "blocked");
+  assert.deepEqual(
+    report.blockers.map(({ code }) => code),
+    ["setup_timeout"],
+  );
+  assert.equal(
+    report.blockers[0].summary,
+    "Setup check timed out while testing the Codex In-app Browser",
+  );
+  assert.equal(harness.calls.createSession, 0);
+});
+
+test("bounds cleanup observation when diagnostic-tab creation never settles", async () => {
+  const harness = createHarness({
+    flowDependencies: {
+      setupCleanupTimeoutMs: 5,
+      setupOperationTimeoutMs: 5,
+    },
+  });
+  const preparation = await harness.flow.prepareRecording({
+    destinationDirectory:
+      "/Users/example/Downloads/Codex Browser Recordings",
+    preflightOnly: true,
+  });
+
+  const report = await Promise.race([
+    harness.flow.checkSetup(preparation, {
+      acquireBrowser: async () => ({
+        tabs: {
+          async list() {
+            return [{ id: "unrelated-tab" }];
+          },
+          async new() {
+            return new Promise(() => {});
+          },
+        },
+      }),
+    }),
+    new Promise((resolve) => {
+      setTimeout(() => resolve({ status: "test_deadline" }), 100);
+    }),
+  ]);
+
+  assert.equal(report.status, "blocked");
+  assert.deepEqual(
+    report.blockers.map(({ code }) => code),
+    ["setup_timeout", "browser_tab_cleanup_failed"],
+  );
+});
+
+test("times out a pending CDP probe and closes only its owned diagnostic tab", async () => {
+  const harness = createHarness({
+    flowDependencies: { setupOperationTimeoutMs: 5 },
+  });
+  const preparation = await harness.flow.prepareRecording({
+    destinationDirectory:
+      "/Users/example/Downloads/Codex Browser Recordings",
+    preflightOnly: true,
+  });
+  const calls = { tabClose: 0 };
+  let diagnosticOpen = false;
+  const diagnosticTab = {
+    capabilities: {
+      async get() {
+        return new Promise(() => {});
+      },
+    },
+    async close() {
+      calls.tabClose += 1;
+      diagnosticOpen = false;
+    },
+    id: "timed-out-owned-diagnostic-tab",
+  };
+  const browser = {
+    tabs: {
+      async list() {
+        return diagnosticOpen
+          ? [{ id: "unrelated-tab" }, diagnosticTab]
+          : [{ id: "unrelated-tab" }];
+      },
+      async new() {
+        diagnosticOpen = true;
+        return diagnosticTab;
+      },
+    },
+  };
+
+  const report = await harness.flow.checkSetup(preparation, {
+    acquireBrowser: async () => browser,
+  });
+
+  assert.deepEqual(
+    report.blockers.map(({ code }) => code),
+    ["setup_timeout"],
+  );
+  assert.equal(calls.tabClose, 1);
+  assert.equal(diagnosticOpen, false);
+  assert.equal(harness.calls.createSession, 0);
+});
+
+test("cleans up only the owned diagnostic tab when tab creation finishes after setup timeout", async () => {
+  const harness = createHarness({
+    flowDependencies: {
+      setupCleanupTimeoutMs: 100,
+      setupOperationTimeoutMs: 5,
+    },
+  });
+  const preparation = await harness.flow.prepareRecording({
+    destinationDirectory:
+      "/Users/example/Downloads/Codex Browser Recordings",
+    preflightOnly: true,
+  });
+  const lateTab = deferred();
+  const calls = { tabClose: 0, tabsList: 0 };
+  const unrelatedTab = {
+    async close() {
+      assert.fail("late setup cleanup must not close an unrelated tab");
+    },
+    id: "existing-unrelated-tab",
+  };
+  let diagnosticOpen = false;
+  const diagnosticTab = {
+    capabilities: {
+      async get() {
+        assert.fail("timed-out setup must not acquire CDP from a late tab");
+      },
+    },
+    async close() {
+      calls.tabClose += 1;
+      diagnosticOpen = false;
+    },
+    id: "late-owned-diagnostic-tab",
+  };
+  const browser = {
+    tabs: {
+      async list() {
+        calls.tabsList += 1;
+        return diagnosticOpen
+          ? [unrelatedTab, diagnosticTab]
+          : [unrelatedTab];
+      },
+      async new() {
+        diagnosticOpen = true;
+        return lateTab.promise;
+      },
+    },
+  };
+  setTimeout(() => lateTab.resolve(diagnosticTab), 20);
+
+  const report = await harness.flow.checkSetup(preparation, {
+    acquireBrowser: async () => browser,
+  });
+  assert.deepEqual(
+    report.blockers.map(({ code }) => code),
+    ["setup_timeout"],
+  );
+
+  assert.equal(calls.tabClose, 1);
+  assert.equal(calls.tabsList, 1);
+  assert.equal(diagnosticOpen, false);
+});
+
+test("reports cleanup incomplete when a late-created diagnostic tab cannot close", async () => {
+  const harness = createHarness({
+    flowDependencies: {
+      setupCleanupTimeoutMs: 100,
+      setupOperationTimeoutMs: 5,
+    },
+  });
+  const preparation = await harness.flow.prepareRecording({
+    destinationDirectory:
+      "/Users/example/Downloads/Codex Browser Recordings",
+    preflightOnly: true,
+  });
+  const lateTab = deferred();
+  const calls = { tabClose: 0 };
+  const unrelatedTab = {
+    async close() {
+      assert.fail("late setup cleanup must not close an unrelated tab");
+    },
+    id: "existing-unrelated-tab",
+  };
+  const diagnosticTab = {
+    capabilities: {
+      async get() {
+        assert.fail("timed-out setup must not acquire CDP from a late tab");
+      },
+    },
+    async close() {
+      calls.tabClose += 1;
+      throw new Error("private late close failure");
+    },
+    id: "late-owned-tab-with-failed-close",
+  };
+  const browser = {
+    tabs: {
+      async list() {
+        return [unrelatedTab, diagnosticTab];
+      },
+      async new() {
+        return lateTab.promise;
+      },
+    },
+  };
+  setTimeout(() => lateTab.resolve(diagnosticTab), 20);
+
+  const report = await harness.flow.checkSetup(preparation, {
+    acquireBrowser: async () => browser,
+  });
+
+  assert.deepEqual(
+    report.blockers.map(({ code }) => code),
+    ["setup_timeout", "browser_tab_cleanup_failed"],
+  );
+  assert.equal(calls.tabClose, 1);
+  assert.doesNotMatch(JSON.stringify(report), /private late close failure/u);
+});
+
+test("bounds cleanup when a late-created diagnostic tab never finishes closing", async () => {
+  const harness = createHarness({
+    flowDependencies: {
+      setupCleanupTimeoutMs: 25,
+      setupOperationTimeoutMs: 1,
+    },
+  });
+  const preparation = await harness.flow.prepareRecording({
+    destinationDirectory:
+      "/Users/example/Downloads/Codex Browser Recordings",
+    preflightOnly: true,
+  });
+  const lateTab = deferred();
+  const calls = { tabClose: 0, tabsList: 0 };
+  const unrelatedTab = {
+    async close() {
+      assert.fail("late setup cleanup must not close an unrelated tab");
+    },
+    id: "existing-unrelated-tab",
+  };
+  const diagnosticTab = {
+    capabilities: {
+      async get() {
+        assert.fail("timed-out setup must not acquire CDP from a late tab");
+      },
+    },
+    async close() {
+      calls.tabClose += 1;
+      return new Promise(() => {});
+    },
+    id: "late-owned-tab-with-stalled-close",
+  };
+  const browser = {
+    tabs: {
+      async list() {
+        calls.tabsList += 1;
+        return [unrelatedTab, diagnosticTab];
+      },
+      async new() {
+        return lateTab.promise;
+      },
+    },
+  };
+  setTimeout(() => lateTab.resolve(diagnosticTab), 5);
+
+  const report = await Promise.race([
+    harness.flow.checkSetup(preparation, {
+      acquireBrowser: async () => browser,
+    }),
+    new Promise((resolve) => {
+      setTimeout(() => resolve({ status: "test_deadline" }), 100);
+    }),
+  ]);
+
+  assert.equal(report.status, "blocked");
+  assert.deepEqual(
+    report.blockers.map(({ code }) => code),
+    ["setup_timeout", "browser_tab_cleanup_failed"],
+  );
+  assert.equal(calls.tabClose, 1);
+  assert.equal(calls.tabsList, 0);
+});
+
+test("bounds owned diagnostic-tab cleanup and reports an actionable blocker", async () => {
+  const harness = createHarness({
+    flowDependencies: {
+      setupCleanupTimeoutMs: 5,
+      setupOperationTimeoutMs: 5,
+    },
+  });
+  const preparation = await harness.flow.prepareRecording({
+    destinationDirectory:
+      "/Users/example/Downloads/Codex Browser Recordings",
+    preflightOnly: true,
+  });
+  const diagnosticTab = {
+    capabilities: {
+      async get() {
+        return { readEvents() {}, send() {} };
+      },
+    },
+    async close() {
+      return new Promise(() => {});
+    },
+    id: "owned-tab-with-stalled-close",
+  };
+
+  const report = await Promise.race([
+    harness.flow.checkSetup(preparation, {
+      acquireBrowser: async () => ({
+        tabs: {
+          async list() {
+            return [diagnosticTab];
+          },
+          async new() {
+            return diagnosticTab;
+          },
+        },
+      }),
+    }),
+    new Promise((resolve) => {
+      setTimeout(() => resolve({ status: "test_deadline" }), 100);
+    }),
+  ]);
+
+  assert.equal(report.status, "blocked");
+  assert.deepEqual(
+    report.blockers.map(({ code }) => code),
+    ["browser_tab_cleanup_failed"],
+  );
+  assert.match(report.blockers[0].summary, /diagnostic tab/u);
+  assert.match(report.blockers[0].remediation, /close.*manually/iu);
+});
+
+test("reports CDP and owned-tab cleanup Technical Blockers together", async () => {
+  const harness = createHarness();
+  const preparation = await harness.flow.prepareRecording({
+    destinationDirectory:
+      "/Users/example/Downloads/Codex Browser Recordings",
+    preflightOnly: true,
+  });
+  const diagnosticTab = {
+    capabilities: {
+      async get() {
+        return { send() {} };
+      },
+    },
+    async close() {
+      throw new Error("private close failure");
+    },
+    id: "owned-setup-tab",
+  };
+
+  const report = await harness.flow.checkSetup(preparation, {
+    acquireBrowser: async () => ({
+      tabs: {
+        async list() {
+          return [diagnosticTab, { id: "unrelated-tab" }];
+        },
+        async new() {
+          return diagnosticTab;
+        },
+      },
+    }),
+  });
+
+  assert.equal(report.status, "blocked");
+  assert.deepEqual(
+    report.blockers.map(({ code }) => code),
+    ["cdp_unavailable", "browser_tab_cleanup_failed"],
+  );
+  assert.doesNotMatch(JSON.stringify(report), /private close failure/u);
+});
+
+test("fails closed when the owned setup tab has no verifiable identity", async () => {
+  const harness = createHarness();
+  const preparation = await harness.flow.prepareRecording({
+    destinationDirectory:
+      "/Users/example/Downloads/Codex Browser Recordings",
+    preflightOnly: true,
+  });
+  let closeCalls = 0;
+  const diagnosticTab = {
+    capabilities: {
+      async get() {
+        return { readEvents() {}, send() {} };
+      },
+    },
+    async close() {
+      closeCalls += 1;
+    },
+  };
+
+  const report = await harness.flow.checkSetup(preparation, {
+    acquireBrowser: async () => ({
+      tabs: {
+        async list() {
+          return [{ id: "unrelated-tab" }];
+        },
+        async new() {
+          return diagnosticTab;
+        },
+      },
+    }),
+  });
+
+  assert.deepEqual(
+    report.blockers.map(({ code }) => code),
+    ["browser_tab_cleanup_failed"],
+  );
+  assert.equal(closeCalls, 1);
+});
+
+test("consumes an opaque setup preparation exactly once", async () => {
+  const harness = createHarness();
+  const setup = createSetupBrowser();
+  const preparation = await harness.flow.prepareRecording({
+    destinationDirectory:
+      "/Users/example/Downloads/Codex Browser Recordings",
+    preflightOnly: true,
+  });
+  const options = {
+    acquireBrowser: async () => setup.browser,
+  };
+
+  const first = await harness.flow.checkSetup(preparation, options);
+  const second = await harness.flow.checkSetup(preparation, options);
+  const forged = await harness.flow.checkSetup(
+    Object.freeze({ ...preparation }),
+    options,
+  );
+
+  assert.equal(first.status, "preflight_passed");
+  assert.deepEqual(
+    second.blockers.map(({ code }) => code),
+    ["invalid_configuration"],
+  );
+  assert.deepEqual(
+    forged.blockers.map(({ code }) => code),
+    ["invalid_configuration"],
+  );
+  assert.equal(setup.calls.tabsNew, 1);
 });
 
 test("executes the approved actions and returns one completed outcome", async () => {

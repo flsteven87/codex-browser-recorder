@@ -12,12 +12,13 @@
 Run the built-in setup check:
 
 ```text
-$codex-browser-recorder:record-browser Check whether this Mac is ready to record without opening the Browser.
+$codex-browser-recorder:record-browser Check whether this recording setup is ready.
 ```
 
 A passing result begins with `Local recording preflight passed`. It checks the
-Mac, FFmpeg, and destination folder without opening the Browser. The Codex
-In-app Browser and site approval are checked only when a recording starts.
+Mac, FFmpeg, destination folder, Codex In-app Browser, and full CDP access. It
+may briefly open one fresh diagnostic tab, which it closes after the bounded
+probe. It does not create a video, raw frame dump, or upload.
 
 ## Installation and discovery
 
@@ -45,6 +46,11 @@ reinstall from the marketplace source instead.
 | `ffprobe_missing` | `ffprobe` was not found on `PATH`. | Install the complete FFmpeg toolset and verify `ffprobe` resolves. |
 | `ffprobe_unusable` | `ffprobe` cannot produce the JSON metadata the validator needs. | Replace or repair the FFmpeg installation, then rerun preflight. |
 | `output_directory_not_writable` | The planned destination or its nearest existing parent is not writable. | Choose another absolute local directory or approve macOS file access. |
+| `browser_plugin_unavailable` | The Codex In-app Browser or its fresh-tab API is unavailable. | Confirm that the Browser plugin is available in this Codex task, then rerun the setup check. |
+| `cdp_unavailable` | The fresh diagnostic tab does not expose the required full CDP capability. | Enable **Developer mode > Enable full CDP access** in Codex Browser settings, then rerun the setup check. |
+| `setup_cancelled` | The setup check was cancelled before it completed. | Run the setup check again when ready. |
+| `setup_timeout` | A bounded Codex In-app Browser readiness operation did not finish in time. | Keep Codex open, confirm the Codex In-app Browser is responsive, and rerun the setup check. |
+| `browser_tab_cleanup_failed` | The owned fresh diagnostic tab could not be verified as closed. | Close the fresh setup diagnostic tab manually, then rerun the setup check. |
 
 The setup check reports every problem it finds. Resolve all of them before
 retrying a recording.

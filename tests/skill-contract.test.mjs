@@ -53,6 +53,7 @@ assert.ok(frontmatterMatch, "skill must have frontmatter");
 const frontmatter = frontmatterMatch[1];
 const workflowHeadings = [
   "## Build A Local Plan",
+  "## Complete The Setup Check",
   "## Obtain One Consent",
   "## Record The Approved Plan",
   "## Report The Terminal Outcome",
@@ -79,8 +80,10 @@ function assertWorkflowContract(source) {
     "workflow sections must remain ordered",
   );
 
-  const [planIndex, consentIndex, recordIndex, reportIndex] = indexes;
-  const plan = source.slice(planIndex, consentIndex);
+  const [planIndex, setupIndex, consentIndex, recordIndex, reportIndex] =
+    indexes;
+  const plan = source.slice(planIndex, setupIndex);
+  const setup = source.slice(setupIndex, consentIndex);
   const consent = source.slice(consentIndex, recordIndex);
   const record = source.slice(recordIndex, reportIndex);
 
@@ -88,6 +91,11 @@ function assertWorkflowContract(source) {
   assert.match(plan, /without Browser activity/iu);
   assert.match(plan, /opaque/iu);
   assert.doesNotMatch(plan, /agent[.]browsers[.]/u);
+  assert.match(setup, /agent[.]browsers[.]get[(]"iab"[)]/u);
+  assert.match(setup, /checkSetup[(]preparation,/u);
+  assert.match(setup, /acquireBrowser/u);
+  assert.match(setup, /consumes the setup preparation exactly once/iu);
+  assert.doesNotMatch(setup, /browser[.]tabs[.]new|capabilities[.]get/iu);
   assert.match(consent, /before any Browser activity/iu);
   assert.match(consent, /explicit confirmation/iu);
   assert.match(record, /agent[.]browsers[.]get[(]"iab"[)]/u);
@@ -194,7 +202,10 @@ test("public surfaces use the canonical namespaced skill invocation", () => {
 
 test("public docs expose preflight and the complete visible boundary", () => {
   assert.match(readme, /Local recording preflight passed/iu);
-  assert.match(support, /does not verify\s+Browser or CDP approval/iu);
+  assert.match(
+    support,
+    /Codex In-app Browser[^.]*full CDP access[^.]*passed/iu,
+  );
   assert.match(readme, /10 frames per second/iu);
   assert.match(readme, /720p/iu);
   assert.match(privacy, /all\s+visible embedded frames/iu);
@@ -260,10 +271,10 @@ test("skill keeps preparation, consent, Browser activity, and reporting ordered"
   assertWorkflowContract(skill);
 });
 
-test("ordering guard rejects pre-consent Browser activity", () => {
+test("ordering guard rejects Browser activity before local preparation", () => {
   const mutant = skill.replace(
-    "## Obtain One Consent",
-    'agent.browsers.get("iab")\n\n## Obtain One Consent',
+    "## Complete The Setup Check",
+    'agent.browsers.get("iab")\n\n## Complete The Setup Check',
   );
   assert.throws(
     () => assertWorkflowContract(mutant),
@@ -275,6 +286,7 @@ test("skill delegates the full transaction to the deep Recording Flow", () => {
   assert.match(skill, /scripts[/]record-browser-flow[.]mjs/u);
   assert.match(skill, /pathToFileURL/u);
   assert.match(skill, /prepareRecording[(][{]/u);
+  assert.match(skill, /checkSetup[(]preparation,/u);
   assert.match(skill, /recordApproved[(]preparation,/u);
   assert.match(skill, /exact opaque preparation/iu);
   assert.match(skill, /one terminal outcome/iu);
@@ -291,7 +303,7 @@ test("skill derives pointer policy from semantic actions", () => {
   assert.doesNotMatch(skill, /requirePointerEvents\s*=/u);
 });
 
-test("skill uses only the Codex In-app Browser after authorization", () => {
+test("skill uses only the Codex In-app Browser on authorized paths", () => {
   assert.doesNotMatch(skill, /browserSurface/u);
   assert.match(skill, /agent[.]browsers[.]get[(]"iab"[)]/u);
   assert.match(
@@ -304,7 +316,7 @@ test("skill uses only the Codex In-app Browser after authorization", () => {
   assert.doesNotMatch(skill, /agent[.]browsers[.]getDefault[(]/u);
   assert.equal(
     [...skill.matchAll(/agent[.]browsers[.]get[(]"iab"[)]/gu)].length,
-    1,
+    2,
   );
 });
 
