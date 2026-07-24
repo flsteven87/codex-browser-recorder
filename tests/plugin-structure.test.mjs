@@ -119,6 +119,30 @@ test("plugin manifest and repository marketplace stay aligned", () => {
   assert.equal(entry.category, "Developer Tools");
 });
 
+test("documents the historical v0.4.0 product contract", () => {
+  const changelog = readFileSync(join(repositoryRoot, "CHANGELOG.md"), "utf8");
+  const heading = "## [0.4.0] - 2026-07-25";
+  const releaseStart = changelog.indexOf(heading);
+  const nextRelease = changelog.indexOf(
+    "\n## [",
+    releaseStart + heading.length,
+  );
+
+  assert.notEqual(releaseStart, -1);
+  const release = changelog.slice(
+    releaseStart,
+    nextRelease === -1 ? undefined : nextRelease,
+  );
+  assert.match(
+    release,
+    /removes? the Chrome production path[^.]*Codex In-app\s+Browser/iu,
+  );
+  assert.match(release, /retains FFmpeg and FFprobe[^.]*full CDP/iu);
+  assert.match(release, /macOS/iu);
+  assert.match(release, /H[.]264/iu);
+  assert.match(release, /(?:no audio|silent)/iu);
+});
+
 test("public plugin metadata, listing assets, and community files are complete", () => {
   const manifest = readJson(join(pluginRoot, ".codex-plugin", "plugin.json"));
 

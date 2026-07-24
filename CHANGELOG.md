@@ -4,6 +4,50 @@ All notable changes to this project will be documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-25
+
+Version 0.4.0 removes the Chrome production path and makes the Codex In-app
+Browser the only Recording Surface. This breaking release records one
+explicitly approved site and action plan in a fresh Browser tab on macOS,
+producing one validated local silent H.264 MP4 with no uploaded recording data.
+It retains FFmpeg and FFprobe for local media processing plus full CDP access
+for Browser capture.
+
+### Added
+
+- Added a Content Warning before Browser activity that discloses the complete
+  viewport boundary and lets users review the planned target, actions, and
+  local output before authorizing the flow.
+- Added a setup check for platform, media-tool, codec, container, destination,
+  Codex In-app Browser, and full CDP blockers without starting a Recording
+  Session or creating media.
+- Added release gates for public plugin structure, installed-plugin behavior,
+  documentation links, submission evals, cursor coverage, and recording
+  lifecycle regressions.
+
+### Changed
+
+- Rebuilt the capture path around the Codex In-app Browser's full CDP access,
+  including video frames, cursor evidence, navigation policy, and action
+  ordering.
+- Required every approved interaction to pass through the Browser action
+  boundary so the recording and its action evidence describe the same journey.
+- Published one explicit `$codex-browser-recorder:record-browser` invocation and
+  one canonical set of install, support, privacy, and release instructions.
+
+### Removed
+
+- Removed Chrome as a recording surface, fallback, or supported production
+  path. Existing Chrome automation does not satisfy the v0.4.0 recording
+  contract.
+
+### Fixed
+
+- Bound cleanup, retries, and manual-cleanup guidance to the exact owned
+  recording tab without closing unrelated Browser tabs.
+- Prevented failed or cancelled sessions from publishing partial output while
+  preserving the last valid local recording when publication succeeds.
+
 ## [0.3.3] - 2026-07-24
 
 This patch release makes Browser Recorder's public project surfaces easier to

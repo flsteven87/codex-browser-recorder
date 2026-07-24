@@ -263,6 +263,8 @@ test("public policies present a content-neutral Content Warning", () => {
       `${label} must not impose a content-category refusal`,
     );
   }
+  assert.match(terms, /Codex In-app Browser flow/iu);
+  assert.doesNotMatch(terms, /\bselected Browser\b/iu);
 });
 
 test("keeps Background Recording as a developer-facing invariant only", () => {
