@@ -11,6 +11,8 @@ silent H.264 MP4 on macOS.
 ### What it does
 
 - Records one fresh tab and one approved site.
+- Defaults to Interactive Recording and supports explicitly approved
+  Unattended Recording for automated E2E QA.
 - Shows a visible cursor and click feedback for pointer actions.
 - Saves the verified MP4 locally without uploading it.
 

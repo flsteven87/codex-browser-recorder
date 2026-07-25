@@ -87,13 +87,15 @@ The Codex In-app Browser is the only Recording Surface. Preparation rejects a
 caller-provided surface selector, and the recorder never probes or switches to
 another Browser.
 
-Background Recording is the developer-facing invariant that Browser visibility
-is presentation state, not a capture correctness dependency. After approval,
-the internal coordinator creates the owned fresh tab, establishes and verifies
-the initial visible Browser state within five seconds, and only then navigates
-to the approved target. A missing, rejected, malformed, unverifiable, or timed
-out visibility capability fails with `browser_visibility_unavailable` and uses
-the normal artifact rollback and exact-tab cleanup path.
+Browser visibility is an approved presentation mode, not a capture correctness
+dependency. Interactive Recording is the default and establishes a visible
+Browser; Unattended Recording must be explicit and establishes a hidden Browser
+for automated QA. After approval, the internal coordinator creates the owned
+fresh tab, establishes and verifies the selected state within five seconds, and
+only then navigates to the approved target. The modes never silently fall back
+to one another. A missing, rejected, malformed, unverifiable, or timed-out
+visibility capability fails with `browser_visibility_unavailable` and uses the
+normal artifact rollback and exact-tab cleanup path.
 
 The production capture path consumes the JPEG bytes delivered in
 `Page.screencastFrame.params.data`. Each valid frame is acknowledged once and
@@ -126,8 +128,9 @@ cleanup.
 3. Fix prepared recording actions and the non-blocking Content Warning and
    consent projection before asking for recording approval.
 4. For a recording, acquire the Codex In-app Browser and create exactly one
-   fresh owned tab only after approval. Establish and verify initial Browser
-   visibility before navigating; bound failure and use normal cleanup.
+   fresh owned tab only after approval. Establish and verify the approved
+   Interactive or Unattended visibility mode before navigating; bound failure
+   and use normal cleanup.
 5. Navigate, acquire CDP, verify the approved top-level origin, and require the
    first valid frame before performing an action. Later visibility and focus
    changes do not affect the healthy Recording Session lifecycle.
@@ -155,8 +158,8 @@ The fail-closed invariants are:
 - no recording Browser activity before consent;
 - no setup recording artifact, raw frame dump, or upload;
 - no alternate Recording Surface or automatic Browser switch;
-- no recording navigation or approved action before initial Browser visibility
-  is established and verified;
+- no recording navigation or approved action before the approved Browser
+  visibility mode is established and verified;
 - one fresh tab and one normalized approved top-level origin;
 - no successful pointer flow without per-action evidence;
 - no Saved Recording before media validation and atomic publication;

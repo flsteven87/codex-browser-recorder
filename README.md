@@ -88,8 +88,20 @@ $codex-browser-recorder:record-browser Open https://www.w3.org/TR/pointerevents/
 ```
 
 Before the Codex In-app Browser opens, Codex shows the page, actions, duration,
-and output name for your approval. When the flow finishes, the video is saved to
-`~/Downloads/Codex Browser Recordings/` by default.
+recording mode, and output name for your approval. When the flow finishes, the
+video is saved to `~/Downloads/Codex Browser Recordings/` by default.
+
+Interactive Recording is the default and shows the Codex In-app Browser before
+the approved flow starts. For automated E2E QA, explicitly request an
+Unattended Recording to begin and remain hidden:
+
+```text
+$codex-browser-recorder:record-browser Record this approved E2E QA flow unattended: open https://example.com/, follow the approved checks, and save it as e2e-evidence.
+```
+
+Unattended Recording still uses the Codex In-app Browser renderer and session;
+it is not a separate headless Chromium surface. The two modes never silently
+fall back to one another.
 
 ## What you get
 
@@ -98,6 +110,7 @@ and output name for your approval. When the flow finishes, the video is saved to
 | **A focused capture** | One approved flow in one fresh Codex In-app Browser tab—never the Codex UI, browser controls, or your other tabs. |
 | **A ready-to-use file** | A local H.264 MP4, capped at 720p and encoded at 10 frames per second with no audio. |
 | **Visible actions** | Pointer flows show the cursor and click feedback. |
+| **Two explicit modes** | Interactive Recording is visible by default; Unattended Recording begins hidden for automated QA. |
 | **Local by default** | The video is created on your Mac, and page images are not sent to the model. There is no automatic upload, sharing, or telemetry. |
 
 The fixed video profile is designed for short test evidence, not high-motion
@@ -203,7 +216,7 @@ Start a new task after changing installed plugins.
 
 ## Browser Recorder and Record & Replay
 
-Browser Recorder creates a local video of a visible page flow. Codex
+Browser Recorder creates a local video of an approved page flow. Codex
 [Record & Replay](https://learn.chatgpt.com/docs/extend/record-and-replay)
 turns a demonstrated workflow into a reusable skill. They are separate
 features.

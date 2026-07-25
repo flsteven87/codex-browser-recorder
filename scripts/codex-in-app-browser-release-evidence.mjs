@@ -261,6 +261,56 @@ function pointerHiddenEvidenceFlow(flow, runtime) {
   };
 }
 
+function unattendedEvidenceFlow(flow, runtime) {
+  const evidence = {
+    failureCode: null,
+    hiddenStartObserved: false,
+  };
+  const [firstAction, ...remainingActions] = flow.actions;
+  const actions = [
+    {
+      ...firstAction,
+      async perform(context) {
+        const visibility = await observedVisibility(runtime, evidence);
+        const before = await observedVisibilityState(
+          visibility,
+          evidence,
+          "Unattended qualification could not verify hidden state",
+        );
+        if (before !== false) {
+          failEvidence(
+            evidence,
+            "release_gate_visibility_failed",
+            "Unattended qualification did not begin while hidden",
+          );
+        }
+        const result = await firstAction.perform(context);
+        const after = await observedVisibilityState(
+          visibility,
+          evidence,
+          "Unattended qualification could not verify hidden state",
+        );
+        if (after !== false) {
+          failEvidence(
+            evidence,
+            "release_gate_visibility_failed",
+            "Unattended qualification did not remain hidden",
+          );
+        }
+        evidence.hiddenStartObserved = true;
+        return result;
+      },
+    },
+    ...remainingActions,
+  ];
+  return {
+    ...flow,
+    actions: Object.freeze(actions.map((action) => Object.freeze(action))),
+    evidence,
+    recordingMode: "unattended",
+  };
+}
+
 function childFrameIdentities(frameTree) {
   const root = frameTree?.frameTree;
   const mainFrameId = root?.frame?.id;
@@ -353,6 +403,7 @@ export function instrumentReleaseQualificationFlows({
   embeddedFrame,
   pointerHiddenFlow,
   runtime,
+  sequentialFlow,
 }) {
   return Object.freeze({
     embeddedFrame:
@@ -363,6 +414,7 @@ export function instrumentReleaseQualificationFlows({
       pointerHiddenFlow,
       runtime,
     ),
+    sequentialFlow: unattendedEvidenceFlow(sequentialFlow, runtime),
   });
 }
 
@@ -426,6 +478,15 @@ export function verifyReleaseQualificationEvidence({
         capture.cursorChildFrameEventsCaptured,
       childFramesObserved: evidence.childFrameCount,
     });
+  }
+  if (key === "sequential") {
+    if (evidence?.hiddenStartObserved !== true) {
+      throw evidenceError(
+        "release_gate_visibility_failed",
+        "Unattended qualification did not begin and remain hidden",
+      );
+    }
+    return Object.freeze({ hiddenStartObserved: true });
   }
   return null;
 }

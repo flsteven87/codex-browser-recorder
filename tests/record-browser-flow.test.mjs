@@ -508,11 +508,30 @@ test("prepares an opaque action-driven plan without Browser activity", async () 
         "/Users/example/Downloads/Codex Browser Recordings",
       outputFilename: "demo.mp4",
     },
+    recordingMode: "interactive",
     requirePointerEvents: true,
   });
   assert.equal(Object.isFrozen(prepared), true);
   assert.equal(Object.isFrozen(prepared.consent), true);
   assert.equal(JSON.stringify(prepared).includes("private="), false);
+});
+
+test("prepares an explicitly approved Unattended Recording plan", async () => {
+  const harness = createHarness();
+
+  const prepared = await harness.flow.prepareRecording(
+    recordingSpec({ recordingMode: "unattended" }),
+  );
+
+  assert.equal(prepared.status, "prepared");
+  assert.equal(prepared.consent.recordingMode, "unattended");
+
+  const outcome = await harness.flow.recordApproved(prepared, {
+    browser: { id: "selected-browser" },
+  });
+
+  assert.equal(outcome.status, "completed");
+  assert.equal(harness.sessionOptions.recordingMode, "unattended");
 });
 
 test("proceeds with an authenticated private flow after authorization", async () => {
@@ -567,6 +586,19 @@ test("rejects recording surface selection before local or Browser activity", asy
     assert.equal(prepared.status, "blocked");
     assert.equal(prepared.blockers[0].code, "invalid_configuration");
   }
+  assert.equal(harness.calls.inspect, 0);
+  assert.equal(harness.calls.createSession, 0);
+});
+
+test("rejects an unknown recording mode before local or Browser activity", async () => {
+  const harness = createHarness();
+
+  const prepared = await harness.flow.prepareRecording(
+    recordingSpec({ recordingMode: "sometimes-hidden" }),
+  );
+
+  assert.equal(prepared.status, "blocked");
+  assert.equal(prepared.blockers[0].code, "invalid_configuration");
   assert.equal(harness.calls.inspect, 0);
   assert.equal(harness.calls.createSession, 0);
 });
@@ -1504,7 +1536,7 @@ test("returns a deterministic visibility blocker before approved actions and cle
   assert.equal(outcome.failure.code, "browser_visibility_unavailable");
   assert.equal(
     outcome.failure.summary,
-    "The Codex In-app Browser could not be shown",
+    "The Codex In-app Browser could not enter the approved visibility mode",
   );
   assert.doesNotMatch(JSON.stringify(outcome), /private Browser visibility/u);
   assert.equal(actionPerformed, false);

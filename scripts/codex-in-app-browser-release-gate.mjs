@@ -69,7 +69,9 @@ function qualificationEvidenceGateError(key, code) {
   if (code === "release_gate_visibility_failed") {
     return gateError(
       "release_gate_visibility_failed",
-      "Recording did not continue from visible to hidden Browser state",
+      key === "sequential"
+        ? "Unattended Recording did not begin and remain hidden"
+        : "Recording did not continue from visible to hidden Browser state",
     );
   }
   return gateError(
@@ -475,12 +477,13 @@ async function assertTabState(browser, baseline) {
 async function preparePlan(
   dependencies,
   workspace,
-  { actions, name, targetUrl },
+  { actions, name, recordingMode, targetUrl },
 ) {
   const prepared = await dependencies.prepareRecording({
     actions,
     destinationDirectory: workspace,
     durationWasExplicit: false,
+    recordingMode,
     recordingName: name,
     targetUrl,
     temporaryRoot: workspace,
@@ -556,7 +559,7 @@ async function runSuccessScenario({
     throw Object.assign(
       gateError(
         "browser_visibility_unavailable",
-        "The Codex In-app Browser could not be shown during release qualification",
+        "The Codex In-app Browser could not enter the approved visibility mode during release qualification",
       ),
       { scenario: key },
     );
@@ -705,6 +708,7 @@ export async function runCodexInAppBrowserReleaseGate(options) {
       embeddedFrame: configured.embeddedFrame,
       pointerHiddenFlow: configured.pointerHiddenFlow,
       runtime,
+      sequentialFlow: configured.sequentialFlow,
     });
     const plans = [
       {
@@ -713,7 +717,7 @@ export async function runCodexInAppBrowserReleaseGate(options) {
         name: SUCCESS_SCENARIOS[0].name,
       },
       {
-        ...configured.sequentialFlow,
+        ...instrumented.sequentialFlow,
         key: SUCCESS_SCENARIOS[1].key,
         name: SUCCESS_SCENARIOS[1].name,
       },
@@ -811,6 +815,7 @@ export async function runCodexInAppBrowserReleaseGate(options) {
             );
           }
           scenarios.sequential = Object.freeze({
+            actionEvidence: success.evidence,
             distinctOutput: true,
             media: success.media,
             status: "passed",
