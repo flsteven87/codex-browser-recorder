@@ -17,10 +17,16 @@ import {
   getReleaseQualificationScenario,
   getReleaseQualificationScenarios,
 } from "./codex-in-app-browser-release-scenarios.mjs";
+import {
+  RECORDING_FPS,
+  RECORDING_MAX_HEIGHT,
+  RECORDING_MAX_WIDTH,
+} from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-policy.mjs";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SURFACE = "Codex In-app Browser";
+const FRAME_RATE_TOLERANCE = 0.01;
 const VERSION_PATTERN = /^[\x20-\x7e]{1,160}$/u;
 const REVISION_PATTERN = /^[0-9a-f]{40}$/u;
 const RELEASE_QUALIFICATION_SCENARIOS =
@@ -220,15 +226,15 @@ function validateMediaEvidence(media) {
     media?.pixelFormat !== "yuv420p" ||
     !Number.isFinite(media?.framesPerSecond) ||
     media.framesPerSecond <= 0 ||
-    media.framesPerSecond > 10.01 ||
+    media.framesPerSecond > RECORDING_FPS + FRAME_RATE_TOLERANCE ||
     !Number.isFinite(media?.durationSeconds) ||
     media.durationSeconds <= 0 ||
     !Number.isInteger(media?.width) ||
     media.width <= 0 ||
-    media.width > 1280 ||
+    media.width > RECORDING_MAX_WIDTH ||
     !Number.isInteger(media?.height) ||
     media.height <= 0 ||
-    media.height > 720
+    media.height > RECORDING_MAX_HEIGHT
   ) {
     throw gateError(
       "media_qualification_failed",
@@ -236,13 +242,13 @@ function validateMediaEvidence(media) {
     );
   }
   return Object.freeze({
-    audioStreams: 0,
-    codecName: "h264",
-    container: "mp4",
+    audioStreams: media.audioStreams,
+    codecName: media.codecName,
+    container: media.container,
     durationSeconds: media.durationSeconds,
     framesPerSecond: media.framesPerSecond,
     height: media.height,
-    pixelFormat: "yuv420p",
+    pixelFormat: media.pixelFormat,
     width: media.width,
   });
 }
@@ -283,27 +289,10 @@ async function inspectPublishedVideo(outputPath) {
   );
   const width = Number(video?.width);
   const height = Number(video?.height);
-  if (
-    videoStreams.length !== 1 ||
-    audioStreams.length !== 0 ||
-    video?.codec_name !== "h264" ||
-    video?.pix_fmt !== "yuv420p" ||
-    !formats.includes("mp4") ||
-    !Number.isFinite(framesPerSecond) ||
-    framesPerSecond <= 0 ||
-    framesPerSecond > 10.01 ||
-    !Number.isFinite(durationSeconds) ||
-    durationSeconds <= 0 ||
-    !Number.isInteger(width) ||
-    width <= 0 ||
-    width > 1280 ||
-    !Number.isInteger(height) ||
-    height <= 0 ||
-    height > 720
-  ) {
+  if (videoStreams.length !== 1) {
     throw gateError(
       "media_qualification_failed",
-      "Published recording does not satisfy the release media contract",
+      "Published recording does not carry exactly one video stream",
     );
   }
   try {
@@ -328,14 +317,14 @@ async function inspectPublishedVideo(outputPath) {
       "Published recording could not be decoded",
     );
   }
-  return validateMediaEvidence({
-    audioStreams: 0,
-    codecName: "h264",
-    container: "mp4",
+  return Object.freeze({
+    audioStreams: audioStreams.length,
+    codecName: video?.codec_name,
+    container: formats.includes("mp4") ? "mp4" : formats[0],
     durationSeconds,
     framesPerSecond,
     height,
-    pixelFormat: "yuv420p",
+    pixelFormat: video?.pix_fmt,
     width,
   });
 }
