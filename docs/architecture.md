@@ -78,6 +78,7 @@ it is not the skill or caller interface.
 | Recording Flow | Request/output preparation, setup diagnostic-tab ownership, opaque authorization, action sequence, terminal outcomes | New actions after consent, raw diagnostics |
 | Internal coordinator | Artifact and fresh-tab ownership, initial Browser visibility, timers, per-action evidence, finalization, memoized verified tab cleanup | User-visible policy expansion |
 | Browser recording | Exact 6-parameter production interface, CDP acquisition, origin checks, direct screencast-frame consumption, and an internal limits/adapters seam | Publication and public error wording |
+| CDP event-batch contract | Shared batch shape, monotonic cursor validation, optional stream flags, and neutral truncation signalling | Caller-specific errors, truncation policy, read deadlines, or loop termination |
 | Cursor recording | Pointer observation, frame-coordinate mapping, cursor and click-feedback composition | Authenticating whether an event came from a person |
 | Artifact transaction | Private Working Recording, validation, collision-safe publication, rollback | Upload, sharing, playback, or deletion after delivery |
 
@@ -176,6 +177,7 @@ The fail-closed invariants are:
 | Local environment inspection | [`doctor.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/doctor.mjs) | [`doctor.test.mjs`](../tests/doctor.test.mjs) |
 | Internal session and owned-tab lifecycle | [`create-recording.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/create-recording.mjs) | [`create-recording.test.mjs`](../tests/create-recording.test.mjs) |
 | Browser/CDP capture and origin enforcement | [`browser-recording.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/browser-recording.mjs) | [`browser-recording.test.mjs`](../tests/browser-recording.test.mjs) |
+| CDP event-batch validation | [`cdp-event-batch.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/cdp-event-batch.mjs) | [`cdp-event-batch.test.mjs`](../tests/cdp-event-batch.test.mjs) |
 | Frame parsing, pumping, and encoding | [`media-recorder.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/media-recorder.mjs) | [`media-recorder.test.mjs`](../tests/media-recorder.test.mjs) |
 | Cursor evidence and composition | [`cursor-recording.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/cursor-recording.mjs) | [`cursor-recording.test.mjs`](../tests/cursor-recording.test.mjs) |
 | Artifact publication and rollback | [`recording-artifacts.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-artifacts.mjs) | [`recording-artifacts.test.mjs`](../tests/recording-artifacts.test.mjs) |

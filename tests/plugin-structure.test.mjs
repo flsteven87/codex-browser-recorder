@@ -20,6 +20,7 @@ const packageManifest = readJson(join(repositoryRoot, "package.json"));
 const skillRoot = join(pluginRoot, "skills", "record-browser");
 const requiredScripts = [
   "browser-recording.mjs",
+  "cdp-event-batch.mjs",
   "create-recording.mjs",
   "cursor-recording.mjs",
   "doctor.mjs",
