@@ -1,9 +1,9 @@
 # Changelog
 
-This file records published versions and their release notes. Versions follow
+This file records release candidates and published versions. Versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - 2026-07-25
+## [0.4.0] - Unreleased
 
 Browser Recorder 0.4.0 saves one approved Codex In-app Browser flow as a local
 silent H.264 MP4 on macOS.
