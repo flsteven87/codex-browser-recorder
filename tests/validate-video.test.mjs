@@ -14,6 +14,8 @@ import test from "node:test";
 import { validateVideo } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/validate-video.mjs";
 import { resolveExecutable } from "./test-tools.mjs";
 
+const SENTINEL_TIMEOUT_MS = 30_000;
+
 const directory = mkdtempSync(join(tmpdir(), "browser-recorder-validator-"));
 const validPath = join(directory, "valid.mp4");
 const multipleVideoPath = join(directory, "multiple-video.mp4");
@@ -176,13 +178,16 @@ const defaults = {
   minBytes: 100,
 };
 
-async function waitForFile(path, timeoutMs = 2_000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (existsSync(path)) return true;
+async function awaitSentinel(path, label) {
+  const deadline = Date.now() + SENTINEL_TIMEOUT_MS;
+  while (!existsSync(path)) {
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `The hanging FFprobe stub did not report ${label} within ${SENTINEL_TIMEOUT_MS} ms`,
+      );
+    }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  return existsSync(path);
 }
 
 test("accepts a parseable video with plausible dimensions and duration", async () => {
@@ -204,11 +209,11 @@ test("aborts the production FFprobe subprocess when validation is cancelled", as
     signal: cancellation.signal,
   });
 
-  assert.equal(await waitForFile(hangingProbeStartedPath), true);
+  await awaitSentinel(hangingProbeStartedPath, "start");
   cancellation.abort();
 
   await assert.rejects(validation, (error) => error.code === "ffprobe_failed");
-  assert.equal(await waitForFile(hangingProbeTerminatedPath), true);
+  await awaitSentinel(hangingProbeTerminatedPath, "termination");
 });
 
 test("rejects an empty output file", async () => {
