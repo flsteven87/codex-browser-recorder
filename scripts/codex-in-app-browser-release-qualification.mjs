@@ -1,6 +1,7 @@
 import { runCodexInAppBrowserReleaseGate } from "./codex-in-app-browser-release-gate.mjs";
 
 const VISIBILITY_POLL_INTERVAL_MS = 100;
+const VISIBILITY_PROBE_CLEANUP_TIMEOUT_MS = 5_000;
 const VISIBILITY_PROBE_TIMEOUT_MS = 10_000;
 
 export const RUNTIME_UNSUPPORTED_EMBEDDED_FRAME = Object.freeze({
@@ -88,6 +89,28 @@ function waitForPollInterval(clock) {
   );
 }
 
+function settleWithin(operation, timeoutMs, clock) {
+  const operationPromise = Promise.resolve().then(operation);
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer;
+    const finish = (settlement) => {
+      if (settled) return;
+      settled = true;
+      clock.clearTimeout(timer);
+      resolve(settlement);
+    };
+    timer = clock.setTimeout(
+      () => finish({ status: "timed_out" }),
+      timeoutMs,
+    );
+    operationPromise.then(
+      () => finish({ status: "fulfilled" }),
+      () => finish({ status: "rejected" }),
+    );
+  });
+}
+
 async function settleVisibility(visibility, target, clock, timeoutMs) {
   const startedAt = clock.now();
   let requestRejected = false;
@@ -134,6 +157,48 @@ async function settleVisibility(visibility, target, clock, timeoutMs) {
     }
     await waitForPollInterval(clock);
   }
+}
+
+async function closeVisibilityProbeTab(
+  browser,
+  tab,
+  { cleanupTimeoutMs, clock },
+) {
+  const tabId =
+    typeof tab?.id === "string" && tab.id.length > 0 ? tab.id : null;
+  let requiresClose = true;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const settlement = await settleWithin(
+      async () => {
+        if (requiresClose) {
+          await tab?.close();
+          requiresClose = false;
+        }
+        const tabs = await browser?.tabs?.list();
+        if (
+          tabId === null ||
+          !Array.isArray(tabs) ||
+          tabs.some((candidate) => candidate?.id === tabId)
+        ) {
+          requiresClose = true;
+          throw new Error("Owned visibility probe tab remains open");
+        }
+      },
+      cleanupTimeoutMs,
+      clock,
+    );
+    if (settlement.status === "fulfilled") return;
+    if (settlement.status === "timed_out") {
+      throw qualificationError(
+        "qualification_tab_cleanup_failed",
+        "The Codex In-app Browser visibility probe timed out while closing its fresh tab",
+      );
+    }
+  }
+  throw qualificationError(
+    "qualification_tab_cleanup_failed",
+    "The Codex In-app Browser visibility probe tab could not be closed",
+  );
 }
 
 export function createQualificationFlows({
@@ -189,37 +254,48 @@ export function createQualificationFlows({
 export async function probeCodexInAppBrowserVisibility({
   _dependencies,
   acquireBrowser,
+  cleanupTimeoutMs = VISIBILITY_PROBE_CLEANUP_TIMEOUT_MS,
   timeoutMs = VISIBILITY_PROBE_TIMEOUT_MS,
 }) {
   if (
     typeof acquireBrowser !== "function" ||
+    !Number.isInteger(cleanupTimeoutMs) ||
+    cleanupTimeoutMs <= 0 ||
     !Number.isInteger(timeoutMs) ||
     timeoutMs <= 0
   ) {
     throw invalidConfiguration("Visibility probe configuration is invalid");
   }
-  const clock = { now: Date.now, setTimeout, ..._dependencies };
+  const clock = { clearTimeout, now: Date.now, setTimeout, ..._dependencies };
   const browser = await acquireBrowser();
-  const visibility = await browser?.capabilities?.get("visibility");
-  if (
-    typeof visibility?.get !== "function" ||
-    typeof visibility?.set !== "function"
-  ) {
+  const tab = await browser?.tabs?.new();
+  try {
+    const visibility = await browser?.capabilities?.get("visibility");
+    if (
+      typeof visibility?.get !== "function" ||
+      typeof visibility?.set !== "function"
+    ) {
+      return Object.freeze({
+        capabilityAvailable: false,
+        hide: null,
+        show: null,
+        status: "failed",
+      });
+    }
+    const show = await settleVisibility(visibility, true, clock, timeoutMs);
+    const hide = await settleVisibility(visibility, false, clock, timeoutMs);
     return Object.freeze({
-      capabilityAvailable: false,
-      hide: null,
-      show: null,
-      status: "failed",
+      capabilityAvailable: true,
+      hide,
+      show,
+      status: show.settled && hide.settled ? "passed" : "failed",
+    });
+  } finally {
+    await closeVisibilityProbeTab(browser, tab, {
+      cleanupTimeoutMs,
+      clock,
     });
   }
-  const show = await settleVisibility(visibility, true, clock, timeoutMs);
-  const hide = await settleVisibility(visibility, false, clock, timeoutMs);
-  return Object.freeze({
-    capabilityAvailable: true,
-    hide,
-    show,
-    status: show.settled && hide.settled ? "passed" : "failed",
-  });
 }
 
 export function runCodexInAppBrowserReleaseQualification({
