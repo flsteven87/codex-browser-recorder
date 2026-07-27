@@ -310,11 +310,16 @@ test("public policies present a content-neutral Content Warning", () => {
   assert.doesNotMatch(terms, /\bselected Browser\b/iu);
 });
 
-test("keeps Background Recording as a developer-facing invariant only", () => {
+test("publishes explicit Interactive and Unattended Recording modes", () => {
   assert.match(
     architecture,
-    /Background Recording[^.]*visibility[^.]*capture correctness/iu,
+    /Interactive Recording[^.]*default[^.]*visible/iu,
   );
+  assert.match(architecture, /Unattended Recording[^.]*hidden/iu);
+  assert.match(readme, /Interactive Recording[^.]*default/iu);
+  assert.match(readme, /automated E2E QA[^.]*Unattended Recording/iu);
+  assert.match(skill, /recordingMode[^.]*interactive[^.]*default/iu);
+  assert.match(skill, /unattended[^.]*automated E2E QA/iu);
   for (const [label, source] of [
     ["README", readme],
     ["changelog", changelog],

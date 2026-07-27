@@ -420,6 +420,44 @@ test("shows the Browser before navigating its owned fresh tab", async () => {
   ]);
 });
 
+test("keeps the Browser hidden before unattended navigation", async () => {
+  const harness = createHarness();
+  const calls = [];
+  let browserVisible = true;
+  harness.browser.capabilities.get = async (name) => {
+    assert.equal(name, "visibility");
+    return {
+      async get() {
+        calls.push(`visibility:get:${browserVisible}`);
+        return browserVisible;
+      },
+      async set(visible) {
+        calls.push(`visibility:set:${visible}`);
+        browserVisible = visible;
+      },
+    };
+  };
+  harness.freshTab.goto = async () => {
+    calls.push(`goto:${browserVisible}`);
+  };
+
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    recordingMode: "unattended",
+    targetUrl: "https://example.com/",
+  });
+
+  await handle.ready;
+
+  assert.deepEqual(calls, [
+    "visibility:set:false",
+    "visibility:get:false",
+    "goto:false",
+  ]);
+  await handle.stop();
+});
+
 test("waits for an eventually visible Browser before navigating", async () => {
   const harness = createHarness();
   let visibilityGets = 0;
@@ -495,6 +533,42 @@ test("fails closed after the visibility deadline when the Browser stays hidden",
   assert.equal(harness.calls.tabClose, 1);
 });
 
+test("fails closed without revealing an unattended Browser", async () => {
+  const harness = createHarness();
+  const visibilitySets = [];
+  harness.browser.capabilities.get = async () => ({
+    async get() {
+      return true;
+    },
+    async set(visible) {
+      visibilitySets.push(visible);
+    },
+  });
+  let navigated = false;
+  harness.freshTab.goto = async () => {
+    navigated = true;
+  };
+  const handle = createRecording({
+    _dependencies: harness.dependencies,
+    browser: harness.browser,
+    recordingMode: "unattended",
+    targetUrl: "https://example.com/",
+  });
+
+  await settleWorkflow();
+  harness.clock.advance(5_000);
+
+  await assert.rejects(
+    handle.ready,
+    (error) => error.code === "browser_visibility_unavailable",
+  );
+  assert.deepEqual(visibilitySets, [false]);
+  assert.equal(navigated, false);
+  assert.equal(harness.calls.startRecording, 0);
+  assert.equal(harness.calls.artifactRollback, 1);
+  assert.equal(harness.calls.tabClose, 1);
+});
+
 test("returns a deterministic Technical Blocker and cleans up when the Browser cannot be shown", async () => {
   const harness = createHarness();
   const secret = "private Browser visibility diagnostic";
@@ -516,7 +590,7 @@ test("returns a deterministic Technical Blocker and cleans up when the Browser c
     assert.equal(error.code, "browser_visibility_unavailable");
     assert.equal(
       error.summary,
-      "The Codex In-app Browser could not be shown",
+      "The Codex In-app Browser could not enter the approved visibility mode",
     );
     assert.doesNotMatch(JSON.stringify(error), /private Browser visibility/u);
     return true;

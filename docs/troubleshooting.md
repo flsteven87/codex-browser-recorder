@@ -104,7 +104,7 @@ reported as their group code; for example, `frame_too_large` and
 
 | Failure group | Recognized public codes | What to do |
 | --- | --- | --- |
-| Browser visibility unavailable | `browser_visibility_unavailable` | Keep Codex open, make sure the Codex In-app Browser can be displayed, and retry. |
+| Browser visibility unavailable | `browser_visibility_unavailable` | Keep Codex open, make sure the Codex In-app Browser visibility can be controlled, and retry. |
 | Origin changed | `origin_not_allowed`, `origin_verification_failed`, `origin_changed_during_recording` | Start again and keep top-level navigation within the approved origin. |
 | Frame stream failed | `event_stream_invalid`, `frame_ack_failed`, `frame_stream_stalled`, `frame_stream_unavailable`, `frame_too_large`, `invalid_frame` | Confirm full CDP approval in the Codex In-app Browser and retry a shorter flow. |
 | Pointer evidence failed | `cursor_recording_failed` | Make each pointer action clear, then retry the flow. |

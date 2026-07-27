@@ -184,6 +184,7 @@ function assertPositivePolicyContract(cases) {
         {
           approvedOrigin: item.setup.approvedOrigin,
           durationMs,
+          recordingMode: "interactive",
           requirePointerEvents,
           targetUrl: item.setup.targetUrl,
         },

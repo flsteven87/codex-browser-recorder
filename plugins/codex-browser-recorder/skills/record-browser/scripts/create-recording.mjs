@@ -247,7 +247,12 @@ async function createFreshTab(browser, signal, clock) {
   }
 }
 
-async function showBrowser(browser, signal, clock) {
+async function establishBrowserVisibility(
+  browser,
+  targetVisible,
+  signal,
+  clock,
+) {
   const operationCancellation = new AbortController();
   const cancelOperation = () => operationCancellation.abort();
   addAbortListener(signal, cancelOperation);
@@ -266,15 +271,15 @@ async function showBrowser(browser, signal, clock) {
       throw new Error("Browser visibility capability is unavailable");
     }
     await awaitAbortable(
-      Promise.resolve().then(() => visibility.set(true)),
+      Promise.resolve().then(() => visibility.set(targetVisible)),
       operationCancellation.signal,
     );
     while (true) {
-      const visible = await awaitAbortable(
+      const observedVisible = await awaitAbortable(
         Promise.resolve().then(() => visibility.get()),
         operationCancellation.signal,
       );
-      if (visible === true) return;
+      if (observedVisible === targetVisible) return;
       await waitForClockDelay(
         clock,
         BROWSER_VISIBILITY_POLL_INTERVAL_MS,
@@ -989,8 +994,9 @@ export function createRecording(options) {
           dependencies.clock,
         );
         ownsFreshTab = true;
-        await showBrowser(
+        await establishBrowserVisibility(
           options.browser,
+          request.recordingMode === "interactive",
           cancellation.signal,
           dependencies.clock,
         );

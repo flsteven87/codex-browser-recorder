@@ -102,8 +102,10 @@ must:
    not the source of truth for whether the Codex Browser panel is shown. Let
    the visual-evidence callback independently confirm both pointer movement and
    click feedback.
-5. The sequential flow must be a second real action-driven recording. The
-   cross-origin flow must navigate outside its approved origin. Declare
+5. The sequential flow must be a second real action-driven recording. The gate
+   runs it as an Unattended Recording and verifies at its first production
+   action boundary that the Browser began and remained hidden. The cross-origin
+   flow must navigate outside its approved origin. Declare
    embedded-frame coverage as `exercised` only with exactly one pointer action
    that targets a child frame, for example:
 

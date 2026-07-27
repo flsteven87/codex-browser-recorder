@@ -268,6 +268,7 @@ export function createRecordingFlow({ dependencies: overrides } = {}) {
           durationMs: durationWasExplicit
             ? spec.durationMs
             : DEFAULT_RECORDING_DURATION_MS,
+          recordingMode: spec.recordingMode,
           requirePointerEvents: actions.some(
             ({ modality }) => modality === "pointer",
           ),
@@ -323,6 +324,7 @@ export function createRecordingFlow({ dependencies: overrides } = {}) {
             },
       ),
       output,
+      recordingMode: request.recordingMode,
       requirePointerEvents: request.requirePointerEvents,
     });
     const prepared = Object.freeze({ consent, status: "prepared" });
@@ -503,6 +505,7 @@ export function createRecordingFlow({ dependencies: overrides } = {}) {
           /[.]mp4$/u,
           "",
         ),
+        recordingMode: plan.request.recordingMode,
         requirePointerEvents: plan.request.requirePointerEvents,
         signal,
         targetUrl: plan.request.targetUrl,

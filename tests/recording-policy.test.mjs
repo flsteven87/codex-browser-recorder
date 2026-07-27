@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DEFAULT_RECORDING_MODE,
   DEFAULT_RECORDING_DURATION_MS,
   MAX_RECORDING_DURATION_MS,
   MIN_RECORDING_DURATION_MS,
@@ -29,10 +30,31 @@ test("normalizes approved HTTPS and loopback targets", () => {
     assert.deepEqual(validateRecordingRequest({ targetUrl }), {
       approvedOrigin,
       durationMs: DEFAULT_RECORDING_DURATION_MS,
+      recordingMode: DEFAULT_RECORDING_MODE,
       requirePointerEvents: false,
       targetUrl,
     });
   }
+});
+
+test("accepts only interactive and unattended recording modes", () => {
+  for (const recordingMode of ["interactive", "unattended"]) {
+    assert.equal(
+      validateRecordingRequest({
+        recordingMode,
+        targetUrl: "https://example.com/",
+      }).recordingMode,
+      recordingMode,
+    );
+  }
+  assert.throws(
+    () =>
+      validateRecordingRequest({
+        recordingMode: "automatic",
+        targetUrl: "https://example.com/",
+      }),
+    (error) => error.code === "invalid_configuration",
+  );
 });
 
 test("validates whether the approved flow requires pointer evidence", () => {

@@ -85,9 +85,10 @@ const MESSAGE_GROUPS = [
   },
   {
     codes: ["browser_visibility_unavailable"],
-    summary: "The Codex In-app Browser could not be shown",
+    summary:
+      "The Codex In-app Browser could not enter the approved visibility mode",
     remediation:
-      "Keep Codex open and make sure the Codex In-app Browser can be displayed, then try again",
+      "Keep Codex open and make sure the Codex In-app Browser visibility can be controlled, then try again",
   },
   {
     codes: ["unsupported_platform"],

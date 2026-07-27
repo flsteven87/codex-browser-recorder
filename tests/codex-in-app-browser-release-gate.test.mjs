@@ -163,7 +163,7 @@ function createHarness({
         prepared.options.recordingName !== "qualification-cancellation"
       ) {
         currentUrl = prepared.options.targetUrl;
-        visible = true;
+        visible = prepared.options.recordingMode !== "unattended";
         for (const action of prepared.options.actions) {
           await action.perform({ tab });
         }
@@ -486,6 +486,28 @@ test("uses gate-owned visibility and action-bound frame evidence instead of Page
   );
 });
 
+test("qualifies the sequential flow as an Unattended Recording", async () => {
+  const harness = createHarness();
+  const prepareRecording = harness.dependencies.prepareRecording;
+  let sequentialMode;
+  harness.options.dependencies = {
+    ...harness.dependencies,
+    async prepareRecording(options) {
+      if (options.recordingName === "qualification-sequential") {
+        sequentialMode = options.recordingMode;
+      }
+      return prepareRecording(options);
+    },
+  };
+
+  const result = await runCodexInAppBrowserReleaseGate(harness.options);
+
+  assert.equal(sequentialMode, "unattended");
+  assert.deepEqual(result.scenarios.sequential.actionEvidence, {
+    hiddenStartObserved: true,
+  });
+});
+
 test("qualifies the production flow only after explicit approval and deletes all evidence", async () => {
   const harness = createHarness();
 
@@ -559,6 +581,9 @@ test("qualifies the production flow only after explicit approval and deletes all
         },
       },
       sequential: {
+        actionEvidence: {
+          hiddenStartObserved: true,
+        },
         distinctOutput: true,
         media: {
           audioStreams: 0,

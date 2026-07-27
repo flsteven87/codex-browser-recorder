@@ -13,6 +13,7 @@ Collect the request without Browser activity:
 - For recording, require an HTTPS or approved loopback target plus either one or more concrete actions or an explicit passive duration.
 - Treat the normalized target site as the approved origin for the whole recording.
 - Set `durationWasExplicit` from the user's words. Use 15 seconds when omitted, but end after the last action and any bounded pointer-feedback tail. Require an explicit 5–60 second duration for passive or wait-only recording.
+- Set `recordingMode` to `interactive` by default. Use `unattended` only when the user explicitly requests an unattended, headless-style, background-start, or automated E2E QA recording. Both modes use the Codex In-app Browser; do not describe Unattended Recording as a separate headless Chromium surface.
 - Classify every action as `pointer`, `keyboard`, or `programmatic`. Pointer includes click, hover, drag, and pointer-positioned scroll.
 - Accept an optional absolute destination and privacy-safe recording name. Otherwise use `~/Downloads/Codex Browser Recordings/` and a timestamp name.
 
@@ -42,6 +43,7 @@ const preparation = await prepareRecording({
   durationWasExplicit,
   now: new Date(),
   preflightOnly,
+  recordingMode,
   recordingName,
   targetUrl,
   temporaryRoot,
@@ -93,6 +95,7 @@ If `status` is `blocked`, report every Technical Blocker in order using only its
 For `status: "prepared"`, present one compact confirmation before any Browser activity:
 
 - **What:** the approved site, concrete actions, and when the recording will end;
+- **Mode:** whether this is the default Interactive Recording, which shows the Browser before navigation, or an explicitly requested Unattended Recording, which begins and remains hidden;
 - **Where:** the exact local filename and folder; the MP4 has no audio and is not uploaded;
 - **What is visible:** the full page viewport, including visible embedded frames, plus cursor and click feedback for pointer actions; browser controls and other tabs are excluded;
 - **Content Warning:** the complete approved page viewport may include private, authenticated, or sensitive content. This warning is non-blocking; continue only if the user confirms they are authorized to record it and will handle the local file appropriately.
@@ -136,6 +139,10 @@ const outcome = await recordApproved(preparation, {
 ```
 
 The Recording Flow owns the fresh tab, navigation, CDP acquisition, first-frame gate, origin enforcement, per-action pointer evidence, duration, media validation, publication, rollback, verified exact-tab cleanup, and singleton release. It consumes the preparation exactly once and returns one terminal outcome. Do not call lower-level recording modules, perform extra actions, retry approval, broaden the origin, enable Developer mode, install packages, or switch the Browser. Never switch to another Recording Surface.
+
+The Recording Flow establishes and verifies the approved visibility mode before
+navigation. Never silently fall back between Interactive Recording and
+Unattended Recording.
 
 ## Report The Terminal Outcome
 

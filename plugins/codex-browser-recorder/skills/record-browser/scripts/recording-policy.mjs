@@ -8,8 +8,13 @@ export const RECORDING_MAX_DECODED_BYTES = 5 * 1024 * 1024;
 export const RECORDING_MAX_HEIGHT = 720;
 export const RECORDING_MAX_OUTPUT_BYTES = 500 * 1024 * 1024;
 export const RECORDING_MAX_WIDTH = 1280;
+export const DEFAULT_RECORDING_MODE = "interactive";
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const RECORDING_MODES = new Set([
+  DEFAULT_RECORDING_MODE,
+  "unattended",
+]);
 
 class RecordingPolicyError extends Error {
   constructor(code, message) {
@@ -29,6 +34,7 @@ export function originOf(value) {
 
 export function validateRecordingRequest({
   durationMs = DEFAULT_RECORDING_DURATION_MS,
+  recordingMode = DEFAULT_RECORDING_MODE,
   requirePointerEvents = false,
   targetUrl,
 }) {
@@ -74,9 +80,17 @@ export function validateRecordingRequest({
     );
   }
 
+  if (!RECORDING_MODES.has(recordingMode)) {
+    throw new RecordingPolicyError(
+      "invalid_configuration",
+      "Recording mode must be interactive or unattended",
+    );
+  }
+
   return {
     approvedOrigin: target.origin,
     durationMs,
+    recordingMode,
     requirePointerEvents,
     targetUrl,
   };
