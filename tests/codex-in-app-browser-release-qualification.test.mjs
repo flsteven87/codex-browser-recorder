@@ -19,11 +19,11 @@ const environmentEvidence = {
 function createClock() {
   let current = 0;
   return {
+    clearTimeout: clearImmediate,
     now: () => current,
     setTimeout: (callback, delay) => {
       current += delay;
-      queueMicrotask(callback);
-      return 0;
+      return setImmediate(callback);
     },
   };
 }
@@ -64,9 +64,14 @@ function createBrowser(capability) {
 
 function createTabDependentBrowser({
   closeLeavesTab = false,
+  closeNeverSettles = false,
   closeRejects = false,
+  closeRejectsOnce = false,
+  listRejectsOnce = false,
 } = {}) {
   const tabs = [];
+  let closeAttempts = 0;
+  let listAttempts = 0;
   const visibility = createVisibility({
     observe: () =>
       tabs.length > 0 && visibility.requested.at(-1) === true,
@@ -74,12 +79,22 @@ function createTabDependentBrowser({
   const browser = {
     capabilities: { get: async () => visibility.capability },
     tabs: {
-      list: async () => tabs.map(({ id }) => ({ id })),
+      list: async () => {
+        listAttempts += 1;
+        if (listRejectsOnce && listAttempts === 1) {
+          throw new Error("tabs.list rejected");
+        }
+        return tabs.map(({ id }) => ({ id }));
+      },
       new: async () => {
         const tab = {
           id: "visibility-probe-tab",
           close: async () => {
-            if (closeRejects) throw new Error("tab.close rejected");
+            closeAttempts += 1;
+            if (closeNeverSettles) return new Promise(() => {});
+            if (closeRejects || (closeRejectsOnce && closeAttempts === 1)) {
+              throw new Error("tab.close rejected");
+            }
             if (!closeLeavesTab) tabs.splice(tabs.indexOf(tab), 1);
           },
         };
@@ -88,7 +103,12 @@ function createTabDependentBrowser({
       },
     },
   };
-  return { browser, visibility };
+  return {
+    browser,
+    getCloseAttempts: () => closeAttempts,
+    getListAttempts: () => listAttempts,
+    visibility,
+  };
 }
 
 function createRuntime(capability) {
@@ -237,7 +257,9 @@ test("uses a fresh tab to probe visibility in an empty Browser", async () => {
 });
 
 test("fails when the owned visibility probe tab remains open", async () => {
-  const { browser } = createTabDependentBrowser({ closeLeavesTab: true });
+  const { browser, getCloseAttempts } = createTabDependentBrowser({
+    closeLeavesTab: true,
+  });
 
   await assert.rejects(
     probeCodexInAppBrowserVisibility({
@@ -246,18 +268,55 @@ test("fails when the owned visibility probe tab remains open", async () => {
     }),
     (error) => error.code === "qualification_tab_cleanup_failed",
   );
+  assert.equal(getCloseAttempts(), 2);
 });
 
 test("bounds an owned visibility probe tab close failure", async () => {
-  const { browser } = createTabDependentBrowser({ closeRejects: true });
+  const { browser } = createTabDependentBrowser({ closeNeverSettles: true });
 
-  await assert.rejects(
+  const outcome = await Promise.race([
     probeCodexInAppBrowserVisibility({
       _dependencies: createClock(),
       acquireBrowser: async () => browser,
-    }),
-    (error) => error.code === "qualification_tab_cleanup_failed",
-  );
+    }).then(
+      () => "unexpected_success",
+      (error) => error.code,
+    ),
+    new Promise((resolve) =>
+      setTimeout(() => resolve("still_pending"), 25),
+    ),
+  ]);
+
+  assert.equal(outcome, "qualification_tab_cleanup_failed");
+});
+
+test("retries owned visibility probe tab cleanup once", async () => {
+  const { browser, getCloseAttempts } = createTabDependentBrowser({
+    closeRejectsOnce: true,
+  });
+
+  const probe = await probeCodexInAppBrowserVisibility({
+    _dependencies: createClock(),
+    acquireBrowser: async () => browser,
+  });
+
+  assert.equal(probe.status, "passed");
+  assert.equal(getCloseAttempts(), 2);
+  assert.deepEqual(await browser.tabs.list(), []);
+});
+
+test("retries visibility probe tab inventory once without reclosing", async () => {
+  const { browser, getCloseAttempts, getListAttempts } =
+    createTabDependentBrowser({ listRejectsOnce: true });
+
+  const probe = await probeCodexInAppBrowserVisibility({
+    _dependencies: createClock(),
+    acquireBrowser: async () => browser,
+  });
+
+  assert.equal(probe.status, "passed");
+  assert.equal(getCloseAttempts(), 1);
+  assert.equal(getListAttempts(), 2);
 });
 
 test("separates a missing capability from a capability that never agrees", async () => {

@@ -1,6 +1,7 @@
 import { runCodexInAppBrowserReleaseGate } from "./codex-in-app-browser-release-gate.mjs";
 
 const VISIBILITY_POLL_INTERVAL_MS = 100;
+const VISIBILITY_PROBE_CLEANUP_TIMEOUT_MS = 5_000;
 const VISIBILITY_PROBE_TIMEOUT_MS = 10_000;
 
 export const RUNTIME_UNSUPPORTED_EMBEDDED_FRAME = Object.freeze({
@@ -88,6 +89,28 @@ function waitForPollInterval(clock) {
   );
 }
 
+function settleWithin(operation, timeoutMs, clock) {
+  const operationPromise = Promise.resolve().then(operation);
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer;
+    const finish = (settlement) => {
+      if (settled) return;
+      settled = true;
+      clock.clearTimeout(timer);
+      resolve(settlement);
+    };
+    timer = clock.setTimeout(
+      () => finish({ status: "timed_out" }),
+      timeoutMs,
+    );
+    operationPromise.then(
+      () => finish({ status: "fulfilled" }),
+      () => finish({ status: "rejected" }),
+    );
+  });
+}
+
 async function settleVisibility(visibility, target, clock, timeoutMs) {
   const startedAt = clock.now();
   let requestRejected = false;
@@ -136,29 +159,46 @@ async function settleVisibility(visibility, target, clock, timeoutMs) {
   }
 }
 
-async function closeVisibilityProbeTab(browser, tab) {
+async function closeVisibilityProbeTab(
+  browser,
+  tab,
+  { cleanupTimeoutMs, clock },
+) {
   const tabId =
     typeof tab?.id === "string" && tab.id.length > 0 ? tab.id : null;
-  try {
-    await tab?.close();
-    const tabs = await browser?.tabs?.list();
-    if (
-      tabId === null ||
-      !Array.isArray(tabs) ||
-      tabs.some(({ id }) => id === tabId)
-    ) {
+  let requiresClose = true;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const settlement = await settleWithin(
+      async () => {
+        if (requiresClose) {
+          await tab?.close();
+          requiresClose = false;
+        }
+        const tabs = await browser?.tabs?.list();
+        if (
+          tabId === null ||
+          !Array.isArray(tabs) ||
+          tabs.some((candidate) => candidate?.id === tabId)
+        ) {
+          requiresClose = true;
+          throw new Error("Owned visibility probe tab remains open");
+        }
+      },
+      cleanupTimeoutMs,
+      clock,
+    );
+    if (settlement.status === "fulfilled") return;
+    if (settlement.status === "timed_out") {
       throw qualificationError(
         "qualification_tab_cleanup_failed",
-        "The Codex In-app Browser visibility probe tab remains open",
+        "The Codex In-app Browser visibility probe timed out while closing its fresh tab",
       );
     }
-  } catch (error) {
-    if (error?.code === "qualification_tab_cleanup_failed") throw error;
-    throw qualificationError(
-      "qualification_tab_cleanup_failed",
-      "The Codex In-app Browser visibility probe tab could not be closed",
-    );
   }
+  throw qualificationError(
+    "qualification_tab_cleanup_failed",
+    "The Codex In-app Browser visibility probe tab could not be closed",
+  );
 }
 
 export function createQualificationFlows({
@@ -214,16 +254,19 @@ export function createQualificationFlows({
 export async function probeCodexInAppBrowserVisibility({
   _dependencies,
   acquireBrowser,
+  cleanupTimeoutMs = VISIBILITY_PROBE_CLEANUP_TIMEOUT_MS,
   timeoutMs = VISIBILITY_PROBE_TIMEOUT_MS,
 }) {
   if (
     typeof acquireBrowser !== "function" ||
+    !Number.isInteger(cleanupTimeoutMs) ||
+    cleanupTimeoutMs <= 0 ||
     !Number.isInteger(timeoutMs) ||
     timeoutMs <= 0
   ) {
     throw invalidConfiguration("Visibility probe configuration is invalid");
   }
-  const clock = { now: Date.now, setTimeout, ..._dependencies };
+  const clock = { clearTimeout, now: Date.now, setTimeout, ..._dependencies };
   const browser = await acquireBrowser();
   const tab = await browser?.tabs?.new();
   try {
@@ -248,7 +291,10 @@ export async function probeCodexInAppBrowserVisibility({
       status: show.settled && hide.settled ? "passed" : "failed",
     });
   } finally {
-    await closeVisibilityProbeTab(browser, tab);
+    await closeVisibilityProbeTab(browser, tab, {
+      cleanupTimeoutMs,
+      clock,
+    });
   }
 }
 

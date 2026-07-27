@@ -80,11 +80,13 @@ must:
    `acquireBrowser` callback, and require `status: "passed"`. The probe creates
    one fresh blank tab before requesting visibility because an empty Browser
    has no surface to present. It does not navigate or acquire CDP, and it closes
-   that exact tab and verifies its disappearance before returning. A failed
-   probe names which step broke: `capabilityAvailable: false` means the
-   capability is missing, `requestRejected` means `set()` itself failed, and a
-   settled `false` with a high `observations` count means the runtime accepted
-   `set()` without ever reporting the requested state. A rejected
+   that exact tab and verifies its disappearance before returning. Cleanup is
+   bounded and shares one retry across close, inventory, and still-listed-tab
+   failures. A failed probe names which step broke:
+   `capabilityAvailable: false` means the capability is missing,
+   `requestRejected` means `set()` itself failed, and a settled `false` with a
+   high `observations` count means the runtime accepted `set()` without ever
+   reporting the requested state. A rejected
    `qualification_tab_cleanup_failed` means the diagnostic tab needs manual
    cleanup. Interactive Recording cannot pass qualification while
    `show.settled` is `false`.
