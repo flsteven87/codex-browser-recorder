@@ -103,7 +103,6 @@ must:
      approveQualification,
      browserPluginVersion,
      codexDesktopVersion,
-     confirmPointerVisualEvidence,
    });
    ```
 
@@ -118,8 +117,9 @@ must:
    to add both fresh pointer evidence and a fresh captured frame inside the
    same production action boundary. CDP page-visibility events are recorded as
    diagnostic evidence only; they are not the source of truth for whether the
-   Codex Browser panel is shown. Let the visual-evidence callback independently
-   confirm both pointer movement and click feedback.
+   Codex Browser panel is shown. The harness decodes the resulting MP4 through
+   FFmpeg and independently requires two visible click rings plus cursor
+   movement between distinct positions.
 5. The sequential flow is a second real action-driven recording. The gate runs
    it as an Unattended Recording and verifies at its first production action
    boundary that the Browser began and remained hidden. The cross-origin flow

@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import {
+  copyFileSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
+import { renderCursorRecording } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/cursor-recording.mjs";
 import {
   DEFAULT_QUALIFICATION_FIXTURES,
   RUNTIME_UNSUPPORTED_EMBEDDED_FRAME,
@@ -8,7 +18,10 @@ import {
   probeCodexInAppBrowserVisibility,
   runCodexInAppBrowserReleaseQualification,
 } from "../scripts/codex-in-app-browser-release-qualification.mjs";
+import { createPointerMovementClickEvents } from "./pointer-visual-fixture.mjs";
+import { resolveExecutable } from "./test-tools.mjs";
 
+const ffmpegPath = resolveExecutable("ffmpeg");
 const environmentEvidence = {
   candidateRevision: "0123456789abcdef0123456789abcdef01234567",
   ffmpegVersion: "ffmpeg 8.1.2",
@@ -372,7 +385,7 @@ test("reports an unreadable visibility capability", async () => {
   assert.equal(probe.status, "failed");
 });
 
-test("satisfies the release gate and produces every qualification plan", async () => {
+test("defaults visual evidence and produces every qualification plan", async () => {
   const prepared = [];
   let consentCount;
 
@@ -385,7 +398,6 @@ test("satisfies the release gate and produces every qualification plan", async (
       },
       browserPluginVersion: "26.721.41059",
       codexDesktopVersion: "26.721.41059",
-      confirmPointerVisualEvidence: async () => true,
       dependencies: {
         async collectEnvironmentEvidence() {
           return environmentEvidence;
@@ -426,6 +438,182 @@ test("satisfies the release gate and produces every qualification plan", async (
     prepared[0].targetUrl,
     DEFAULT_QUALIFICATION_FIXTURES.pointerHidden.targetUrl,
   );
+});
+
+test("runs native encoded visual evidence through the qualification gate", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "native-qualification-"));
+  const inputPath = join(workspace, "base.mp4");
+  const pointerPath = join(workspace, "pointer.mp4");
+  const sequentialPath = join(workspace, "sequential.mp4");
+  let currentUrl = DEFAULT_QUALIFICATION_FIXTURES.pointerHidden.targetUrl;
+  let visible = true;
+  const visibility = {
+    get: async () => visible,
+    set: async (nextVisible) => {
+      visible = nextVisible;
+    },
+  };
+  const tab = {
+    playwright: {
+      getByRole: (role, { exact, name }) => ({
+        click: async () => {
+          assert.equal(role, "link");
+          assert.equal(exact, true);
+          currentUrl = new URL(
+            `#${encodeURIComponent(name)}`,
+            currentUrl,
+          ).href;
+        },
+      }),
+    },
+    url: async () => currentUrl,
+  };
+  const browser = {
+    capabilities: {
+      get: async (name) => {
+        assert.equal(name, "visibility");
+        return visibility;
+      },
+    },
+    tabs: {
+      list: async () => [{ id: "unrelated-tab" }],
+    },
+  };
+  const completed = (outputPath, capture = {}) => ({
+    cleanup: {},
+    paths: { outputPath },
+    result: {
+      capture,
+      failureCode: null,
+      status: "passed",
+    },
+    status: "completed",
+  });
+  try {
+    execFileSync(
+      ffmpegPath,
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=#204060:s=320x180:r=10:d=1",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-y",
+        inputPath,
+      ],
+      { stdio: "pipe" },
+    );
+    await renderCursorRecording({
+      ffmpegPath,
+      inputPath,
+      outputPath: pointerPath,
+      timeline: {
+        durationMs: 1000,
+        events: createPointerMovementClickEvents(),
+        viewport: { height: 180, width: 320 },
+      },
+    });
+    copyFileSync(pointerPath, sequentialPath);
+    rmSync(inputPath, { force: true });
+
+    const result = await runCodexInAppBrowserReleaseQualification({
+      acquireBrowser: async () => browser,
+      approveQualification: async () => true,
+      browserPluginVersion: "26.721.41059",
+      codexDesktopVersion: "26.721.41059",
+      dependencies: {
+        async collectEnvironmentEvidence() {
+          return environmentEvidence;
+        },
+        async createTemporaryWorkspace() {
+          return workspace;
+        },
+        async inspectPublishedVideo() {
+          return {
+            audioStreams: 0,
+            codecName: "h264",
+            container: "mp4",
+            durationSeconds: 1,
+            framesPerSecond: 10,
+            height: 180,
+            pixelFormat: "yuv420p",
+            width: 320,
+          };
+        },
+        async listWorkspaceEntries() {
+          return readdirSync(workspace);
+        },
+        async prepareRecording(options) {
+          return { consent: {}, options, status: "prepared" };
+        },
+        async recordApproved(prepared, { signal }) {
+          const { options } = prepared;
+          if (options.recordingName === "qualification-cross-origin") {
+            return {
+              cleanup: {},
+              paths: null,
+              result: {
+                failureCode: "origin_changed_during_recording",
+                status: "failed",
+              },
+              status: "failed",
+            };
+          }
+          if (options.recordingName === "qualification-cancellation") {
+            void options.actions[0].perform({ tab });
+            await new Promise((resolve) => {
+              signal.addEventListener("abort", resolve, { once: true });
+            });
+            return {
+              cleanup: {},
+              paths: null,
+              result: {
+                failureCode: "recording_cancelled",
+                status: "failed",
+              },
+              status: "cancelled",
+            };
+          }
+          currentUrl = options.targetUrl;
+          visible = options.recordingMode !== "unattended";
+          for (const action of options.actions) {
+            await action.perform({ tab });
+          }
+          return options.recordingName === "qualification-pointer-hidden"
+            ? completed(pointerPath, {
+                framesReceived: 12,
+                visibilityChanges: 2,
+                visibilityState: false,
+              })
+            : completed(sequentialPath);
+        },
+        async removePublishedRecording(outputPath) {
+          rmSync(outputPath, { force: true });
+        },
+        async removeTemporaryWorkspace() {
+          rmSync(workspace, { force: true, recursive: true });
+        },
+      },
+    });
+
+    assert.deepEqual(
+      result.scenarios.pointerSameOriginHidden.visualEvidence,
+      {
+        clickFeedbackVisible: true,
+        pointerMovementVisible: true,
+      },
+    );
+    assert.equal(result.status, "passed");
+  } finally {
+    rmSync(workspace, { force: true, recursive: true });
+  }
 });
 
 test("rejects an invalid probe configuration before acquiring a Browser", async () => {

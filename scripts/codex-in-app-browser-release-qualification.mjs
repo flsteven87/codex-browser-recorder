@@ -1,4 +1,5 @@
 import { runCodexInAppBrowserReleaseGate } from "./codex-in-app-browser-release-gate.mjs";
+import { confirmEncodedPointerVisualEvidence } from "./confirm-pointer-visual-evidence.mjs";
 
 const VISIBILITY_POLL_INTERVAL_MS = 100;
 const VISIBILITY_PROBE_CLEANUP_TIMEOUT_MS = 5_000;
@@ -303,7 +304,7 @@ export function runCodexInAppBrowserReleaseQualification({
   approveQualification,
   browserPluginVersion,
   codexDesktopVersion,
-  confirmPointerVisualEvidence,
+  confirmPointerVisualEvidence = confirmEncodedPointerVisualEvidence,
   dependencies,
   embeddedFrame = RUNTIME_UNSUPPORTED_EMBEDDED_FRAME,
   fixtures = DEFAULT_QUALIFICATION_FIXTURES,
