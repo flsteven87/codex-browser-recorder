@@ -19,7 +19,7 @@ import {
   parseScreencastFrame,
   startFramePump,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/media-recorder.mjs";
-import { startBrowserRecording as startBrowserRecordingProduction } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/browser-recording.mjs";
+import { startBrowserRecordingInternal } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/browser-recording.mjs";
 import { resolveExecutable } from "./test-tools.mjs";
 
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
@@ -53,12 +53,22 @@ async function renderTestCursor({ inputPath, outputPath }) {
   return { outputBytes, outputPath };
 }
 
-function startBrowserRecording(options) {
-  return startBrowserRecordingProduction({
+const DEFAULT_TEST_RECORDING_LIMITS = {
+  fps: 10,
+  maxDecodedBytes: 1024,
+  readTimeoutMs: 1,
+};
+
+function startTestBrowserRecording({ adapters, limits, ...options }) {
+  return startBrowserRecordingInternal({
     ...options,
-    cursorCaptureFactory:
-      options.cursorCaptureFactory ?? createTestCursorCapture,
-    cursorRenderer: options.cursorRenderer ?? renderTestCursor,
+    requirePointerEvents: options.requirePointerEvents ?? false,
+    limits: { ...DEFAULT_TEST_RECORDING_LIMITS, ...limits },
+    adapters: {
+      cursorCapture: createTestCursorCapture,
+      cursorRenderer: renderTestCursor,
+      ...adapters,
+    },
   });
 }
 
@@ -260,16 +270,20 @@ function createNavigationSessionHarness({
     sink,
     sinkStopOptions,
     start() {
-      return startBrowserRecording({
+      return startTestBrowserRecording({
         approvedOrigin,
         cdp,
         ffmpegPath: "/unused/ffmpeg",
-        fps: 10,
-        maxDecodedBytes: 1024,
-        maxDurationMs: 50,
+        limits: {
+          fps: 10,
+          maxDecodedBytes: 1024,
+          maxDurationMs: 50,
+          readTimeoutMs: 0,
+        },
         outputPath: "/tmp/unused.mp4",
-        readTimeoutMs: 0,
-        sinkFactory: () => sink,
+        adapters: {
+          sink: () => sink,
+        },
       });
     },
   };
@@ -1044,15 +1058,12 @@ test("terminates the Browser session when the encoder exits early", async () => 
   sink.completion = new Promise((resolve) => {
     resolveEncoderCompletion = resolve;
   });
-  const session = await startBrowserRecording({
+  const session = await startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: createLiveCdp(operations),
     ffmpegPath: "/unused/ffmpeg",
-    fps: 10,
-    maxDecodedBytes: 1024,
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
-    sinkFactory: () => sink,
+    adapters: { sink: () => sink },
   });
 
   await session.ready;
@@ -1074,20 +1085,19 @@ test("fails closed when an approved pointer flow captures no pointer event", asy
   const operations = [];
   const sink = createMemorySink(operations);
   let renderCalls = 0;
-  const session = await startBrowserRecording({
+  const session = await startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: createLiveCdp(operations),
-    cursorRenderer: async () => {
-      renderCalls += 1;
-      return { outputBytes: 1, outputPath: "/tmp/unused.mp4" };
+    adapters: {
+      cursorRenderer: async () => {
+        renderCalls += 1;
+        return { outputBytes: 1, outputPath: "/tmp/unused.mp4" };
+      },
+      sink: () => sink,
     },
     ffmpegPath: "/unused/ffmpeg",
-    fps: 10,
-    maxDecodedBytes: 1024,
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
     requirePointerEvents: true,
-    sinkFactory: () => sink,
   });
 
   await session.ready;
@@ -1319,14 +1329,11 @@ test("rejects a CDP event cursor that moves backwards", async () => {
 
 test("validates the CDP boundary before starting a recording", async () => {
   await assert.rejects(
-    startBrowserRecording({
+    startTestBrowserRecording({
       approvedOrigin: "https://example.com",
       cdp: {},
       ffmpegPath: "/unused/ffmpeg",
-      fps: 10,
-      maxDecodedBytes: 1024,
       outputPath: "/tmp/unused.mp4",
-      readTimeoutMs: 1,
     }),
     (error) => error.code === "invalid_configuration",
   );
@@ -1387,17 +1394,16 @@ test("starts from a captured cursor and finalizes every recorder component", asy
   };
   let sinkFactoryOptions;
 
-  const session = await startBrowserRecording({
+  const session = await startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp,
     ffmpegPath: "/unused/ffmpeg",
-    fps: 10,
-    maxDecodedBytes: 1024,
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
-    sinkFactory: (options) => {
-      sinkFactoryOptions = options;
-      return sink;
+    adapters: {
+      sink: (options) => {
+        sinkFactoryOptions = options;
+        return sink;
+      },
     },
   });
 
@@ -1488,15 +1494,12 @@ test("does not acknowledge buffered frames after shutdown begins", async () => {
   };
   const sink = createMemorySink(operations);
 
-  const session = await startBrowserRecording({
+  const session = await startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp,
     ffmpegPath: "/unused/ffmpeg",
-    fps: 10,
-    maxDecodedBytes: 1024,
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
-    sinkFactory: () => sink,
+    adapters: { sink: () => sink },
   });
 
   await session.ready;
@@ -1654,15 +1657,17 @@ test("rejects cross-origin navigation before a later streamed frame", async () =
     framesAccepted += 1;
     return true;
   };
-  const session = await startBrowserRecording({
+  const session = await startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp,
     ffmpegPath: "/unused/ffmpeg",
-    fps: 10,
-    maxDecodedBytes: 1024,
+    limits: {
+      fps: 10,
+      maxDecodedBytes: 1024,
+      readTimeoutMs: 0,
+    },
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 0,
-    sinkFactory: () => sink,
+    adapters: { sink: () => sink },
   });
   cdp.publish(frameEvent());
   await session.ready;
@@ -1772,16 +1777,15 @@ test("fails readiness when no screencast frame arrives before the timeout", asyn
       return this.stats;
     },
   };
-  const session = await startBrowserRecording({
+  const session = await startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp,
     ffmpegPath: "/unused/ffmpeg",
-    firstFrameTimeoutMs: 5,
-    fps: 10,
-    maxDecodedBytes: 1024,
+    limits: {
+      firstFrameTimeoutMs: 5,
+    },
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
-    sinkFactory: () => sink,
+    adapters: { sink: () => sink },
   });
 
   try {
@@ -1824,16 +1828,15 @@ test("does not depend on a separate page screenshot for readiness", async () => 
     }
     return send(method, params);
   };
-  const session = await startBrowserRecording({
+  const session = await startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp,
     ffmpegPath: "/unused/ffmpeg",
-    firstFrameTimeoutMs: 20,
-    fps: 10,
-    maxDecodedBytes: 1024,
+    limits: {
+      firstFrameTimeoutMs: 20,
+    },
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
-    sinkFactory: () => createMemorySink(),
+    adapters: { sink: () => createMemorySink() },
   });
 
   await session.ready;
@@ -1883,16 +1886,15 @@ test("excludes startup wait from capture time with a monotonic clock", async () 
       return this.stats;
     },
   };
-  const session = await startBrowserRecording({
+  const session = await startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp,
     ffmpegPath: "/unused/ffmpeg",
-    fps: 10,
-    maxDecodedBytes: 1024,
-    now: () => clockValues.shift(),
+    adapters: {
+      now: () => clockValues.shift(),
+      sink: () => sink,
+    },
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
-    sinkFactory: () => sink,
   });
 
   await session.ready;
@@ -1921,16 +1923,15 @@ test("stops screencasting when encoder startup fails", async () => {
   };
 
   await assert.rejects(
-    startBrowserRecording({
+    startTestBrowserRecording({
       approvedOrigin: "https://example.com",
       cdp,
       ffmpegPath: "/unused/ffmpeg",
-      fps: 10,
-      maxDecodedBytes: 1024,
       outputPath: "/tmp/unused.mp4",
-      readTimeoutMs: 1,
-      sinkFactory: () => {
-        throw startupError;
+      adapters: {
+        sink: () => {
+          throw startupError;
+        },
       },
     }),
     (error) => error === startupError,
@@ -1950,7 +1951,7 @@ test("retains cancellation while Page.enable startup is pending", async () => {
   const operations = [];
   let reads = 0;
   let sinkCreations = 0;
-  const starting = startBrowserRecording({
+  const starting = startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: {
       async readEvents() {
@@ -1978,15 +1979,16 @@ test("retains cancellation while Page.enable startup is pending", async () => {
       },
     },
     ffmpegPath: "/unused/ffmpeg",
-    firstFrameTimeoutMs: 10,
-    fps: 10,
-    maxDecodedBytes: 1024,
+    limits: {
+      firstFrameTimeoutMs: 10,
+    },
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
     signal: abortController.signal,
-    sinkFactory: () => {
-      sinkCreations += 1;
-      return createMemorySink(operations);
+    adapters: {
+      sink: () => {
+        sinkCreations += 1;
+        return createMemorySink(operations);
+      },
     },
   });
 
@@ -2027,7 +2029,7 @@ test("keeps cancellation primary after screencast startup cleanup fails", async 
   const cleanupSecret = "private cancelled-startup cleanup diagnostic";
   const operations = [];
   let sinkCreations = 0;
-  const starting = startBrowserRecording({
+  const starting = startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: {
       async readEvents() {
@@ -2051,15 +2053,16 @@ test("keeps cancellation primary after screencast startup cleanup fails", async 
       },
     },
     ffmpegPath: "/unused/ffmpeg",
-    firstFrameTimeoutMs: 10,
-    fps: 10,
-    maxDecodedBytes: 1024,
+    limits: {
+      firstFrameTimeoutMs: 10,
+    },
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
     signal: abortController.signal,
-    sinkFactory: () => {
-      sinkCreations += 1;
-      return createMemorySink(operations);
+    adapters: {
+      sink: () => {
+        sinkCreations += 1;
+        return createMemorySink(operations);
+      },
     },
   });
 
@@ -2102,19 +2105,20 @@ test("discards a created sink when cancellation lands during startup handoff", a
     sink.stats.encoderExitCode = 0;
     return sink.stats;
   };
-  const starting = startBrowserRecording({
+  const starting = startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: createLiveCdp(operations),
     ffmpegPath: "/unused/ffmpeg",
-    firstFrameTimeoutMs: 10,
-    fps: 10,
-    maxDecodedBytes: 1024,
+    limits: {
+      firstFrameTimeoutMs: 10,
+    },
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
     signal: abortController.signal,
-    sinkFactory: () => {
-      abortController.abort();
-      return sink;
+    adapters: {
+      sink: () => {
+        abortController.abort();
+        return sink;
+      },
     },
   });
 
@@ -2145,16 +2149,13 @@ test("discards a created sink when cancellation lands during startup handoff", a
 test("cancels and cleans up an active recording through AbortSignal", async () => {
   const operations = [];
   const abortController = new AbortController();
-  const session = await startBrowserRecording({
+  const session = await startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: createLiveCdp(operations),
     ffmpegPath: "/unused/ffmpeg",
-    fps: 10,
-    maxDecodedBytes: 1024,
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
     signal: abortController.signal,
-    sinkFactory: () => createMemorySink(operations),
+    adapters: { sink: () => createMemorySink(operations) },
   });
 
   await session.ready;
@@ -2176,16 +2177,18 @@ test("cancels and cleans up an active recording through AbortSignal", async () =
 });
 
 test("stops a recording at the configured duration limit", async () => {
-  const session = await startBrowserRecording({
+  const session = await startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: createLiveCdp(),
     ffmpegPath: "/unused/ffmpeg",
-    fps: 10,
-    maxDecodedBytes: 1024,
-    maxDurationMs: 15,
+    limits: {
+      fps: 10,
+      maxDecodedBytes: 1024,
+      maxDurationMs: 15,
+      readTimeoutMs: 1,
+    },
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
-    sinkFactory: () => createMemorySink(),
+    adapters: { sink: () => createMemorySink() },
   });
 
   await session.ready;
@@ -2199,17 +2202,19 @@ test("stops a recording at the configured duration limit", async () => {
 
 test("arms the duration limit only after the first frame is ready", async () => {
   const cdp = createQueuedCdp();
-  const session = await startBrowserRecording({
+  const session = await startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp,
     ffmpegPath: "/unused/ffmpeg",
-    firstFrameTimeoutMs: 100,
-    fps: 10,
-    maxDecodedBytes: 1024,
-    maxDurationMs: 20,
+    limits: {
+      firstFrameTimeoutMs: 100,
+      fps: 10,
+      maxDecodedBytes: 1024,
+      maxDurationMs: 20,
+      readTimeoutMs: 0,
+    },
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 0,
-    sinkFactory: () => createMemorySink(),
+    adapters: { sink: () => createMemorySink() },
   });
 
   await new Promise((resolve) => setTimeout(resolve, 15));
@@ -2226,18 +2231,22 @@ test("arms the duration limit only after the first frame is ready", async () => 
 });
 
 test("stops when the configured output size limit is exceeded", async () => {
-  const session = await startBrowserRecording({
+  const session = await startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: createLiveCdp(),
     ffmpegPath: "/unused/ffmpeg",
-    fps: 10,
-    getOutputSize: async () => 101,
-    maxDecodedBytes: 1024,
-    maxOutputBytes: 100,
+    limits: {
+      fps: 10,
+      maxDecodedBytes: 1024,
+      maxOutputBytes: 100,
+      readTimeoutMs: 1,
+      resourceCheckIntervalMs: 5,
+    },
+    adapters: {
+      outputSize: async () => 101,
+      sink: () => createMemorySink(),
+    },
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
-    resourceCheckIntervalMs: 5,
-    sinkFactory: () => createMemorySink(),
   });
 
   await session.ready;
@@ -2251,16 +2260,15 @@ test("stops when the configured output size limit is exceeded", async () => {
 });
 
 test("keeps recording a static page after its first screencast frame", async () => {
-  const session = await startBrowserRecording({
+  const session = await startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: createLiveCdp(),
     ffmpegPath: "/unused/ffmpeg",
-    fps: 10,
-    maxDecodedBytes: 1024,
+    limits: {
+      resourceCheckIntervalMs: 5,
+    },
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
-    resourceCheckIntervalMs: 5,
-    sinkFactory: () => createMemorySink(),
+    adapters: { sink: () => createMemorySink() },
   });
 
   await session.ready;
@@ -2282,15 +2290,12 @@ test("seeds a static recording from the first streamed frame", async () => {
     sink.stats.outputSamples += 1;
     return true;
   };
-  const session = await startBrowserRecording({
+  const session = await startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp: createLiveCdp([], streamedFrame),
     ffmpegPath: "/unused/ffmpeg",
-    fps: 10,
-    maxDecodedBytes: 1024,
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
-    sinkFactory: () => sink,
+    adapters: { sink: () => sink },
   });
 
   await session.ready;
@@ -2322,15 +2327,12 @@ test("passes every acknowledged screencast frame directly to the sink", async ()
     if (acceptedFrames.length === 2) laterFrameAccepted.resolve();
     return true;
   };
-  const session = await startBrowserRecording({
+  const session = await startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp,
     ffmpegPath: "/unused/ffmpeg",
-    fps: 10,
-    maxDecodedBytes: 1024,
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
-    sinkFactory: () => sink,
+    adapters: { sink: () => sink },
   });
 
   cdp.publish(
@@ -2358,16 +2360,15 @@ test("fails closed when the first streamed frame is malformed", async () => {
     sink.stats.encoderExitCode = 0;
     return sink.stats;
   };
-  const session = await startBrowserRecording({
+  const session = await startTestBrowserRecording({
     approvedOrigin: "https://example.com",
     cdp,
     ffmpegPath: "/unused/ffmpeg",
-    firstFrameTimeoutMs: 5,
-    fps: 10,
-    maxDecodedBytes: 1024,
+    limits: {
+      firstFrameTimeoutMs: 5,
+    },
     outputPath: "/tmp/unused.mp4",
-    readTimeoutMs: 1,
-    sinkFactory: () => sink,
+    adapters: { sink: () => sink },
   });
   cdp.publish(frameEvent({ data: privateDiagnostic }));
 

@@ -223,7 +223,6 @@ function createHarness({
       if (rawRecordingOptions === undefined) return undefined;
       return {
         approvedOrigin: rawRecordingOptions.approvedOrigin,
-        maxDurationMs: rawRecordingOptions.maxDurationMs,
         requirePointerEvents: rawRecordingOptions.requirePointerEvents,
       };
     },
@@ -282,9 +281,9 @@ test("returns a preparing handle and validates before allocating Browser resourc
   await handle.ready;
   assert.deepEqual(harness.recordingOptions, {
     approvedOrigin: "https://example.com",
-    maxDurationMs: 65_000,
     requirePointerEvents: true,
   });
+  assert.equal("maxDurationMs" in harness.rawRecordingOptions, false);
   assert.equal("maxDecodedBytes" in harness.rawRecordingOptions, false);
   assert.equal("maxOutputBytes" in harness.rawRecordingOptions, false);
   assert.equal("maxWidth" in harness.rawRecordingOptions, false);
