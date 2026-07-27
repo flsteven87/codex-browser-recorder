@@ -140,6 +140,49 @@ test("starts cursor capture at the retained Browser event baseline", async () =>
   assert.deepEqual((await stopping).events, []);
 });
 
+test("rejects a negative CDP event cursor", async () => {
+  await assert.rejects(
+    startCursorCapture({
+      cdp: {
+        async readEvents() {
+          return {
+            cursor: -1,
+            events: [],
+            hasMore: false,
+            truncated: false,
+          };
+        },
+        async send() {},
+      },
+      mainFrameId: "main-frame",
+      now: () => 0,
+    }),
+    {
+      code: "cursor_recording_failed",
+      message: "Cursor recording could not be completed",
+    },
+  );
+});
+
+test("rejects a CDP event batch that omits the drain flag", async () => {
+  await assert.rejects(
+    startCursorCapture({
+      cdp: {
+        async readEvents() {
+          return { cursor: 0, events: [], truncated: false };
+        },
+        async send() {},
+      },
+      mainFrameId: "main-frame",
+      now: () => 0,
+    }),
+    {
+      code: "cursor_recording_failed",
+      message: "Cursor recording could not be completed",
+    },
+  );
+});
+
 test("captures a top-frame pointer event through an isolated world", async () => {
   const eventRead = deferred();
   const finalRead = deferred();

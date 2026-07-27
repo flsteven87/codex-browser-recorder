@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { rename, rm, stat } from "node:fs/promises";
 
+import { normalizeCdpEventBatch } from "./cdp-event-batch.mjs";
 import {
   RECORDING_MAX_HEIGHT,
   RECORDING_MAX_WIDTH,
@@ -89,22 +90,6 @@ function validateFramePumpConfiguration({
     throw new RecorderError(
       "invalid_configuration",
       "Frame pump configuration is invalid",
-    );
-  }
-}
-
-function validateEventBatch(batch, currentCursor) {
-  if (
-    batch === null ||
-    typeof batch !== "object" ||
-    !Number.isInteger(batch.cursor) ||
-    batch.cursor < 0 ||
-    (currentCursor !== undefined && batch.cursor < currentCursor) ||
-    !Array.isArray(batch.events)
-  ) {
-    throw new RecorderError(
-      "event_stream_invalid",
-      "CDP event stream returned an invalid batch",
     );
   }
 }
@@ -266,7 +251,7 @@ export function startFramePump({
 
   const loop = (async () => {
     while (!stopped) {
-      const batch = await readEventsWithinDeadline(
+      const eventBatch = await readEventsWithinDeadline(
         cdp,
         {
           afterSequence: cursor,
@@ -276,8 +261,13 @@ export function startFramePump({
         },
         dependencies,
       );
-
-      validateEventBatch(batch, cursor);
+      const batch = normalizeCdpEventBatch(eventBatch, cursor);
+      if (batch === null) {
+        throw new RecorderError(
+          "event_stream_invalid",
+          "CDP event stream returned an invalid batch",
+        );
+      }
 
       if (batch.truncated) {
         stats.truncations += 1;

@@ -620,11 +620,15 @@ test("fails closed before processing any event from a truncated batch", async ()
 
   await assert.rejects(
     pump.ready,
-    (error) => error.code === "event_stream_invalid",
+    (error) =>
+      error.code === "event_stream_invalid" &&
+      error.message === "CDP event stream was truncated",
   );
   await assert.rejects(
     pump.stop(),
-    (error) => error.code === "event_stream_invalid",
+    (error) =>
+      error.code === "event_stream_invalid" &&
+      error.message === "CDP event stream was truncated",
   );
 
   assert.equal(framesProcessed, 0);
@@ -1154,6 +1158,39 @@ test("rejects malformed CDP event batches with a stable failure code", async () 
     pump.stop(),
     (error) => error.code === "event_stream_invalid",
   );
+});
+
+test("rejects non-boolean CDP event batch flags", async () => {
+  for (const invalidBatch of [
+    { cursor: 1, events: [], hasMore: "false", truncated: false },
+    { cursor: 1, events: [], hasMore: false, truncated: 1 },
+  ]) {
+    const pump = startFramePump({
+      cdp: {
+        async readEvents() {
+          return invalidBatch;
+        },
+        async send() {},
+      },
+      maxDecodedBytes: 1024,
+      onFrame: () => true,
+      onTopFrameNavigation() {},
+      readTimeoutMs: 1,
+    });
+
+    await assert.rejects(
+      pump.ready,
+      (error) =>
+        error.code === "event_stream_invalid" &&
+        error.message === "CDP event stream returned an invalid batch",
+    );
+    await assert.rejects(
+      pump.stop(),
+      (error) => error.code === "event_stream_invalid",
+    );
+    assert.equal(pump.stats.cursor, 0);
+    assert.equal(pump.stats.truncations, 0);
+  }
 });
 
 test("maps CDP detachment to a privacy-safe stream failure", async () => {
