@@ -1,3 +1,5 @@
+import { getReleaseQualificationScenarios } from "./codex-in-app-browser-release-scenarios.mjs";
+
 const EVIDENCE_TIMEOUT_MS = 5_000;
 
 function evidenceError(code, message) {
@@ -307,7 +309,6 @@ function unattendedEvidenceFlow(flow, runtime) {
     ...flow,
     actions: Object.freeze(actions.map((action) => Object.freeze(action))),
     evidence,
-    recordingMode: "unattended",
   };
 }
 
@@ -399,94 +400,117 @@ function embeddedFrameEvidenceFlow(flow) {
   };
 }
 
-export function instrumentReleaseQualificationFlows({
-  embeddedFrame,
-  pointerHiddenFlow,
-  runtime,
-  sequentialFlow,
-}) {
+const EVIDENCE_INSTRUMENTERS = Object.freeze({
+  embedded_frame(flow) {
+    return flow.status === "exercised"
+      ? embeddedFrameEvidenceFlow(flow)
+      : flow;
+  },
+  pointer_hidden: pointerHiddenEvidenceFlow,
+  unattended: unattendedEvidenceFlow,
+});
+
+function verifyPointerHiddenEvidence(capture, evidence) {
+  if (
+    evidence?.step !== 3 ||
+    evidence.sameOriginNavigationObserved !== true ||
+    evidence.hiddenTransitionObserved !== true ||
+    evidence.hiddenPointerActionObserved !== true
+  ) {
+    throw evidenceError(
+      "release_gate_action_evidence_failed",
+      "Pointer qualification did not produce the required action evidence",
+    );
+  }
+  if (
+    !Number.isInteger(capture?.framesReceived) ||
+    capture.framesReceived < 1
+  ) {
+    throw evidenceError(
+      "release_gate_visibility_failed",
+      "Recording did not continue after the Browser became hidden",
+    );
+  }
   return Object.freeze({
-    embeddedFrame:
-      embeddedFrame.status === "exercised"
-        ? embeddedFrameEvidenceFlow(embeddedFrame)
-        : embeddedFrame,
-    pointerHiddenFlow: pointerHiddenEvidenceFlow(
-      pointerHiddenFlow,
-      runtime,
-    ),
-    sequentialFlow: unattendedEvidenceFlow(sequentialFlow, runtime),
+    hiddenFrameContinuationObserved: true,
+    hiddenPointerActionObserved: true,
+    hiddenTransitionObserved: true,
+    pageVisibilityChanges:
+      Number.isInteger(capture.visibilityChanges)
+        ? capture.visibilityChanges
+        : null,
+    pageVisibilityState:
+      typeof capture.visibilityState === "boolean"
+        ? capture.visibilityState
+        : null,
+    sameOriginNavigationObserved: true,
   });
+}
+
+function verifyEmbeddedFrameEvidence(capture, evidence) {
+  if (
+    evidence?.actionObserved !== true ||
+    !Number.isInteger(evidence.childFrameCount) ||
+    evidence.childFrameCount < 1 ||
+    !Number.isInteger(capture?.cursorChildFrameEventsCaptured) ||
+    capture.cursorChildFrameEventsCaptured < 1
+  ) {
+    throw evidenceError(
+      "embedded_frame_qualification_failed",
+      "Embedded-frame qualification lacked child-frame pointer evidence",
+    );
+  }
+  return Object.freeze({
+    childFrameObserved: true,
+    childFramePointerEventsCaptured:
+      capture.cursorChildFrameEventsCaptured,
+    childFramesObserved: evidence.childFrameCount,
+  });
+}
+
+function verifyUnattendedEvidence(_capture, evidence) {
+  if (evidence?.hiddenStartObserved !== true) {
+    throw evidenceError(
+      "release_gate_visibility_failed",
+      "Unattended qualification did not begin and remain hidden",
+    );
+  }
+  return Object.freeze({ hiddenStartObserved: true });
+}
+
+const EVIDENCE_VERIFIERS = Object.freeze({
+  embedded_frame: verifyEmbeddedFrameEvidence,
+  pointer_hidden: verifyPointerHiddenEvidence,
+  unattended: verifyUnattendedEvidence,
+});
+
+export function instrumentReleaseQualificationFlows({ flows, runtime }) {
+  return Object.freeze(
+    Object.fromEntries(
+      getReleaseQualificationScenarios()
+        .filter(({ flowProperty }) => flowProperty !== null)
+        .map((scenario) => {
+          const flow = flows[scenario.flowProperty];
+          const instrument = EVIDENCE_INSTRUMENTERS[scenario.evidenceKind];
+          return [
+            scenario.key,
+            typeof instrument === "function"
+              ? instrument(flow, runtime)
+              : flow,
+          ];
+        }),
+    ),
+  );
 }
 
 export function verifyReleaseQualificationEvidence({
   capture,
   evidence,
-  key,
+  scenario,
 }) {
-  if (key === "pointerSameOriginHidden") {
-    if (
-      evidence?.step !== 3 ||
-      evidence.sameOriginNavigationObserved !== true ||
-      evidence.hiddenTransitionObserved !== true ||
-      evidence.hiddenPointerActionObserved !== true
-    ) {
-      throw evidenceError(
-        "release_gate_action_evidence_failed",
-        "Pointer qualification did not produce the required action evidence",
-      );
-    }
-    if (
-      !Number.isInteger(capture?.framesReceived) ||
-      capture.framesReceived < 1
-    ) {
-      throw evidenceError(
-        "release_gate_visibility_failed",
-        "Recording did not continue after the Browser became hidden",
-      );
-    }
-    return Object.freeze({
-      hiddenFrameContinuationObserved: true,
-      hiddenPointerActionObserved: true,
-      hiddenTransitionObserved: true,
-      pageVisibilityChanges:
-        Number.isInteger(capture.visibilityChanges)
-          ? capture.visibilityChanges
-          : null,
-      pageVisibilityState:
-        typeof capture.visibilityState === "boolean"
-          ? capture.visibilityState
-          : null,
-      sameOriginNavigationObserved: true,
-    });
-  }
-  if (key === "embeddedFrame") {
-    if (
-      evidence?.actionObserved !== true ||
-      !Number.isInteger(evidence.childFrameCount) ||
-      evidence.childFrameCount < 1 ||
-      !Number.isInteger(capture?.cursorChildFrameEventsCaptured) ||
-      capture.cursorChildFrameEventsCaptured < 1
-    ) {
-      throw evidenceError(
-        "embedded_frame_qualification_failed",
-        "Embedded-frame qualification lacked child-frame pointer evidence",
-      );
-    }
-    return Object.freeze({
-      childFrameObserved: true,
-      childFramePointerEventsCaptured:
-        capture.cursorChildFrameEventsCaptured,
-      childFramesObserved: evidence.childFrameCount,
-    });
-  }
-  if (key === "sequential") {
-    if (evidence?.hiddenStartObserved !== true) {
-      throw evidenceError(
-        "release_gate_visibility_failed",
-        "Unattended qualification did not begin and remain hidden",
-      );
-    }
-    return Object.freeze({ hiddenStartObserved: true });
+  const verify = EVIDENCE_VERIFIERS[scenario.evidenceKind];
+  if (typeof verify === "function") {
+    return verify(capture, evidence);
   }
   return null;
 }

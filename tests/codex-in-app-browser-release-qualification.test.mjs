@@ -374,11 +374,15 @@ test("reports an unreadable visibility capability", async () => {
 
 test("satisfies the release gate and produces every qualification plan", async () => {
   const prepared = [];
+  let consentCount;
 
   await assert.rejects(
     runCodexInAppBrowserReleaseQualification({
       acquireBrowser: async () => createBrowser(createVisibility().capability),
-      approveQualification: async () => false,
+      approveQualification: async ({ consents }) => {
+        consentCount = consents.length;
+        return false;
+      },
       browserPluginVersion: "26.721.41059",
       codexDesktopVersion: "26.721.41059",
       confirmPointerVisualEvidence: async () => true,
@@ -406,6 +410,11 @@ test("satisfies the release gate and produces every qualification plan", async (
       "qualification-cross-origin",
       "qualification-cancellation",
     ],
+  );
+  assert.equal(consentCount, 4);
+  assert.deepEqual(
+    prepared.map(({ recordingMode }) => recordingMode),
+    [undefined, "unattended", undefined, undefined],
   );
   assert.deepEqual(
     prepared[0].actions.map(({ modality }) => modality),

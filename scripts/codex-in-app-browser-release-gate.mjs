@@ -13,27 +13,19 @@ import {
   instrumentReleaseQualificationFlows,
   verifyReleaseQualificationEvidence,
 } from "./codex-in-app-browser-release-evidence.mjs";
+import {
+  getReleaseQualificationScenario,
+  getReleaseQualificationScenarios,
+} from "./codex-in-app-browser-release-scenarios.mjs";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SURFACE = "Codex In-app Browser";
-const EMBEDDED_FRAME_LIMITATION =
-  "runtime_does_not_expose_embedded_frame_control";
 const VERSION_PATTERN = /^[\x20-\x7e]{1,160}$/u;
 const REVISION_PATTERN = /^[0-9a-f]{40}$/u;
-const SUCCESS_SCENARIOS = Object.freeze([
-  {
-    key: "pointerSameOriginHidden",
-    name: "qualification-pointer-hidden",
-  },
-  { key: "sequential", name: "qualification-sequential" },
-]);
+const RELEASE_QUALIFICATION_SCENARIOS =
+  getReleaseQualificationScenarios();
 const GATE_ERROR_BRAND = Symbol("codex-browser-recorder.release-gate-error");
-const PUBLIC_ERROR_SCENARIOS = new Set([
-  "embeddedFrame",
-  "pointerSameOriginHidden",
-  "sequential",
-]);
 
 function gateError(code, message) {
   const error = Object.assign(new Error(message), { code });
@@ -48,7 +40,10 @@ function publicError(code, message) {
 function publicGateError(error) {
   if (error?.[GATE_ERROR_BRAND] === true) {
     const safeError = publicError(error.code, error.message);
-    if (PUBLIC_ERROR_SCENARIOS.has(error.scenario)) {
+    if (
+      getReleaseQualificationScenario(error.scenario)
+        ?.publicErrorScenario === true
+    ) {
       safeError.scenario = error.scenario;
     }
     return safeError;
@@ -59,8 +54,8 @@ function publicGateError(error) {
   );
 }
 
-function qualificationEvidenceGateError(key, code) {
-  if (key === "embeddedFrame") {
+function qualificationEvidenceGateError(scenario, code) {
+  if (scenario.evidenceKind === "embedded_frame") {
     return gateError(
       "embedded_frame_qualification_failed",
       "Embedded-frame qualification action evidence failed",
@@ -69,7 +64,7 @@ function qualificationEvidenceGateError(key, code) {
   if (code === "release_gate_visibility_failed") {
     return gateError(
       "release_gate_visibility_failed",
-      key === "sequential"
+      scenario.evidenceKind === "unattended"
         ? "Unattended Recording did not begin and remain hidden"
         : "Recording did not continue from visible to hidden Browser state",
     );
@@ -153,45 +148,60 @@ function validateOptions(options) {
       "Invalid release qualification callbacks",
     );
   }
-  const embeddedFrame = options.embeddedFrame;
-  if (
-    !(
-      embeddedFrame?.status === "runtime_unsupported" &&
-      embeddedFrame.limitation === EMBEDDED_FRAME_LIMITATION
-    ) &&
-    embeddedFrame?.status !== "exercised"
-  ) {
-    throw gateError(
-      "release_gate_invalid_configuration",
-      "Embedded-frame runtime coverage must be declared",
-    );
+  for (const scenario of RELEASE_QUALIFICATION_SCENARIOS) {
+    if (scenario.availability !== "when_exercised") continue;
+    const flow = options[scenario.flowProperty];
+    const unsupported = scenario.runtimeUnsupportedResult;
+    if (
+      !(
+        flow?.status === unsupported.status &&
+        flow.limitation === unsupported.limitation
+      ) &&
+      flow?.status !== "exercised"
+    ) {
+      throw gateError(
+        "release_gate_invalid_configuration",
+        "Embedded-frame runtime coverage must be declared",
+      );
+    }
+  }
+  const browserPluginVersion = validateVersion(
+    options.browserPluginVersion,
+    "Browser plugin",
+  );
+  const codexDesktopVersion = validateVersion(
+    options.codexDesktopVersion,
+    "Codex desktop",
+  );
+  const flows = {};
+  const flowScenarios = RELEASE_QUALIFICATION_SCENARIOS.filter(
+    ({ flowValidationOrder }) => flowValidationOrder !== null,
+  ).toSorted(
+    (left, right) => left.flowValidationOrder - right.flowValidationOrder,
+  );
+  for (const scenario of flowScenarios) {
+    const flow = options[scenario.flowProperty];
+    if (scenario.availability === "when_exercised") {
+      const unsupported = scenario.runtimeUnsupportedResult;
+      flows[scenario.flowProperty] =
+        flow.status === "exercised"
+          ? Object.freeze({
+              ...validateFlow(flow, {
+                modalities: scenario.actionModalities,
+              }),
+              status: "exercised",
+            })
+          : unsupported;
+      continue;
+    }
+    flows[scenario.flowProperty] = validateFlow(flow, {
+      modalities: scenario.actionModalities ?? undefined,
+    });
   }
   return Object.freeze({
-    browserPluginVersion: validateVersion(
-      options.browserPluginVersion,
-      "Browser plugin",
-    ),
-    codexDesktopVersion: validateVersion(
-      options.codexDesktopVersion,
-      "Codex desktop",
-    ),
-    crossOriginFlow: validateFlow(options.crossOriginFlow),
-    embeddedFrame:
-      embeddedFrame.status === "exercised"
-        ? Object.freeze({
-            ...validateFlow(embeddedFrame, {
-              modalities: ["pointer"],
-            }),
-            status: "exercised",
-          })
-        : Object.freeze({
-            limitation: EMBEDDED_FRAME_LIMITATION,
-            status: "runtime_unsupported",
-          }),
-    pointerHiddenFlow: validateFlow(options.pointerHiddenFlow, {
-      modalities: ["pointer", "programmatic", "pointer"],
-    }),
-    sequentialFlow: validateFlow(options.sequentialFlow),
+    browserPluginVersion,
+    codexDesktopVersion,
+    flows: Object.freeze(flows),
   });
 }
 
@@ -477,14 +487,14 @@ async function assertTabState(browser, baseline) {
 async function preparePlan(
   dependencies,
   workspace,
-  { actions, name, recordingMode, targetUrl },
+  { actions, scenario, targetUrl },
 ) {
   const prepared = await dependencies.prepareRecording({
     actions,
     destinationDirectory: workspace,
     durationWasExplicit: false,
-    recordingMode,
-    recordingName: name,
+    recordingMode: scenario.recordingMode,
+    recordingName: scenario.recordingName,
     targetUrl,
     temporaryRoot: workspace,
   });
@@ -509,7 +519,6 @@ function cancellationPlan(actionStarted) {
         },
       }),
     ]),
-    name: "qualification-cancellation",
   });
 }
 
@@ -525,7 +534,7 @@ async function runSuccessScenario({
   browser,
   dependencies,
   evidence,
-  key,
+  scenario,
   outputPaths,
   prepared,
   workspace,
@@ -535,7 +544,7 @@ async function runSuccessScenario({
     output = await dependencies.recordApproved(prepared, { browser });
   } catch (error) {
     if (evidence?.failureCode != null) {
-      throw qualificationEvidenceGateError(key, evidence.failureCode);
+      throw qualificationEvidenceGateError(scenario, evidence.failureCode);
     }
     throw error;
   }
@@ -561,7 +570,7 @@ async function runSuccessScenario({
         "browser_visibility_unavailable",
         "The Codex In-app Browser could not enter the approved visibility mode during release qualification",
       ),
-      { scenario: key },
+      { scenario: scenario.key },
     );
   }
   if (evidence?.failureCode != null) {
@@ -574,7 +583,7 @@ async function runSuccessScenario({
         );
       }
     }
-    throw qualificationEvidenceGateError(key, evidence.failureCode);
+    throw qualificationEvidenceGateError(scenario, evidence.failureCode);
   }
   assertCleanOutcome(output, { expectedStatus: "completed" });
   if (
@@ -592,10 +601,10 @@ async function runSuccessScenario({
     verifiedEvidence = verifyReleaseQualificationEvidence({
       capture: output.result.capture,
       evidence,
-      key,
+      scenario,
     });
   } catch (error) {
-    throw qualificationEvidenceGateError(key, error?.code);
+    throw qualificationEvidenceGateError(scenario, error?.code);
   }
   return {
     evidence: verifiedEvidence,
@@ -682,6 +691,133 @@ async function runCancellation({
   });
 }
 
+function createPlans({ actionStarted, configured, instrumented }) {
+  return RELEASE_QUALIFICATION_SCENARIOS.flatMap((scenario) => {
+    const flow =
+      scenario.executionKind === "cancellation"
+        ? cancellationPlan(actionStarted)
+        : instrumented[scenario.key];
+    if (
+      scenario.availability === "when_exercised" &&
+      flow.status !== "exercised"
+    ) {
+      return [];
+    }
+    return [
+      Object.freeze({
+        ...flow,
+        scenario,
+        targetUrl:
+          flow.targetUrl ??
+          configured.flows[scenario.targetFlowProperty].targetUrl,
+      }),
+    ];
+  });
+}
+
+async function assembleSuccessfulScenario({
+  confirmPointerVisualEvidence,
+  previousSuccessfulPath,
+  scenario,
+  success,
+}) {
+  if (scenario.resultKind === "pointer_visual") {
+    const visualEvidence = await confirmPointerVisualEvidence({
+      outputPath: success.outputPath,
+    });
+    if (
+      visualEvidence?.pointerMovementVisible !== true ||
+      visualEvidence?.clickFeedbackVisible !== true
+    ) {
+      throw gateError(
+        "pointer_visual_evidence_failed",
+        "Pointer movement and click feedback were not both confirmed",
+      );
+    }
+    return Object.freeze({
+      actionEvidence: success.evidence,
+      media: success.media,
+      status: "passed",
+      visualEvidence: Object.freeze({
+        clickFeedbackVisible: true,
+        pointerMovementVisible: true,
+      }),
+    });
+  }
+  if (scenario.resultKind === "sequential_isolation") {
+    if (previousSuccessfulPath === success.outputPath) {
+      throw gateError(
+        "release_gate_isolation_failed",
+        "Sequential recordings used the same output",
+      );
+    }
+    return Object.freeze({
+      actionEvidence: success.evidence,
+      distinctOutput: true,
+      media: success.media,
+      status: "passed",
+    });
+  }
+  return Object.freeze({
+    actionEvidence: success.evidence,
+    media: success.media,
+    status: "passed",
+  });
+}
+
+async function executeScenario({
+  actionStarted,
+  browser,
+  dependencies,
+  options,
+  outputPaths,
+  plan,
+  prepared,
+  previousSuccessfulPath,
+  workspace,
+}) {
+  const { scenario } = plan;
+  if (scenario.executionKind === "expected_failure") {
+    return runExpectedFailure({
+      browser,
+      dependencies,
+      outputPaths,
+      prepared,
+      workspace,
+    });
+  }
+  if (scenario.executionKind === "cancellation") {
+    return runCancellation({
+      actionStarted,
+      browser,
+      cancellation: new AbortController(),
+      dependencies,
+      outputPaths,
+      prepared,
+      workspace,
+    });
+  }
+  const success = await runSuccessScenario({
+    browser,
+    dependencies,
+    evidence: plan.evidence,
+    outputPaths,
+    prepared,
+    scenario,
+    workspace,
+  });
+  return Object.freeze({
+    outputPath: success.outputPath,
+    result: await assembleSuccessfulScenario({
+      confirmPointerVisualEvidence:
+        options.confirmPointerVisualEvidence,
+      previousSuccessfulPath,
+      scenario,
+      success,
+    }),
+  });
+}
+
 export async function runCodexInAppBrowserReleaseGate(options) {
   let configured;
   try {
@@ -705,42 +841,10 @@ export async function runCodexInAppBrowserReleaseGate(options) {
     const actionStarted = createDeferred();
     const runtime = { browser: null };
     const instrumented = instrumentReleaseQualificationFlows({
-      embeddedFrame: configured.embeddedFrame,
-      pointerHiddenFlow: configured.pointerHiddenFlow,
+      flows: configured.flows,
       runtime,
-      sequentialFlow: configured.sequentialFlow,
     });
-    const plans = [
-      {
-        ...instrumented.pointerHiddenFlow,
-        key: SUCCESS_SCENARIOS[0].key,
-        name: SUCCESS_SCENARIOS[0].name,
-      },
-      {
-        ...instrumented.sequentialFlow,
-        key: SUCCESS_SCENARIOS[1].key,
-        name: SUCCESS_SCENARIOS[1].name,
-      },
-      {
-        ...configured.crossOriginFlow,
-        key: "crossOrigin",
-        name: "qualification-cross-origin",
-      },
-      {
-        ...cancellationPlan(actionStarted),
-        key: "cancellation",
-        targetUrl: configured.pointerHiddenFlow.targetUrl,
-      },
-      ...(instrumented.embeddedFrame.status === "exercised"
-        ? [
-            {
-              ...instrumented.embeddedFrame,
-              key: "embeddedFrame",
-              name: "qualification-embedded-frame",
-            },
-          ]
-        : []),
-    ];
+    const plans = createPlans({ actionStarted, configured, instrumented });
     const preparedPlans = [];
     for (const plan of plans) {
       preparedPlans.push({
@@ -773,94 +877,28 @@ export async function runCodexInAppBrowserReleaseGate(options) {
     const scenarios = {};
     const successfulPaths = [];
     for (const { plan, prepared } of preparedPlans) {
-      if (plan.key === "pointerSameOriginHidden" || plan.key === "sequential") {
-        const success = await runSuccessScenario({
-          browser,
-          dependencies,
-          evidence: plan.evidence,
-          key: plan.key,
-          outputPaths,
-          prepared,
-          workspace,
-        });
-        successfulPaths.push(success.outputPath);
-        if (plan.key === "pointerSameOriginHidden") {
-          const visualEvidence =
-            await options.confirmPointerVisualEvidence({
-              outputPath: success.outputPath,
-            });
-          if (
-            visualEvidence?.pointerMovementVisible !== true ||
-            visualEvidence?.clickFeedbackVisible !== true
-          ) {
-            throw gateError(
-              "pointer_visual_evidence_failed",
-              "Pointer movement and click feedback were not both confirmed",
-            );
-          }
-          scenarios.pointerSameOriginHidden = Object.freeze({
-            actionEvidence: success.evidence,
-            media: success.media,
-            status: "passed",
-            visualEvidence: Object.freeze({
-              clickFeedbackVisible: true,
-              pointerMovementVisible: true,
-            }),
-          });
-        } else {
-          if (successfulPaths[0] === success.outputPath) {
-            throw gateError(
-              "release_gate_isolation_failed",
-              "Sequential recordings used the same output",
-            );
-          }
-          scenarios.sequential = Object.freeze({
-            actionEvidence: success.evidence,
-            distinctOutput: true,
-            media: success.media,
-            status: "passed",
-          });
-        }
-      } else if (plan.key === "crossOrigin") {
-        scenarios.crossOrigin = await runExpectedFailure({
-          browser,
-          dependencies,
-          outputPaths,
-          prepared,
-          workspace,
-        });
-      } else if (plan.key === "cancellation") {
-        scenarios.cancellation = await runCancellation({
-          actionStarted,
-          browser,
-          cancellation: new AbortController(),
-          dependencies,
-          outputPaths,
-          prepared,
-          workspace,
-        });
-      } else {
-        const embedded = await runSuccessScenario({
-          browser,
-          dependencies,
-          evidence: plan.evidence,
-          key: plan.key,
-          outputPaths,
-          prepared,
-          workspace,
-        });
-        scenarios.embeddedFrame = Object.freeze({
-          actionEvidence: embedded.evidence,
-          media: embedded.media,
-          status: "passed",
-        });
+      const execution = await executeScenario({
+        actionStarted,
+        browser,
+        dependencies,
+        options,
+        outputPaths,
+        plan,
+        prepared,
+        previousSuccessfulPath: successfulPaths.at(-1),
+        workspace,
+      });
+      if (execution.outputPath !== undefined) {
+        successfulPaths.push(execution.outputPath);
       }
+      scenarios[plan.scenario.key] = execution.result ?? execution;
       await assertTabState(browser, baselineTabs);
     }
-    scenarios.embeddedFrame ??= Object.freeze({
-      limitation: EMBEDDED_FRAME_LIMITATION,
-      status: "runtime_unsupported",
-    });
+    for (const scenario of RELEASE_QUALIFICATION_SCENARIOS) {
+      if (scenario.availability === "when_exercised") {
+        scenarios[scenario.key] ??= scenario.runtimeUnsupportedResult;
+      }
+    }
 
     let deletedCount = 0;
     for (const outputPath of [...outputPaths]) {
