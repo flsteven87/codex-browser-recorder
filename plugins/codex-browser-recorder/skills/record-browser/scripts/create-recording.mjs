@@ -439,12 +439,8 @@ async function startRecordingTransaction({
       dependencies.startBrowserRecordingForTab({
         approvedOrigin: request.approvedOrigin,
         ffmpegPath: options.ffmpegPath,
-        firstFrameTimeoutMs: 5000,
-        maxDurationMs: RECORDING_HARD_LIMIT_MS,
         outputPath: artifacts.capturePath,
-        readTimeoutMs: 1000,
         requirePointerEvents: request.requirePointerEvents,
-        resourceCheckIntervalMs: 1000,
         signal,
         tab,
       }),
