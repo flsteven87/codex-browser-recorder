@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { rename, rm, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
+import { normalizeCdpEventBatch } from "./cdp-event-batch.mjs";
 import {
   RECORDING_FPS,
   RECORDING_MAX_OUTPUT_BYTES,
@@ -65,18 +66,16 @@ function validateConfiguration({ cdp, mainFrameId, now }) {
   }
 }
 
-function validateEventBatch(batch, currentCursor) {
+function requireCursorEventBatch(batch, currentCursor) {
+  const normalized = normalizeCdpEventBatch(batch, currentCursor);
   if (
-    batch === null ||
-    typeof batch !== "object" ||
-    !Number.isInteger(batch.cursor) ||
-    batch.cursor < currentCursor ||
-    !Array.isArray(batch.events) ||
-    typeof batch.hasMore !== "boolean" ||
-    batch.truncated === true
+    normalized === null ||
+    typeof normalized.hasMore !== "boolean" ||
+    normalized.truncated === true
   ) {
     throw invalidCursorRecording();
   }
+  return normalized;
 }
 
 function parsePointerPayload(payload) {
@@ -980,12 +979,12 @@ export async function startCursorCapture({ cdp, mainFrameId, now }) {
   try {
     await cdp.send("Page.enable");
     await cdp.send("Runtime.enable");
-    const baseline = await cdp.readEvents({
+    const baselineResult = await cdp.readEvents({
       limit: 1,
       methods: EVENT_METHODS,
       timeoutMs: 0,
     });
-    validateEventBatch(baseline, cursor);
+    const baseline = requireCursorEventBatch(baselineResult, cursor);
     cursor = baseline.cursor;
     const frameTree = await cdp.send("Page.getFrameTree");
     const discoveredFrames = flattenFrameTree(frameTree?.frameTree);
@@ -1015,13 +1014,13 @@ export async function startCursorCapture({ cdp, mainFrameId, now }) {
       pendingFrames.size > 0 && batchCount < MAX_STARTUP_TARGET_BATCHES;
       batchCount += 1
     ) {
-      const batch = await cdp.readEvents({
+      const batchResult = await cdp.readEvents({
         afterSequence: cursor,
         limit: 1000,
         methods: EVENT_METHODS,
         timeoutMs: READ_TIMEOUT_MS,
       });
-      validateEventBatch(batch, cursor);
+      const batch = requireCursorEventBatch(batchResult, cursor);
       cursor = batch.cursor;
       if (batch.events.length === 0 && !batch.hasMore) break;
       for (const event of batch.events) await handleEvent(event);
@@ -1041,13 +1040,13 @@ export async function startCursorCapture({ cdp, mainFrameId, now }) {
   let loopError = null;
   const loop = (async () => {
     while (true) {
-      const batch = await cdp.readEvents({
+      const batchResult = await cdp.readEvents({
         afterSequence: cursor,
         limit: 1000,
         methods: EVENT_METHODS,
         timeoutMs: stopped ? 0 : READ_TIMEOUT_MS,
       });
-      validateEventBatch(batch, cursor);
+      const batch = requireCursorEventBatch(batchResult, cursor);
       cursor = batch.cursor;
       for (const event of batch.events) await handleEvent(event);
       if (stopped && !batch.hasMore) break;
