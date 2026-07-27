@@ -73,41 +73,53 @@ must:
    `releaseAcceptance: false`, one received and acknowledged frame, and exact
    diagnostic-tab cleanup. This is a low-level CDP probe, not product
    acceptance.
-3. Define privacy-safe actions against public HTTPS fixtures using only APIs
-   exposed by the current Browser documentation. Import
-   `runCodexInAppBrowserReleaseGate()` from
-   `scripts/codex-in-app-browser-release-gate.mjs` and provide:
-   `approveQualification`, `acquireBrowser`, `codexDesktopVersion`,
-   `browserPluginVersion`, `confirmPointerVisualEvidence`,
-   `pointerHiddenFlow`, `sequentialFlow`, `crossOriginFlow`, and
-   `embeddedFrame`.
-4. Define `pointerHiddenFlow.actions` as exactly `pointer`, `programmatic`,
-   `pointer`, in that order. The first action must change `await tab.url()`
-   without changing its origin, the second must change the Browser visibility
-   capability from `true` to `false`, and the third must perform its pointer
-   interaction only after the gate verifies the Browser is hidden. For example:
+3. Prove that the runtime can present and hide the Browser on demand before
+   spending a full qualification run. Import
+   `probeCodexInAppBrowserVisibility()` from
+   `scripts/codex-in-app-browser-release-qualification.mjs`, pass the same
+   `acquireBrowser` callback, and require `status: "passed"`. A failed probe
+   names which step broke: `capabilityAvailable: false` means the capability is
+   missing, `requestRejected` means `set()` itself failed, and a settled
+   `false` with a high `observations` count means the runtime accepted `set()`
+   without ever reporting the requested state. Interactive Recording cannot
+   pass qualification while `show.settled` is `false`.
+4. Run the qualification harness rather than assembling gate options by hand.
+   Import `runCodexInAppBrowserReleaseQualification()` from
+   `scripts/codex-in-app-browser-release-qualification.mjs`, which supplies the
+   pointer-hidden, sequential, and cross-origin flows against public HTTPS
+   fixtures and routes the hide action through the exact Browser the gate
+   acquired:
 
    ```js
-   actions: [
-     { label: "Follow same-origin link", modality: "pointer", perform: ({ tab }) => tab.playwright.getByRole("link", { name: "Next" }).click() },
-     { label: "Hide Browser", modality: "programmatic", perform: () => visibility.set(false) },
-     { label: "Click while hidden", modality: "pointer", perform: ({ tab }) => tab.playwright.getByRole("link", { name: "Previous" }).click() },
-   ]
+   const qualification = await runCodexInAppBrowserReleaseQualification({
+     acquireBrowser,
+     approveQualification,
+     browserPluginVersion,
+     codexDesktopVersion,
+     confirmPointerVisualEvidence,
+   });
    ```
 
-   The gate observes the Browser capability changing from visible to hidden and
-   requires the final hidden pointer action to add both fresh pointer evidence
-   and a fresh captured frame inside the same production action boundary. CDP
-   page-visibility events are recorded as diagnostic evidence only; they are
-   not the source of truth for whether the Codex Browser panel is shown. Let
-   the visual-evidence callback independently confirm both pointer movement and
-   click feedback.
-5. The sequential flow must be a second real action-driven recording. The gate
-   runs it as an Unattended Recording and verifies at its first production
-   action boundary that the Browser began and remained hidden. The cross-origin
-   flow must navigate outside its approved origin. Declare
-   embedded-frame coverage as `exercised` only with exactly one pointer action
-   that targets a child frame, for example:
+   The harness fixes `pointerHiddenFlow.actions` as exactly `pointer`,
+   `programmatic`, `pointer`: the first changes `await tab.url()` without
+   changing its origin, the second sets the Browser visibility capability to
+   `false`, and the third performs its pointer interaction only after the gate
+   verifies the Browser is hidden. Pass `fixtures` to retarget the links when a
+   fixture page changes; keep every target a public HTTPS page and keep the two
+   pointer-hidden link names distinct. The gate observes the Browser capability
+   changing from visible to hidden and requires the final hidden pointer action
+   to add both fresh pointer evidence and a fresh captured frame inside the
+   same production action boundary. CDP page-visibility events are recorded as
+   diagnostic evidence only; they are not the source of truth for whether the
+   Codex Browser panel is shown. Let the visual-evidence callback independently
+   confirm both pointer movement and click feedback.
+5. The sequential flow is a second real action-driven recording. The gate runs
+   it as an Unattended Recording and verifies at its first production action
+   boundary that the Browser began and remained hidden. The cross-origin flow
+   navigates outside its approved origin. The harness declares embedded-frame
+   coverage as `runtime_unsupported` by default. Pass `embeddedFrame` with
+   `status: "exercised"` only with exactly one pointer action that targets a
+   child frame, for example:
 
    ```js
    embeddedFrame: {
