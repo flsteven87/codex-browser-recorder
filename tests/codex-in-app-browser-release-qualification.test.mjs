@@ -205,6 +205,30 @@ test("clicks each fixture link by its exact accessible name", async () => {
   ]);
 });
 
+test("uses a distinct inline definition link for the hidden pointer action", async () => {
+  const clicked = [];
+  const tab = {
+    playwright: {
+      getByRole: (role, options) => ({
+        click: async () => clicked.push({ options, role }),
+      }),
+    },
+  };
+  const flows = createQualificationFlows({ runtime: { browser: null } });
+
+  await flows.pointerHiddenFlow.actions[2].perform({ tab });
+
+  assert.deepEqual(clicked, [
+    {
+      options: {
+        exact: true,
+        name: "pointer",
+      },
+      role: "link",
+    },
+  ]);
+});
+
 test("rejects fixtures that are not public HTTPS targets", () => {
   assert.throws(
     () =>

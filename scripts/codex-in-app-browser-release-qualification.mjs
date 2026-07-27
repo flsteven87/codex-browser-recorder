@@ -16,7 +16,7 @@ export const DEFAULT_QUALIFICATION_FIXTURES = Object.freeze({
     targetUrl: "https://www.w3.org/TR/pointerevents/",
   }),
   pointerHidden: Object.freeze({
-    hiddenLinkName: "2. Conformance",
+    hiddenLinkName: "pointer",
     sameOriginLinkName: "1. Introduction",
     targetUrl: "https://www.w3.org/TR/pointerevents/",
   }),
