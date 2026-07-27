@@ -16,7 +16,7 @@ import {
   renderCursorRecording,
   startCursorCapture,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/cursor-recording.mjs";
-import { startBrowserRecording } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/browser-recording.mjs";
+import { startBrowserRecordingInternal } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/browser-recording.mjs";
 import { resolveExecutable } from "./test-tools.mjs";
 
 const ffmpegPath = resolveExecutable("ffmpeg");
@@ -1457,39 +1457,44 @@ test("coordinates cursor capture and composition inside the recording transactio
     },
   };
 
-  const session = await startBrowserRecording({
+  const session = await startBrowserRecordingInternal({
     approvedOrigin: "https://example.com",
     cdp,
-    cursorCaptureFactory: async (options) => {
-      operations.push(["cursor.start", options.mainFrameId]);
-      return {
-        completion: new Promise(() => {}),
-        stats: { cursorEventsCaptured: 1, cursorFramesObserved: 1 },
-        async stop() {
-          operations.push("cursor.stop");
-          return timeline;
-        },
-      };
-    },
-    cursorRenderer: async (options) => {
-      operations.push(["cursor.render", options]);
-      return { outputBytes: 120, outputPath: options.outputPath };
+    adapters: {
+      cursorCapture: async (options) => {
+        operations.push(["cursor.start", options.mainFrameId]);
+        return {
+          completion: new Promise(() => {}),
+          stats: { cursorEventsCaptured: 1, cursorFramesObserved: 1 },
+          async stop() {
+            operations.push("cursor.stop");
+            return timeline;
+          },
+        };
+      },
+      cursorRenderer: async (options) => {
+        operations.push(["cursor.render", options]);
+        return { outputBytes: 120, outputPath: options.outputPath };
+      },
+      outputSize: async () => 0,
+      now: () => 100,
+      sink: (options) => {
+        operations.push(["sink.start", options.outputPath]);
+        sink.workingOutputPath = `${options.outputPath}.partial`;
+        return sink;
+      },
     },
     ffmpegPath: "/unused/ffmpeg",
-    firstFrameTimeoutMs: 1000,
-    getOutputSize: async () => 0,
-    maxDecodedBytes: 1024,
-    maxDurationMs: 1000,
-    maxOutputBytes: 1024,
-    now: () => 100,
-    outputPath: "/tmp/visible-cursor.mp4",
-    readTimeoutMs: 0,
-    resourceCheckIntervalMs: 1000,
-    sinkFactory: (options) => {
-      operations.push(["sink.start", options.outputPath]);
-      sink.workingOutputPath = `${options.outputPath}.partial`;
-      return sink;
+    limits: {
+      firstFrameTimeoutMs: 1000,
+      maxDecodedBytes: 1024,
+      maxDurationMs: 1000,
+      maxOutputBytes: 1024,
+      readTimeoutMs: 0,
+      resourceCheckIntervalMs: 1000,
     },
+    outputPath: "/tmp/visible-cursor.mp4",
+    requirePointerEvents: false,
   });
   await session.ready;
   assert.deepEqual(session.stats.cursor, {

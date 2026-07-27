@@ -23,6 +23,10 @@ const SCREENCAST_EVENT_METHODS = [
   "Page.screencastFrame",
   "Page.screencastVisibilityChanged",
 ];
+const FIRST_FRAME_TIMEOUT_MS = 5000;
+// media-recorder.mjs:157-167 requires its derived read stall timeout to exceed this timeout.
+const READ_TIMEOUT_MS = 1000;
+const RESOURCE_CHECK_INTERVAL_MS = 1000;
 
 class BrowserRecordingError extends Error {
   constructor(code, message) {
@@ -110,53 +114,75 @@ async function readOutputSize(outputPath) {
   }
 }
 
-function validateStartConfiguration({
+function validateProduction({
   approvedOrigin,
   cdp,
-  cursorCaptureFactory,
-  cursorRenderer,
-  firstFrameTimeoutMs,
-  fps,
-  getOutputSize,
-  maxDecodedBytes,
-  maxDurationMs,
-  maxOutputBytes,
-  now,
   outputPath,
-  readTimeoutMs,
   requirePointerEvents,
-  resourceCheckIntervalMs,
   signal,
-  sinkFactory,
 }) {
   if (
     originOf(approvedOrigin) !== approvedOrigin ||
     typeof cdp?.readEvents !== "function" ||
     typeof cdp?.send !== "function" ||
-    typeof cursorCaptureFactory !== "function" ||
-    typeof cursorRenderer !== "function" ||
+    typeof outputPath !== "string" ||
+    outputPath.length === 0 ||
+    typeof requirePointerEvents !== "boolean" ||
+    (signal !== undefined &&
+      (typeof signal?.addEventListener !== "function" ||
+        typeof signal?.removeEventListener !== "function"))
+  ) {
+    throw new BrowserRecordingError(
+      "invalid_configuration",
+      "Browser recording configuration is invalid",
+    );
+  }
+}
+
+function validateLimits({
+  firstFrameTimeoutMs,
+  fps,
+  maxDecodedBytes,
+  maxDurationMs,
+  maxOutputBytes,
+  readTimeoutMs,
+  resourceCheckIntervalMs,
+}) {
+  if (
     !Number.isInteger(firstFrameTimeoutMs) ||
     firstFrameTimeoutMs <= 0 ||
     !Number.isFinite(fps) ||
     fps <= 0 ||
-    typeof getOutputSize !== "function" ||
     !Number.isInteger(maxDecodedBytes) ||
     maxDecodedBytes <= 0 ||
     !Number.isInteger(maxDurationMs) ||
     maxDurationMs <= 0 ||
     !Number.isInteger(maxOutputBytes) ||
     maxOutputBytes <= 0 ||
-    typeof now !== "function" ||
-    typeof outputPath !== "string" ||
-    outputPath.length === 0 ||
     !Number.isInteger(readTimeoutMs) ||
     readTimeoutMs < 0 ||
-    typeof requirePointerEvents !== "boolean" ||
     !Number.isInteger(resourceCheckIntervalMs) ||
-    resourceCheckIntervalMs <= 0 ||
-    (signal !== undefined &&
-      (typeof signal?.addEventListener !== "function" ||
-        typeof signal?.removeEventListener !== "function")) ||
+    resourceCheckIntervalMs <= 0
+  ) {
+    throw new BrowserRecordingError(
+      "invalid_configuration",
+      "Browser recording configuration is invalid",
+    );
+  }
+}
+
+function validateAdapters({
+  cursorCaptureFactory,
+  cursorRenderer,
+  getOutputSize,
+  now,
+  sinkFactory,
+}) {
+  if (
+    typeof cursorCaptureFactory !== "function" ||
+    typeof cursorRenderer !== "function" ||
+    typeof getOutputSize !== "function" ||
+    typeof now !== "function" ||
     typeof sinkFactory !== "function"
   ) {
     throw new BrowserRecordingError(
@@ -166,43 +192,89 @@ function validateStartConfiguration({
   }
 }
 
-export async function startBrowserRecording({
+export async function startBrowserRecordingForTab({
   approvedOrigin,
-  cdp,
-  cursorCaptureFactory = startCursorCapture,
-  cursorRenderer = renderCursorRecording,
   ffmpegPath,
-  firstFrameTimeoutMs = 5000,
-  fps = RECORDING_FPS,
-  getOutputSize = readOutputSize,
-  maxDecodedBytes = RECORDING_MAX_DECODED_BYTES,
-  maxDurationMs = RECORDING_HARD_LIMIT_MS,
-  maxOutputBytes = RECORDING_MAX_OUTPUT_BYTES,
-  now = () => performance.now(),
   outputPath,
-  readTimeoutMs,
-  requirePointerEvents = false,
-  resourceCheckIntervalMs = 1000,
+  requirePointerEvents,
   signal,
-  sinkFactory = createFfmpegSink,
+  tab,
 }) {
-  validateStartConfiguration({
+  if (typeof tab?.capabilities?.get !== "function") {
+    throw new BrowserRecordingError(
+      "cdp_unavailable",
+      "The selected Browser tab does not expose capabilities",
+    );
+  }
+
+  const cdp = await awaitAbortable(tab.capabilities.get("cdp"), signal);
+  if (
+    typeof cdp?.readEvents !== "function" ||
+    typeof cdp?.send !== "function"
+  ) {
+    throw new BrowserRecordingError(
+      "cdp_unavailable",
+      "Full CDP access is unavailable for the selected Browser tab",
+    );
+  }
+
+  return startBrowserRecordingInternal({
     approvedOrigin,
     cdp,
-    cursorCaptureFactory,
-    cursorRenderer,
+    ffmpegPath,
+    outputPath,
+    requirePointerEvents,
+    signal,
+  });
+}
+
+export async function startBrowserRecordingInternal({
+  approvedOrigin,
+  cdp,
+  ffmpegPath,
+  outputPath,
+  requirePointerEvents,
+  signal,
+  limits,
+  adapters,
+}) {
+  const {
+    fps = RECORDING_FPS,
+    maxDecodedBytes = RECORDING_MAX_DECODED_BYTES,
+    maxOutputBytes = RECORDING_MAX_OUTPUT_BYTES,
+    maxDurationMs = RECORDING_HARD_LIMIT_MS,
+    firstFrameTimeoutMs = FIRST_FRAME_TIMEOUT_MS,
+    readTimeoutMs = READ_TIMEOUT_MS,
+    resourceCheckIntervalMs = RESOURCE_CHECK_INTERVAL_MS,
+  } = limits ?? {};
+  const {
+    sink: sinkFactory = createFfmpegSink,
+    cursorCapture: cursorCaptureFactory = startCursorCapture,
+    cursorRenderer = renderCursorRecording,
+    outputSize: getOutputSize = readOutputSize,
+    now = () => performance.now(),
+  } = adapters ?? {};
+  validateProduction({
+    approvedOrigin,
+    cdp,
+    outputPath,
+    requirePointerEvents,
+    signal,
+  });
+  validateLimits({
     firstFrameTimeoutMs,
     fps,
-    getOutputSize,
     maxDecodedBytes,
     maxDurationMs,
     maxOutputBytes,
-    now,
-    outputPath,
     readTimeoutMs,
-    requirePointerEvents,
     resourceCheckIntervalMs,
-    signal,
+  });
+  validateAdapters({
+    cursorCaptureFactory,
+    cursorRenderer,
+    getOutputSize,
+    now,
     sinkFactory,
   });
   let startupCancellation = null;
@@ -702,31 +774,4 @@ export async function inspectTopLevelFrame({ approvedOrigin, cdp }) {
     );
   }
   return { frameId: frame.id };
-}
-
-export async function startBrowserRecordingForTab({
-  approvedOrigin,
-  signal,
-  tab,
-  ...options
-}) {
-  if (typeof tab?.capabilities?.get !== "function") {
-    throw new BrowserRecordingError(
-      "cdp_unavailable",
-      "The selected Browser tab does not expose capabilities",
-    );
-  }
-
-  const cdp = await awaitAbortable(tab.capabilities.get("cdp"), signal);
-  if (
-    typeof cdp?.readEvents !== "function" ||
-    typeof cdp?.send !== "function"
-  ) {
-    throw new BrowserRecordingError(
-      "cdp_unavailable",
-      "Full CDP access is unavailable for the selected Browser tab",
-    );
-  }
-
-  return startBrowserRecording({ ...options, approvedOrigin, cdp, signal });
 }

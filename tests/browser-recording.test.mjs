@@ -11,7 +11,8 @@ import {
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-outcome.mjs";
 import {
   inspectTopLevelFrame,
-  startBrowserRecordingForTab as startBrowserRecordingForTabProduction,
+  startBrowserRecordingForTab,
+  startBrowserRecordingInternal,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/browser-recording.mjs";
 import { createRecording } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/create-recording.mjs";
 
@@ -30,14 +31,17 @@ async function createTestCursorCapture({ now }) {
   };
 }
 
-function startBrowserRecordingForTab(options) {
-  return startBrowserRecordingForTabProduction({
+async function startBrowserRecordingInternalForTest({ tab, ...options }) {
+  const cdp = await tab.capabilities.get("cdp");
+  return startBrowserRecordingInternal({
     ...options,
-    cursorCaptureFactory:
-      options.cursorCaptureFactory ?? createTestCursorCapture,
-    cursorRenderer:
-      options.cursorRenderer ??
-      (async ({ outputPath }) => ({ outputBytes: 0, outputPath })),
+    cdp,
+    requirePointerEvents: options.requirePointerEvents ?? false,
+    adapters: {
+      cursorCapture: createTestCursorCapture,
+      cursorRenderer: async ({ outputPath }) => ({ outputBytes: 0, outputPath }),
+      ...options.adapters,
+    },
   });
 }
 
@@ -675,28 +679,32 @@ test("acquires a fresh CDP capability for every recording session", async () => 
   };
 
   for (let index = 0; index < 2; index += 1) {
-    const session = await startBrowserRecordingForTab({
+    const session = await startBrowserRecordingInternalForTest({
       approvedOrigin: "https://example.com",
       ffmpegPath: "/unused/ffmpeg",
-      fps: 10,
-      maxDecodedBytes: 1024,
+      limits: {
+        fps: 10,
+        maxDecodedBytes: 1024,
+        readTimeoutMs: 1,
+      },
       outputPath: `/tmp/unused-${index}.mp4`,
-      readTimeoutMs: 1,
-      sinkFactory: () => ({
-        stats: {
-          backpressureDrops: 0,
-          encoderExitCode: null,
-          outputSamples: 0,
-        },
-        accept() {
-          this.stats.outputSamples += 1;
-          return true;
-        },
-        async stop() {
-          this.stats.encoderExitCode = 0;
-          return this.stats;
-        },
-      }),
+      adapters: {
+        sink: () => ({
+          stats: {
+            backpressureDrops: 0,
+            encoderExitCode: null,
+            outputSamples: 0,
+          },
+          accept() {
+            this.stats.outputSamples += 1;
+            return true;
+          },
+          async stop() {
+            this.stats.encoderExitCode = 0;
+            return this.stats;
+          },
+        }),
+      },
       tab,
     });
     await session.ready;
@@ -725,6 +733,29 @@ test("acquires a fresh CDP capability for every recording session", async () => 
       ["Page.enable", "Page.getFrameTree", "Page.startScreencast"],
       ["Page.enable", "Page.getFrameTree", "Page.startScreencast"],
     ],
+  );
+});
+
+test("rejects tabs without complete CDP capabilities", async () => {
+  await assert.rejects(
+    startBrowserRecordingForTab({
+      approvedOrigin: "https://example.com",
+      ffmpegPath: "/unused/ffmpeg",
+      outputPath: "/tmp/unused.mp4",
+      requirePointerEvents: false,
+      tab: { capabilities: {} },
+    }),
+    (error) => error.code === "cdp_unavailable",
+  );
+  await assert.rejects(
+    startBrowserRecordingForTab({
+      approvedOrigin: "https://example.com",
+      ffmpegPath: "/unused/ffmpeg",
+      outputPath: "/tmp/unused.mp4",
+      requirePointerEvents: false,
+      tab: { capabilities: { async get() { return { async send() {} }; } } },
+    }),
+    (error) => error.code === "cdp_unavailable",
   );
 });
 
@@ -792,24 +823,28 @@ test("discards the session when the event stream truncates after readiness", asy
     },
   };
 
-  const session = await startBrowserRecordingForTab({
+  const session = await startBrowserRecordingInternalForTest({
     approvedOrigin: "https://example.com",
     ffmpegPath: "/unused/ffmpeg",
-    maxDecodedBytes: 1024,
+    limits: {
+      maxDecodedBytes: 1024,
+      readTimeoutMs: 1,
+      resourceCheckIntervalMs: 60_000,
+    },
     outputPath: "/tmp/must-not-publish.mp4",
-    readTimeoutMs: 1,
-    resourceCheckIntervalMs: 60_000,
-    sinkFactory: () => ({
-      stats: { outputBytes: 4, outputSamples: 0 },
-      accept() {
-        this.stats.outputSamples += 1;
-        return true;
-      },
-      async stop(options) {
-        stopCalls.push(options);
-        return this.stats;
-      },
-    }),
+    adapters: {
+      sink: () => ({
+        stats: { outputBytes: 4, outputSamples: 0 },
+        accept() {
+          this.stats.outputSamples += 1;
+          return true;
+        },
+        async stop(options) {
+          stopCalls.push(options);
+          return this.stats;
+        },
+      }),
+    },
     tab: { capabilities: { async get() { return cdp; } } },
   });
 
@@ -877,24 +912,28 @@ test("reports a stable failure when a screencast frame cannot be acknowledged", 
     },
   };
 
-  const session = await startBrowserRecordingForTab({
+  const session = await startBrowserRecordingInternalForTest({
     approvedOrigin: "https://example.com",
     ffmpegPath: "/unused/ffmpeg",
-    maxDecodedBytes: 1024,
+    limits: {
+      maxDecodedBytes: 1024,
+      readTimeoutMs: 1,
+      resourceCheckIntervalMs: 60_000,
+    },
     outputPath: "/tmp/must-not-publish.mp4",
-    readTimeoutMs: 1,
-    resourceCheckIntervalMs: 60_000,
-    sinkFactory: () => ({
-      stats: { outputBytes: 4, outputSamples: 0 },
-      accept() {
-        this.stats.outputSamples += 1;
-        return true;
-      },
-      async stop(options) {
-        stopCalls.push(options);
-        return this.stats;
-      },
-    }),
+    adapters: {
+      sink: () => ({
+        stats: { outputBytes: 4, outputSamples: 0 },
+        accept() {
+          this.stats.outputSamples += 1;
+          return true;
+        },
+        async stop(options) {
+          stopCalls.push(options);
+          return this.stats;
+        },
+      }),
+    },
     tab: { capabilities: { async get() { return cdp; } } },
   });
 
@@ -1146,7 +1185,7 @@ test("sanitizes every pre-handle Browser and CDP startup failure after rollback"
                 supported: true,
               };
             },
-            startBrowserRecordingForTab,
+            startBrowserRecordingForTab: startBrowserRecordingInternalForTest,
           },
           browser: {
             capabilities: visibleBrowserCapabilities(),

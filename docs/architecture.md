@@ -77,7 +77,7 @@ it is not the skill or caller interface.
 | `$codex-browser-recorder:record-browser` skill | Request interpretation, concrete action functions, one consent, bounded Codex In-app Browser acquisition callback, outcome reporting | Tab lifecycle, CDP, stop ordering, direct cleanup |
 | Recording Flow | Request/output preparation, setup diagnostic-tab ownership, opaque authorization, action sequence, terminal outcomes | New actions after consent, raw diagnostics |
 | Internal coordinator | Artifact and fresh-tab ownership, initial Browser visibility, timers, per-action evidence, finalization, memoized verified tab cleanup | User-visible policy expansion |
-| Browser recording | CDP acquisition, origin checks, direct screencast-frame consumption, frame/resource limits | Publication and public error wording |
+| Browser recording | Exact 6-parameter production interface, CDP acquisition, origin checks, direct screencast-frame consumption, and an internal limits/adapters seam | Publication and public error wording |
 | Cursor recording | Pointer observation, frame-coordinate mapping, cursor and click-feedback composition | Authenticating whether an event came from a person |
 | Artifact transaction | Private Working Recording, validation, collision-safe publication, rollback | Upload, sharing, playback, or deletion after delivery |
 
