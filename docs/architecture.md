@@ -70,6 +70,12 @@ The lower-level `createRecording()` handle remains an internal coordinator. It
 exists to concentrate timers, action evidence, finalization, and cleanup races;
 it is not the skill or caller interface.
 
+Release qualification keeps its version 2 scenario contract in one immutable
+catalog. The gate and evidence modules consume that catalog for scenario order,
+recording preparation, dispatch, evidence selection, public scenario exposure,
+and result assembly; fixtures and Browser-specific flow actions remain owned by
+the qualification runner.
+
 ## Ownership boundaries
 
 | Layer | Owns | Must not own |
@@ -184,7 +190,8 @@ The fail-closed invariants are:
 | Failure catalog and bounded results | [`recording-outcome.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/recording-outcome.mjs) | [`recording-outcome.test.mjs`](../tests/recording-outcome.test.mjs) |
 | Media verification | [`validate-video.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/validate-video.mjs) | [`validate-video.test.mjs`](../tests/validate-video.test.mjs) |
 | Agent workflow | [`SKILL.md`](../plugins/codex-browser-recorder/skills/record-browser/SKILL.md) | [`skill-contract.test.mjs`](../tests/skill-contract.test.mjs) |
-| Real Browser release qualification and bounded action evidence | [`codex-in-app-browser-release-gate.mjs`](../scripts/codex-in-app-browser-release-gate.mjs), [`codex-in-app-browser-release-evidence.mjs`](../scripts/codex-in-app-browser-release-evidence.mjs) | [`codex-in-app-browser-release-gate.test.mjs`](../tests/codex-in-app-browser-release-gate.test.mjs) |
+| Release qualification scenario keys, order, recording contracts, dispatch kinds, and result kinds | [`codex-in-app-browser-release-scenarios.mjs`](../scripts/codex-in-app-browser-release-scenarios.mjs) | [`codex-in-app-browser-release-scenarios.test.mjs`](../tests/codex-in-app-browser-release-scenarios.test.mjs) |
+| Real Browser release qualification execution and bounded action evidence | [`codex-in-app-browser-release-gate.mjs`](../scripts/codex-in-app-browser-release-gate.mjs), [`codex-in-app-browser-release-evidence.mjs`](../scripts/codex-in-app-browser-release-evidence.mjs) | [`codex-in-app-browser-release-gate.test.mjs`](../tests/codex-in-app-browser-release-gate.test.mjs) |
 | Qualification fixtures, flow wiring, and the owned-tab visibility preflight | [`codex-in-app-browser-release-qualification.mjs`](../scripts/codex-in-app-browser-release-qualification.mjs) | [`codex-in-app-browser-release-qualification.test.mjs`](../tests/codex-in-app-browser-release-qualification.test.mjs) |
 | Low-level CDP frame diagnostic | [`codex-in-app-browser-frame-diagnostic.mjs`](../scripts/codex-in-app-browser-frame-diagnostic.mjs) | [`codex-in-app-browser-frame-diagnostic.test.mjs`](../tests/codex-in-app-browser-frame-diagnostic.test.mjs) |
 

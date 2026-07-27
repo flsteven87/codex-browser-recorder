@@ -296,6 +296,60 @@ test("rejects an incomplete gate configuration before local or Browser activity"
   );
 });
 
+test("preserves public validation error precedence for multi-invalid configurations", async (t) => {
+  const cases = [
+    {
+      expectedMessage: "Embedded-frame runtime coverage must be declared",
+      mutate(options) {
+        options.browserPluginVersion = "\n";
+        options.embeddedFrame = { status: "unknown" };
+        options.pointerHiddenFlow = {};
+      },
+      name: "embedded-frame declaration before version and flow evidence",
+    },
+    {
+      expectedMessage: "Invalid Browser plugin version evidence",
+      mutate(options) {
+        options.browserPluginVersion = "\n";
+        options.pointerHiddenFlow = {};
+      },
+      name: "Browser plugin version before flow evidence",
+    },
+    {
+      expectedMessage: "Invalid Codex desktop version evidence",
+      mutate(options) {
+        options.codexDesktopVersion = "\n";
+        options.crossOriginFlow = {};
+      },
+      name: "Codex desktop version before flow evidence",
+    },
+    {
+      expectedMessage:
+        "Release qualification requires a public HTTPS fixture",
+      mutate(options) {
+        options.crossOriginFlow.targetUrl = "http://example.com/";
+        options.pointerHiddenFlow = {};
+      },
+      name: "cross-origin flow before later scenario flows",
+    },
+  ];
+
+  for (const current of cases) {
+    await t.test(current.name, async () => {
+      const harness = createHarness();
+      current.mutate(harness.options);
+
+      await assert.rejects(
+        runCodexInAppBrowserReleaseGate(harness.options),
+        (error) =>
+          error.code === "release_gate_invalid_configuration" &&
+          error.message === current.expectedMessage,
+      );
+      assert.equal(harness.calls.length, 0);
+    });
+  }
+});
+
 test("rejects the legacy no-op pointer-hidden false pass", async () => {
   const harness = createHarness({ exerciseActions: false });
 
@@ -602,6 +656,69 @@ test("qualifies the production flow only after explicit approval and deletes all
     surface: "Codex In-app Browser",
   });
   assert.equal(harness.calls.at(-1), "workspace:delete");
+});
+
+test("prepares every exercised scenario in catalog order through the public gate", async () => {
+  const harness = createHarness({
+    embeddedFrame: {
+      actions: [
+        {
+          label: "Use an embedded-frame control",
+          modality: "pointer",
+          perform: async () => {},
+        },
+      ],
+      status: "exercised",
+      targetUrl: "https://example.com/",
+    },
+  });
+  const prepared = [];
+  const prepareRecording = harness.dependencies.prepareRecording;
+  harness.options.dependencies = {
+    ...harness.dependencies,
+    async prepareRecording(options) {
+      prepared.push(options);
+      return prepareRecording(options);
+    },
+  };
+
+  const result = await runCodexInAppBrowserReleaseGate(harness.options);
+
+  assert.deepEqual(
+    prepared.map(({ recordingMode, recordingName }) => ({
+      recordingMode,
+      recordingName,
+    })),
+    [
+      {
+        recordingMode: undefined,
+        recordingName: "qualification-pointer-hidden",
+      },
+      {
+        recordingMode: "unattended",
+        recordingName: "qualification-sequential",
+      },
+      {
+        recordingMode: undefined,
+        recordingName: "qualification-cross-origin",
+      },
+      {
+        recordingMode: undefined,
+        recordingName: "qualification-cancellation",
+      },
+      {
+        recordingMode: undefined,
+        recordingName: "qualification-embedded-frame",
+      },
+    ],
+  );
+  assert.deepEqual(Object.keys(result.scenarios), [
+    "pointerSameOriginHidden",
+    "sequential",
+    "crossOrigin",
+    "cancellation",
+    "embeddedFrame",
+  ]);
 });
 
 test("does not acquire the Browser when qualification approval is denied", async () => {
