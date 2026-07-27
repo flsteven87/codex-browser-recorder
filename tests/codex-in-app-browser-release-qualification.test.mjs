@@ -6,7 +6,15 @@ import {
   RUNTIME_UNSUPPORTED_EMBEDDED_FRAME,
   createQualificationFlows,
   probeCodexInAppBrowserVisibility,
+  runCodexInAppBrowserReleaseQualification,
 } from "../scripts/codex-in-app-browser-release-qualification.mjs";
+
+const environmentEvidence = {
+  candidateRevision: "0123456789abcdef0123456789abcdef01234567",
+  ffmpegVersion: "ffmpeg 8.1.2",
+  ffprobeVersion: "ffprobe 8.1.2",
+  recorderPluginVersion: "0.4.0",
+};
 
 function createClock() {
   let current = 0;
@@ -229,6 +237,53 @@ test("reports an unreadable visibility capability", async () => {
   assert.equal(probe.show.readRejected, true);
   assert.equal(probe.show.observed, null);
   assert.equal(probe.status, "failed");
+});
+
+test("satisfies the release gate and produces every qualification plan", async () => {
+  const prepared = [];
+
+  await assert.rejects(
+    runCodexInAppBrowserReleaseQualification({
+      acquireBrowser: async () => createBrowser(createVisibility().capability),
+      approveQualification: async () => false,
+      browserPluginVersion: "26.721.41059",
+      codexDesktopVersion: "26.721.41059",
+      confirmPointerVisualEvidence: async () => true,
+      dependencies: {
+        async collectEnvironmentEvidence() {
+          return environmentEvidence;
+        },
+        async createTemporaryWorkspace() {
+          return "/private/owned-release-workspace";
+        },
+        async prepareRecording(options) {
+          prepared.push(options);
+          return { consent: {}, options, status: "prepared" };
+        },
+      },
+    }),
+    (error) => error.code === "qualification_not_approved",
+  );
+
+  assert.deepEqual(
+    prepared.map(({ recordingName }) => recordingName),
+    [
+      "qualification-pointer-hidden",
+      "qualification-sequential",
+      "qualification-cross-origin",
+      "qualification-cancellation",
+    ],
+  );
+  assert.deepEqual(
+    prepared[0].actions.map(({ modality }) => modality),
+    ["pointer", "programmatic", "pointer"],
+  );
+  assert.equal(prepared[1].recordingMode, "unattended");
+  assert.notEqual(prepared[0].recordingMode, "unattended");
+  assert.equal(
+    prepared[0].targetUrl,
+    DEFAULT_QUALIFICATION_FIXTURES.pointerHidden.targetUrl,
+  );
 });
 
 test("rejects an invalid probe configuration before acquiring a Browser", async () => {

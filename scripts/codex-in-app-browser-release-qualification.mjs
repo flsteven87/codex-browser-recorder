@@ -228,6 +228,7 @@ export function runCodexInAppBrowserReleaseQualification({
   browserPluginVersion,
   codexDesktopVersion,
   confirmPointerVisualEvidence,
+  dependencies,
   embeddedFrame = RUNTIME_UNSUPPORTED_EMBEDDED_FRAME,
   fixtures = DEFAULT_QUALIFICATION_FIXTURES,
 }) {
@@ -249,6 +250,7 @@ export function runCodexInAppBrowserReleaseQualification({
     browserPluginVersion,
     codexDesktopVersion,
     confirmPointerVisualEvidence,
+    dependencies,
     embeddedFrame,
   });
 }
