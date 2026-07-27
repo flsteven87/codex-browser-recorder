@@ -185,7 +185,7 @@ The fail-closed invariants are:
 | Media verification | [`validate-video.mjs`](../plugins/codex-browser-recorder/skills/record-browser/scripts/validate-video.mjs) | [`validate-video.test.mjs`](../tests/validate-video.test.mjs) |
 | Agent workflow | [`SKILL.md`](../plugins/codex-browser-recorder/skills/record-browser/SKILL.md) | [`skill-contract.test.mjs`](../tests/skill-contract.test.mjs) |
 | Real Browser release qualification and bounded action evidence | [`codex-in-app-browser-release-gate.mjs`](../scripts/codex-in-app-browser-release-gate.mjs), [`codex-in-app-browser-release-evidence.mjs`](../scripts/codex-in-app-browser-release-evidence.mjs) | [`codex-in-app-browser-release-gate.test.mjs`](../tests/codex-in-app-browser-release-gate.test.mjs) |
-| Qualification fixtures, flow wiring, and the visibility preflight | [`codex-in-app-browser-release-qualification.mjs`](../scripts/codex-in-app-browser-release-qualification.mjs) | [`codex-in-app-browser-release-qualification.test.mjs`](../tests/codex-in-app-browser-release-qualification.test.mjs) |
+| Qualification fixtures, flow wiring, and the owned-tab visibility preflight | [`codex-in-app-browser-release-qualification.mjs`](../scripts/codex-in-app-browser-release-qualification.mjs) | [`codex-in-app-browser-release-qualification.test.mjs`](../tests/codex-in-app-browser-release-qualification.test.mjs) |
 | Low-level CDP frame diagnostic | [`codex-in-app-browser-frame-diagnostic.mjs`](../scripts/codex-in-app-browser-frame-diagnostic.mjs) | [`codex-in-app-browser-frame-diagnostic.test.mjs`](../tests/codex-in-app-browser-frame-diagnostic.test.mjs) |
 
 When documentation and implementation disagree, change them and their tests

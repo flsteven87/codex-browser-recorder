@@ -52,8 +52,43 @@ function createVisibility({
 function createBrowser(capability) {
   return {
     capabilities: { get: async () => capability },
-    tabs: { list: async () => [] },
+    tabs: {
+      list: async () => [],
+      new: async () => ({
+        id: "visibility-probe-tab",
+        close: async () => {},
+      }),
+    },
   };
+}
+
+function createTabDependentBrowser({
+  closeLeavesTab = false,
+  closeRejects = false,
+} = {}) {
+  const tabs = [];
+  const visibility = createVisibility({
+    observe: () =>
+      tabs.length > 0 && visibility.requested.at(-1) === true,
+  });
+  const browser = {
+    capabilities: { get: async () => visibility.capability },
+    tabs: {
+      list: async () => tabs.map(({ id }) => ({ id })),
+      new: async () => {
+        const tab = {
+          id: "visibility-probe-tab",
+          close: async () => {
+            if (closeRejects) throw new Error("tab.close rejected");
+            if (!closeLeavesTab) tabs.splice(tabs.indexOf(tab), 1);
+          },
+        };
+        tabs.push(tab);
+        return tab;
+      },
+    },
+  };
+  return { browser, visibility };
 }
 
 function createRuntime(capability) {
@@ -184,6 +219,45 @@ test("passes when the Browser can be shown and hidden on demand", async () => {
   assert.equal(probe.show.settled, true);
   assert.equal(probe.hide.settled, true);
   assert.deepEqual(visibility.requested, [true, false]);
+});
+
+test("uses a fresh tab to probe visibility in an empty Browser", async () => {
+  const { browser, visibility } = createTabDependentBrowser();
+
+  const probe = await probeCodexInAppBrowserVisibility({
+    _dependencies: createClock(),
+    acquireBrowser: async () => browser,
+  });
+
+  assert.equal(probe.status, "passed");
+  assert.equal(probe.show.settled, true);
+  assert.equal(probe.hide.settled, true);
+  assert.deepEqual(visibility.requested, [true, false]);
+  assert.deepEqual(await browser.tabs.list(), []);
+});
+
+test("fails when the owned visibility probe tab remains open", async () => {
+  const { browser } = createTabDependentBrowser({ closeLeavesTab: true });
+
+  await assert.rejects(
+    probeCodexInAppBrowserVisibility({
+      _dependencies: createClock(),
+      acquireBrowser: async () => browser,
+    }),
+    (error) => error.code === "qualification_tab_cleanup_failed",
+  );
+});
+
+test("bounds an owned visibility probe tab close failure", async () => {
+  const { browser } = createTabDependentBrowser({ closeRejects: true });
+
+  await assert.rejects(
+    probeCodexInAppBrowserVisibility({
+      _dependencies: createClock(),
+      acquireBrowser: async () => browser,
+    }),
+    (error) => error.code === "qualification_tab_cleanup_failed",
+  );
 });
 
 test("separates a missing capability from a capability that never agrees", async () => {
