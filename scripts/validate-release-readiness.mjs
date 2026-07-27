@@ -26,36 +26,88 @@ const requiredPaths = [
   ...workflowPaths,
 ].toSorted();
 const placeholderPattern = /\b(?:TBD|TODO|example@example[.]com|YOUR_NAME)\b/iu;
+const canonicalVersionSource =
+  "(?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)";
 const candidateVersionPattern =
   /^((?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*)[.](?:0|[1-9][0-9]*))(?:[+]codex[.][0-9A-Za-z-]+)?$/u;
 const fullShaPattern = /^[0-9a-f]{40}$/u;
 const recordingArtifactPattern =
   /(?:^|\/)(?:[^/]+[.](?:webm|mp4|mov|mkv|part)|result[.]json|recording-[^/]+\/)/iu;
-const publicVersionReferences = [
+const candidateVersionReferences = [
   {
     path: "README.md",
-    pattern: /git clone --branch v([0-9]+[.][0-9]+[.][0-9]+) --depth 1/gu,
-  },
-  {
-    path: "README.md",
-    pattern:
-      /https:\/\/github[.]com\/flsteven87\/codex-browser-recorder\/releases\/tag\/v([0-9]+[.][0-9]+[.][0-9]+)/gu,
-  },
-  {
-    path: "README.md",
-    pattern: /\[v([0-9]+[.][0-9]+[.][0-9]+) release page\]/gu,
-  },
-  {
-    path: "README.md",
-    pattern: /recorder_release=v([0-9]+[.][0-9]+[.][0-9]+)/gu,
+    pattern: new RegExp(
+      "Version `(" +
+        canonicalVersionSource +
+        ")` is an upcoming release candidate",
+      "gu",
+    ),
   },
   {
     path: "SECURITY.md",
-    pattern: /Version `([0-9]+[.][0-9]+[.][0-9]+)` is the latest supported release/gu,
+    pattern: new RegExp(
+      "Version `(" + canonicalVersionSource + ")` is\\s+an unreleased candidate",
+      "gu",
+    ),
   },
   {
     path: "SUPPORT.md",
-    pattern: /Browser Recorder for Codex `v([0-9]+[.][0-9]+[.][0-9]+)`/gu,
+    pattern: new RegExp(
+      "Version\\s+`v(" + canonicalVersionSource + ")` is an unreleased candidate",
+      "gu",
+    ),
+  },
+];
+const publishedVersionReferences = [
+  {
+    path: "README.md",
+    pattern: new RegExp(
+      `Install and verify latest published version (${canonicalVersionSource})`,
+      "gu",
+    ),
+  },
+  {
+    path: "README.md",
+    pattern: new RegExp(
+      `git clone --branch v(${canonicalVersionSource}) --depth 1`,
+      "gu",
+    ),
+  },
+  {
+    path: "README.md",
+    pattern: new RegExp(
+      `\\(https://github[.]com/flsteven87/codex-browser-recorder/releases/tag/v(${canonicalVersionSource})\\)`,
+      "gu",
+    ),
+  },
+  {
+    path: "README.md",
+    pattern: new RegExp(
+      `\\[v(${canonicalVersionSource}) release page\\]`,
+      "gu",
+    ),
+  },
+  {
+    path: "README.md",
+    pattern: new RegExp(`recorder_release=v(${canonicalVersionSource})`, "gu"),
+  },
+  {
+    path: "SECURITY.md",
+    pattern: new RegExp(
+      "Version `(" +
+        canonicalVersionSource +
+        ")` is the latest supported published release",
+      "gu",
+    ),
+  },
+  {
+    path: "SUPPORT.md",
+    pattern: new RegExp(
+      "latest published Browser Recorder for Codex release is `v(" +
+        canonicalVersionSource +
+        ")`",
+      "gu",
+    ),
   },
 ];
 const requiredCiSteps = [
@@ -224,25 +276,29 @@ async function validatePublicText(repositoryRoot, existing, failures) {
   }
 }
 
-async function validatePublicVersionReferences(
-  repositoryRoot,
-  existing,
-  versionInfo,
-  failures,
-) {
-  if (versionInfo === null) return;
-  for (const { path, pattern } of publicVersionReferences) {
-    if (!existing.has(path)) continue;
-    const source = await readFile(repositoryPath(repositoryRoot, path), "utf8");
-    if (placeholderPattern.test(source)) continue;
-    const versions = [...source.matchAll(pattern)].map((match) => match[1]);
-    if (
-      versions.length !== 1 ||
-      versions[0] !== versionInfo.canonicalVersion
-    ) {
-      addFailure(failures, "PUBLIC_VERSION_MISMATCH", path);
+function compareCanonicalVersions(left, right) {
+  const leftParts = left.split(".");
+  const rightParts = right.split(".");
+  for (let index = 0; index < leftParts.length; index += 1) {
+    const leftPart = leftParts[index];
+    const rightPart = rightParts[index];
+    if (leftPart.length !== rightPart.length) {
+      return leftPart.length < rightPart.length ? -1 : 1;
     }
+    if (leftPart !== rightPart) return leftPart < rightPart ? -1 : 1;
   }
+  return 0;
+}
+
+function validReleaseDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
 }
 
 async function validateChangelogVersion(
@@ -252,32 +308,104 @@ async function validateChangelogVersion(
   versionInfo,
   failures,
 ) {
-  if (!existing.has("CHANGELOG.md") || versionInfo === null) return;
+  if (!existing.has("CHANGELOG.md") || versionInfo === null) return null;
   const changelog = await readFile(
     repositoryPath(repositoryRoot, "CHANGELOG.md"),
     "utf8",
   );
-  const escapedVersion = versionInfo.canonicalVersion.replaceAll(".", "[.]");
-  const releaseHeadings = [
-    ...changelog.matchAll(
-      new RegExp(`^## \\[${escapedVersion}\\] - (.+)$`, "gmu"),
-    ),
-  ];
-  const [, headingStatus] = releaseHeadings[0] ?? [];
-  const dated = /^\d{4}-\d{2}-\d{2}$/u.test(headingStatus);
-  const statusValid =
-    mode === "release"
-      ? dated
-      : versionInfo.cachebusted
-        ? headingStatus === "Unreleased"
-        : dated || headingStatus === "Unreleased";
-  const genericUnreleasedPresent = /^## \[Unreleased\]$/mu.test(changelog);
-  if (
-    releaseHeadings.length !== 1 ||
-    !statusValid ||
-    (mode === "release" && genericUnreleasedPresent)
-  ) {
+  const headings = [
+    ...changelog.matchAll(/^## \[([^\]]+)\](?: - (.+))?$/gmu),
+  ].map((match) => ({ status: match[2] ?? null, version: match[1] }));
+  const candidateHeadings = headings.filter(
+    ({ version }) => version === versionInfo.canonicalVersion,
+  );
+  const targetStatusValid =
+    candidateHeadings.length === 1 &&
+    (mode === "candidate"
+      ? candidateHeadings[0].status === "Unreleased"
+      : validReleaseDate(candidateHeadings[0].status));
+  const unreleasedHeadings = headings.filter(
+    ({ status, version }) => version === "Unreleased" || status === "Unreleased",
+  );
+  const unreleasedStateValid =
+    mode === "candidate"
+      ? unreleasedHeadings.length === 1 &&
+        unreleasedHeadings[0].version === versionInfo.canonicalVersion
+      : unreleasedHeadings.length === 0;
+  if (!targetStatusValid || !unreleasedStateValid) {
     addFailure(failures, "CHANGELOG_RELEASE_INCOMPLETE", "CHANGELOG.md");
+    return null;
+  }
+
+  const invalidPublishedDatePresent = headings.some(
+    ({ status, version }) =>
+      new RegExp(`^${canonicalVersionSource}$`, "u").test(version) &&
+      /^\d{4}-\d{2}-\d{2}$/u.test(status) &&
+      !validReleaseDate(status),
+  );
+  if (invalidPublishedDatePresent) {
+    addFailure(failures, "PUBLISHED_CHANGELOG_INVALID", "CHANGELOG.md");
+    return null;
+  }
+
+  const publishedHeadings = headings.filter(
+    ({ status, version }) =>
+      new RegExp(`^${canonicalVersionSource}$`, "u").test(version) &&
+      validReleaseDate(status),
+  );
+  const publishedVersions = publishedHeadings.map(({ version }) => version);
+  const uniquePublishedVersions = new Set(publishedVersions);
+  const orderedPublishedVersions = publishedVersions.toSorted((left, right) =>
+    compareCanonicalVersions(right, left),
+  );
+  if (
+    uniquePublishedVersions.size !== publishedVersions.length ||
+    !publishedVersions.every(
+      (version, index) => version === orderedPublishedVersions[index],
+    )
+  ) {
+    addFailure(failures, "PUBLISHED_CHANGELOG_INVALID", "CHANGELOG.md");
+    return null;
+  }
+
+  const latestPublishedVersion = orderedPublishedVersions[0] ?? null;
+  if (
+    latestPublishedVersion === null ||
+    (mode === "candidate" &&
+      compareCanonicalVersions(
+        versionInfo.canonicalVersion,
+        latestPublishedVersion,
+      ) <= 0) ||
+    (mode === "release" &&
+      latestPublishedVersion !== versionInfo.canonicalVersion)
+  ) {
+    addFailure(failures, "PUBLISHED_CHANGELOG_INVALID", "CHANGELOG.md");
+    return null;
+  }
+  return latestPublishedVersion;
+}
+
+async function validateVersionReferences(
+  repositoryRoot,
+  existing,
+  references,
+  expectedVersion,
+  expectedCount,
+  failureCode,
+  failures,
+) {
+  if (expectedVersion === null) return;
+  for (const { path, pattern } of references) {
+    if (!existing.has(path)) continue;
+    const source = await readFile(repositoryPath(repositoryRoot, path), "utf8");
+    if (placeholderPattern.test(source)) continue;
+    const versions = [...source.matchAll(pattern)].map((match) => match[1]);
+    if (
+      versions.length !== expectedCount ||
+      versions.some((version) => version !== expectedVersion)
+    ) {
+      addFailure(failures, failureCode, path);
+    }
   }
 }
 
@@ -436,19 +564,35 @@ export async function validateReleaseReadiness({ mode, repositoryRoot }) {
     if (corpus != null) validateEvalCorpus(corpus, failures);
   }
   await validatePublicText(repositoryRoot, existing, failures);
-  await validatePublicVersionReferences(
-    repositoryRoot,
-    existing,
-    versionInfo,
-    failures,
-  );
-  await validateChangelogVersion(
+  const latestPublishedVersion = await validateChangelogVersion(
     repositoryRoot,
     existing,
     mode,
     versionInfo,
     failures,
   );
+  if (mode === "candidate" || latestPublishedVersion !== null) {
+    await validateVersionReferences(
+      repositoryRoot,
+      existing,
+      candidateVersionReferences,
+      versionInfo?.canonicalVersion ?? null,
+      mode === "candidate" ? 1 : 0,
+      "CANDIDATE_VERSION_MISMATCH",
+      failures,
+    );
+    await validateVersionReferences(
+      repositoryRoot,
+      existing,
+      publishedVersionReferences,
+      mode === "release"
+        ? versionInfo?.canonicalVersion ?? null
+        : latestPublishedVersion,
+      1,
+      "PUBLISHED_VERSION_MISMATCH",
+      failures,
+    );
+  }
   await validateActionPins(repositoryRoot, existing, failures);
   await validateCi(repositoryRoot, existing, failures);
   await validateGitArtifacts(repositoryRoot, failures);

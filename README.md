@@ -22,6 +22,10 @@ telemetry, capture audio, or record your other tabs.
 > Browser Recorder is an experimental, community-developed plugin for the Codex
 > desktop app on macOS with the Codex In-app Browser.
 
+Version `0.4.0` is an upcoming release candidate. The install and verification
+steps below remain pinned to the latest published release until that candidate
+completes the release transition.
+
 ## Before you record
 
 > [!WARNING]
@@ -141,20 +145,20 @@ Start a new Codex task after installing. Do not copy files into the plugin cache
 or edit cache contents by hand.
 
 <details>
-<summary>Install and verify version 0.4.0</summary>
+<summary>Install and verify latest published version 0.3.3</summary>
 
 Use a release tag when you need to reproduce the published plugin:
 
 ```sh
-git clone --branch v0.4.0 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
+git clone --branch v0.3.3 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
 codex plugin marketplace add /absolute/path/to/codex-browser-recorder
 ```
 
-The [v0.4.0 release page](https://github.com/flsteven87/codex-browser-recorder/releases/tag/v0.4.0)
+The [v0.3.3 release page](https://github.com/flsteven87/codex-browser-recorder/releases/tag/v0.3.3)
 lists the release commit. You can also verify the downloaded archive:
 
 ```sh
-recorder_release=v0.4.0
+recorder_release=v0.3.3
 recorder_archive="codex-browser-recorder-${recorder_release}.zip"
 curl --fail --location --remote-name \
   "https://github.com/flsteven87/codex-browser-recorder/releases/download/${recorder_release}/${recorder_archive}"

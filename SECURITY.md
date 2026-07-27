@@ -2,9 +2,10 @@
 
 ## Supported versions
 
-Version `0.4.0` is the latest supported release. Security fixes are prepared on
-`main`, validated through the repository release gates, and published in the
-latest supported release.
+Version `0.3.3` is the latest supported published release. Version `0.4.0` is
+an unreleased candidate. Security fixes are prepared on `main`, validated
+through the repository release gates, and published in the latest supported
+release.
 
 ## Reporting a vulnerability
 
