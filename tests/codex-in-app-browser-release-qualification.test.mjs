@@ -159,9 +159,32 @@ test("hides the Browser through the runtime the gate acquired", async () => {
   const runtime = createRuntime(visibility.capability);
   const flows = createQualificationFlows({ runtime });
 
-  await flows.pointerHiddenFlow.actions[1].perform({});
+  await flows.pointerHiddenFlow.actions[1].perform({
+    tab: { playwright: { waitForTimeout: async () => {} } },
+  });
 
   assert.deepEqual(visibility.requested, [false]);
+});
+
+test("holds the hidden state long enough to encode pointer movement", async () => {
+  const operations = [];
+  const runtime = createRuntime({
+    set: async (visible) => operations.push(["visibility", visible]),
+  });
+  const tab = {
+    playwright: {
+      waitForTimeout: async (timeoutMs) =>
+        operations.push(["wait", timeoutMs]),
+    },
+  };
+  const flows = createQualificationFlows({ runtime });
+
+  await flows.pointerHiddenFlow.actions[1].perform({ tab });
+
+  assert.deepEqual(operations, [
+    ["visibility", false],
+    ["wait", 500],
+  ]);
 });
 
 test("fails the hide action when the runtime has no visibility capability", async () => {
@@ -489,6 +512,7 @@ test("runs native encoded visual evidence through the qualification gate", async
           ).href;
         },
       }),
+      waitForTimeout: async () => {},
     },
     url: async () => currentUrl,
   };
