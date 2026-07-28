@@ -4,6 +4,7 @@ import { confirmEncodedPointerVisualEvidence } from "./confirm-pointer-visual-ev
 const VISIBILITY_POLL_INTERVAL_MS = 100;
 const VISIBILITY_PROBE_CLEANUP_TIMEOUT_MS = 5_000;
 const VISIBILITY_PROBE_TIMEOUT_MS = 10_000;
+const POINTER_VISUAL_SETTLE_MS = 500;
 
 export const RUNTIME_UNSUPPORTED_EMBEDDED_FRAME = Object.freeze({
   limitation: "runtime_does_not_expose_embedded_frame_control",
@@ -73,7 +74,7 @@ function action(label, modality, perform) {
   return Object.freeze({ label, modality, perform });
 }
 
-async function hideBrowser(runtime) {
+async function hideBrowser(runtime, tab) {
   const visibility = await runtime.browser?.capabilities?.get("visibility");
   if (typeof visibility?.set !== "function") {
     throw qualificationError(
@@ -81,7 +82,14 @@ async function hideBrowser(runtime) {
       "The Codex In-app Browser visibility capability is unavailable",
     );
   }
+  if (typeof tab?.playwright?.waitForTimeout !== "function") {
+    throw qualificationError(
+      "qualification_pointer_settle_unavailable",
+      "The release qualification cannot settle pointer visual evidence",
+    );
+  }
   await visibility.set(false);
+  await tab.playwright.waitForTimeout(POINTER_VISUAL_SETTLE_MS);
 }
 
 function waitForPollInterval(clock) {
@@ -228,8 +236,8 @@ export function createQualificationFlows({
           "pointer",
           clickLink(fixtures.pointerHidden.sameOriginLinkName),
         ),
-        action("Hide the Codex In-app Browser", "programmatic", () =>
-          hideBrowser(runtime),
+        action("Hide the Codex In-app Browser", "programmatic", ({ tab }) =>
+          hideBrowser(runtime, tab),
         ),
         action(
           "Follow a section link while the Browser is hidden",

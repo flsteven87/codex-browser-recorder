@@ -109,10 +109,12 @@ must:
    The harness fixes `pointerHiddenFlow.actions` as exactly `pointer`,
    `programmatic`, `pointer`: the first changes `await tab.url()` without
    changing its origin, the second sets the Browser visibility capability to
-   `false`, and the third performs its pointer interaction only after the gate
-   verifies the Browser is hidden. Pass `fixtures` to retarget the links when a
-   fixture page changes; keep every target a public HTTPS page and keep the two
-   pointer-hidden link names distinct. The gate observes the Browser capability
+   `false` and holds that state for 500 ms so the first click ring clears before
+   the encoded cursor moves, and the third performs its pointer interaction
+   only after the gate verifies the Browser is hidden. Pass `fixtures` to
+   retarget the links when a fixture page changes; keep every target a public
+   HTTPS page and keep the two pointer-hidden link names distinct. The gate
+   observes the Browser capability
    changing from visible to hidden and requires the final hidden pointer action
    to add both fresh pointer evidence and a fresh captured frame inside the
    same production action boundary. CDP page-visibility events are recorded as
