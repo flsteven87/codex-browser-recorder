@@ -23,8 +23,8 @@ For a code change:
 4. Run `npm run check` and any focused test for the changed area.
 5. Run `git diff --check` and review the complete diff.
 
-Before opening a pull request, also run `npm run check:release-candidate` when
-you changed public docs, plugin metadata, packaging, or release behavior.
+Before opening a pull request, also run `npm run check:release-state` when you
+changed public docs, plugin metadata, packaging, or release behavior.
 
 ## Keep test data safe
 
@@ -45,8 +45,10 @@ ran. Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 Read [Architecture](docs/architecture.md) before changing session ownership,
 capture, cursor evidence, artifact publication, or public failure handling. The
-[official Codex plugin guide](https://learn.chatgpt.com/docs/build-plugins) is
-the source of truth for manifest and marketplace behavior.
+[official Codex plugin guide][official-plugin-guide] is the source of truth for
+manifest and marketplace behavior.
+
+[official-plugin-guide]: https://developers.openai.com/plugins/build/plugins
 
 For substantial behavior changes, first show the problem with a failing test,
 then implement the fix and run:
@@ -55,7 +57,7 @@ then implement the fix and run:
 npm run check
 npm run test:coverage
 npm run test:coverage:cursor
-npm run check:release-candidate
+npm run check:release-state
 ```
 
 ## Maintainer release checklist

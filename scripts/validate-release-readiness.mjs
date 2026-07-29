@@ -12,7 +12,7 @@ const manifestPath = "plugins/codex-browser-recorder/.codex-plugin/plugin.json";
 const evalPath = "evals/plugin-submission-cases.json";
 const ciPath = ".github/workflows/ci.yml";
 const canonicalCiSha256 =
-  "b793f777498da84394c335d7f21c95a0bcb60caa1b488ada6f874935c1b22b5f";
+  "30d4cce29d520dbe46bea6f55d6a8ede57cde068cd5b90ec91c2e1eb175eb8a2";
 const workflowPaths = [ciPath, ".github/workflows/codeql.yml"];
 const assetPaths = [
   "plugins/codex-browser-recorder/assets/icon.png",
@@ -140,8 +140,8 @@ const requiredCiSteps = [
     commands: ["run: npm run test:plugin-install"],
   },
   {
-    name: "Verify release candidate",
-    commands: ["run: npm run check:release-candidate"],
+    name: "Verify release state",
+    commands: ["run: npm run check:release-state"],
   },
 ];
 
@@ -508,7 +508,7 @@ async function validateCi(repositoryRoot, existing, failures) {
     "npm run check",
     "npm run test:coverage",
     "npm run test:coverage:cursor",
-    "npm run check:release-candidate",
+    "npm run check:release-state",
     "git show --check --format= HEAD",
     "RECORDING_ARTIFACT_PATTERN",
   ];
@@ -606,14 +606,80 @@ export async function validateReleaseReadiness({ mode, repositoryRoot }) {
   return { status: "pass", mode };
 }
 
-async function main() {
+export async function validateCurrentReleaseReadiness({ repositoryRoot }) {
+  if (typeof repositoryRoot !== "string" || repositoryRoot.length === 0) {
+    throw new TypeError("repositoryRoot must be a non-empty string");
+  }
+  await access(repositoryRoot);
+
+  let manifest;
+  try {
+    manifest = JSON.parse(
+      await readFile(repositoryPath(repositoryRoot, manifestPath), "utf8"),
+    );
+  } catch {
+    throw new ReleaseReadinessError("current", [
+      { code: "RELEASE_STATE_INVALID", path: manifestPath },
+    ]);
+  }
+  const versionMatch =
+    typeof manifest?.version === "string"
+      ? manifest.version.match(candidateVersionPattern)
+      : null;
+  const canonicalVersion = versionMatch?.[1] ?? null;
+  if (canonicalVersion === null) {
+    throw new ReleaseReadinessError("current", [
+      { code: "RELEASE_STATE_INVALID", path: manifestPath },
+    ]);
+  }
+
+  let changelog;
+  try {
+    changelog = await readFile(
+      repositoryPath(repositoryRoot, "CHANGELOG.md"),
+      "utf8",
+    );
+  } catch {
+    throw new ReleaseReadinessError("current", [
+      { code: "RELEASE_STATE_INVALID", path: "CHANGELOG.md" },
+    ]);
+  }
+  const escapedVersion = canonicalVersion.replaceAll(".", "[.]");
+  const headings = [
+    ...changelog.matchAll(
+      new RegExp(`^## \\[${escapedVersion}\\](?: - (.+))?$`, "gmu"),
+    ),
+  ];
+  if (headings.length !== 1) {
+    throw new ReleaseReadinessError("current", [
+      { code: "RELEASE_STATE_INVALID", path: "CHANGELOG.md" },
+    ]);
+  }
+  const status = headings[0][1] ?? null;
   const mode =
+    status === "Unreleased"
+      ? "candidate"
+      : validReleaseDate(status)
+        ? "release"
+        : null;
+  if (mode === null) {
+    throw new ReleaseReadinessError("current", [
+      { code: "RELEASE_STATE_INVALID", path: "CHANGELOG.md" },
+    ]);
+  }
+  return validateReleaseReadiness({ mode, repositoryRoot });
+}
+
+async function main() {
+  const requestedMode =
     process.argv.length === 3 && process.argv[2] === "--candidate"
       ? "candidate"
       : process.argv.length === 3 && process.argv[2] === "--release"
         ? "release"
+        : process.argv.length === 3 && process.argv[2] === "--current"
+          ? "current"
         : null;
-  if (mode == null) {
+  if (requestedMode == null) {
     process.stderr.write("USAGE_INVALID scripts/validate-release-readiness.mjs\n");
     process.exitCode = 2;
     return;
@@ -621,7 +687,14 @@ async function main() {
 
   const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   try {
-    await validateReleaseReadiness({ mode, repositoryRoot });
+    if (requestedMode === "current") {
+      await validateCurrentReleaseReadiness({ repositoryRoot });
+    } else {
+      await validateReleaseReadiness({
+        mode: requestedMode,
+        repositoryRoot,
+      });
+    }
   } catch (error) {
     if (error instanceof ReleaseReadinessError) {
       for (const { code, path } of error.failures) {

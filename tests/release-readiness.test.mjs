@@ -15,6 +15,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  validateCurrentReleaseReadiness,
   validateReleaseReadiness,
 } from "../scripts/validate-release-readiness.mjs";
 import { PUBLIC_TEXT_PATHS } from "../scripts/release-materials.mjs";
@@ -32,6 +33,26 @@ const fixturePaths = [
 const releaseVersion = JSON.parse(
   await readFile(join(sourceRoot, manifestPath), "utf8"),
 ).version.split("+", 1)[0];
+const sourceChangelog = await readFile(
+  join(sourceRoot, "CHANGELOG.md"),
+  "utf8",
+);
+const escapedReleaseVersion = releaseVersion.replaceAll(".", "[.]");
+const sourceReleaseStatus = sourceChangelog.match(
+  new RegExp(`^## \\[${escapedReleaseVersion}\\] - (.+)$`, "mu"),
+)?.[1];
+const sourceIsCandidate = sourceReleaseStatus === "Unreleased";
+const previousPublishedVersion = [
+  ...sourceChangelog.matchAll(
+    /^## \[([0-9]+[.][0-9]+[.][0-9]+)\] - \d{4}-\d{2}-\d{2}$/gmu,
+  ),
+]
+  .map((match) => match[1])
+  .find((version) => version !== releaseVersion);
+assert.ok(
+  previousPublishedVersion,
+  "release-readiness fixtures require one earlier published version",
+);
 const temporaryRoots = [];
 
 test.after(async () => {
@@ -62,6 +83,13 @@ async function createFixture() {
     ),
     `## [${releaseVersion}] - Unreleased`,
   );
+  await syncPublishedVersionReferences(
+    repositoryRoot,
+    previousPublishedVersion,
+  );
+  if (!sourceIsCandidate) {
+    await addCandidateReferences(repositoryRoot, releaseVersion);
+  }
   execFileSync("git", ["init", "--quiet"], { cwd: repositoryRoot });
   return repositoryRoot;
 }
@@ -108,6 +136,34 @@ async function syncCandidateVersionReferences(repositoryRoot, version) {
   ]) {
     await replaceText(repositoryRoot, relativePath, pattern, replacement);
   }
+}
+
+async function addCandidateReferences(repositoryRoot, version) {
+  const canonicalVersion = version.split("+", 1)[0];
+  const readmeMarker =
+    "> Browser Recorder is an experimental, community-developed plugin for the Codex\n" +
+    "> desktop app on macOS with the Codex In-app Browser.\n\n";
+  await replaceText(
+    repositoryRoot,
+    "README.md",
+    readmeMarker,
+    readmeMarker +
+      `Version \`${canonicalVersion}\` is an upcoming release candidate. The install and verification\n` +
+      "steps below remain pinned to the latest published release until that candidate\n" +
+      "completes the release transition.\n\n",
+  );
+  await replaceText(
+    repositoryRoot,
+    "SECURITY.md",
+    /Version `[0-9]+[.][0-9]+[.][0-9]+` is the latest supported published release[.]/u,
+    `$& Version \`${canonicalVersion}\` is\nan unreleased candidate.`,
+  );
+  await replaceText(
+    repositoryRoot,
+    "SUPPORT.md",
+    /The latest published Browser Recorder for Codex release is `v[0-9]+[.][0-9]+[.][0-9]+`[.]/u,
+    `$& Version\n\`v${canonicalVersion}\` is an unreleased candidate for recording one approved Codex In-app\nBrowser flow as a local MP4.`,
+  );
 }
 
 async function syncPublishedVersionReferences(repositoryRoot, version) {
@@ -238,6 +294,30 @@ test("accepts the complete release candidate fixture", async () => {
   });
 
   assert.deepEqual(candidate, { status: "pass", mode: "candidate" });
+  assert.deepEqual(
+    await validateCurrentReleaseReadiness({ repositoryRoot }),
+    { status: "pass", mode: "candidate" },
+  );
+});
+
+test("current-state validation rejects an ambiguous release heading", async () => {
+  const repositoryRoot = await createFixture();
+  await replaceText(
+    repositoryRoot,
+    "CHANGELOG.md",
+    `## [${releaseVersion}] - Unreleased`,
+    `## [${releaseVersion}] - Pending`,
+  );
+
+  await assert.rejects(
+    validateCurrentReleaseReadiness({ repositoryRoot }),
+    (error) => {
+      assert.deepEqual(error.failures, [
+        { code: "RELEASE_STATE_INVALID", path: "CHANGELOG.md" },
+      ]);
+      return true;
+    },
+  );
 });
 
 test("candidate rejects unavailable candidate artifacts presented as published", async () => {
@@ -525,6 +605,10 @@ test("release accepts a canonical manifest version with a matching dated changel
     repositoryRoot,
   });
   assert.deepEqual(release, { status: "pass", mode: "release" });
+  assert.deepEqual(
+    await validateCurrentReleaseReadiness({ repositoryRoot }),
+    { status: "pass", mode: "release" },
+  );
 
   await mutateJson(repositoryRoot, manifestPath, (manifest) => {
     manifest.version = `${releaseVersion}+codex.20260716`;
@@ -839,7 +923,7 @@ test("rejects required CI steps with YAML-level failure suppression", async () =
     ["Install pinned Codex CLI", "        if: false\n"],
     ["Run official plugin validator", "        continue-on-error: true\n"],
     ["Verify isolated plugin installation", "        continue-on-error: true\n"],
-    ["Verify release candidate", "        if: false\n"],
+    ["Verify release state", "        if: false\n"],
   ]) {
     const repositoryRoot = await createFixture();
     await mutateWorkflowStep(repositoryRoot, name, (block) =>
@@ -882,14 +966,14 @@ test("rejects required named steps moved outside the CI test job", async () => {
   await replaceText(
     repositoryRoot,
     ".github/workflows/ci.yml",
-    "      - name: Verify release candidate",
+    "      - name: Verify release state",
     "      - name: Candidate command without required binding",
   );
   const path = join(repositoryRoot, ".github/workflows/ci.yml");
   const source = await readFile(path, "utf8");
   await writeFile(
     path,
-    `${source}\n  decoy:\n    runs-on: macos-14\n    steps:\n      - name: Verify release candidate\n        run: npm run check:release-candidate\n`,
+    `${source}\n  decoy:\n    runs-on: macos-14\n    steps:\n      - name: Verify release state\n        run: npm run check:release-state\n`,
   );
   await assertSemanticAndHashFailures(
     repositoryRoot,

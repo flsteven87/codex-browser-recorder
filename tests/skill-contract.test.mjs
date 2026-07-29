@@ -159,7 +159,7 @@ test("README documents the public recording contract", () => {
 
 test("public product copy describes only the current product", () => {
   const currentReleaseStart = changelog.indexOf(
-    "## [0.4.0] - Unreleased",
+    "## [0.4.0] - 2026-07-29",
   );
   assert.notEqual(currentReleaseStart, -1);
   const currentRelease = changelog.slice(
