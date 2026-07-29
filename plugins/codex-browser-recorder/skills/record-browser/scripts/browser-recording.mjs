@@ -80,6 +80,26 @@ function awaitAbortable(operation, signal, onLateSuccess) {
   });
 }
 
+export async function primeBrowserPixelCapture(tab) {
+  if (typeof tab?.screenshot !== "function") return;
+  try {
+    const screenshot = await tab.screenshot({ fullPage: false });
+    if (
+      screenshot === null ||
+      typeof screenshot !== "object" ||
+      !Number.isInteger(screenshot.byteLength) ||
+      screenshot.byteLength <= 0
+    ) {
+      throw new Error("Browser screenshot is empty");
+    }
+  } catch {
+    throw new BrowserRecordingError(
+      "frame_stream_unavailable",
+      "The Browser pixel capture pipeline could not start",
+    );
+  }
+}
+
 function createFrameDeadline(timeoutMs) {
   let timer;
   const promise = new Promise((_, reject) => {
@@ -217,6 +237,8 @@ export async function startBrowserRecordingForTab({
       "Full CDP access is unavailable for the selected Browser tab",
     );
   }
+
+  await awaitAbortable(primeBrowserPixelCapture(tab), signal);
 
   return startBrowserRecordingInternal({
     approvedOrigin,

@@ -3,6 +3,9 @@ import { setImmediate as waitImmediate } from "node:timers/promises";
 import {
   parseScreencastFrame,
 } from "../plugins/codex-browser-recorder/skills/record-browser/scripts/media-recorder.mjs";
+import {
+  primeBrowserPixelCapture,
+} from "../plugins/codex-browser-recorder/skills/record-browser/scripts/browser-recording.mjs";
 
 export const FRAME_CONTRACT_FIXTURE_URL = "https://example.com/";
 
@@ -236,6 +239,10 @@ export async function runCodexInAppBrowserFrameDiagnostic({
     await boundedOperation(
       () => tab.goto(targetUrl),
       "Codex In-app Browser frame diagnostic timed out while navigating its fresh tab",
+    );
+    await boundedOperation(
+      () => primeBrowserPixelCapture(tab),
+      "Codex In-app Browser frame diagnostic timed out while priming pixel capture",
     );
     cdp = await boundedOperation(
       () => tab.capabilities.get("cdp"),

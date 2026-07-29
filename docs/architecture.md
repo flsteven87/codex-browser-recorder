@@ -104,13 +104,17 @@ to one another. A missing, rejected, malformed, unverifiable, or timed-out
 visibility capability fails with `browser_visibility_unavailable` and uses the
 normal artifact rollback and exact-tab cleanup path.
 
-The production capture path consumes the JPEG bytes delivered in
-`Page.screencastFrame.params.data`. Each valid frame is acknowledged once and
-then passed directly to the bounded encoder sink. It does not issue a separate
-`Page.captureScreenshot` request for every event. Readiness requires a valid
-first streamed frame within five seconds; no frame fails closed as
-`frame_stream_unavailable`. The encoder writes its first accepted frame eagerly,
-so an immediately completed action cannot finalize a zero-sample stream.
+After navigation, the production capture path takes one full-viewport Browser
+screenshot in memory before its first CDP command. The bytes are discarded
+immediately: this initializes the runtime pixel pipeline but is never accepted
+as a recording frame, written to disk, or published. Recording still consumes
+only the JPEG bytes delivered in `Page.screencastFrame.params.data`. Each valid
+frame is acknowledged once and then passed directly to the bounded encoder
+sink. It does not issue a separate `Page.captureScreenshot` request for every
+event. Readiness requires a valid first streamed frame within five seconds; no
+frame fails closed as `frame_stream_unavailable`. The encoder writes its first
+accepted frame eagerly, so an immediately completed action cannot finalize a
+zero-sample stream.
 
 The frame pump drains ordered navigation, visibility, and frame events. It
 identifies the top frame by the absence of a parent rather than a persistent

@@ -601,6 +601,49 @@ test("maps missing or failed frame-tree inspection to a stable error", async () 
   }
 });
 
+test("primes Browser pixels before CDP commands and sanitizes failure", async () => {
+  const secret = "private-browser-screenshot-failure";
+  let capabilityAcquired = false;
+  let cdpCommandSent = false;
+
+  await assert.rejects(
+    startBrowserRecordingForTab({
+      approvedOrigin: "https://example.com",
+      ffmpegPath: "/unused/ffmpeg",
+      outputPath: "/tmp/unused.mp4",
+      requirePointerEvents: false,
+      tab: {
+        capabilities: {
+          async get() {
+            capabilityAcquired = true;
+            return {
+              async readEvents() {
+                return { cursor: 0, events: [] };
+              },
+              async send() {
+                cdpCommandSent = true;
+                throw new Error("CDP command must not run after priming fails");
+              },
+            };
+          },
+        },
+        async screenshot(options) {
+          assert.deepEqual(options, { fullPage: false });
+          throw new Error(secret);
+        },
+      },
+    }),
+    (error) => {
+      assert.equal(error.code, "frame_stream_unavailable");
+      assert.doesNotMatch(error.message, new RegExp(secret, "u"));
+      assert.doesNotMatch(JSON.stringify(error), new RegExp(secret, "u"));
+      return true;
+    },
+  );
+  assert.equal(capabilityAcquired, true);
+  assert.equal(cdpCommandSent, false);
+});
+
 test("acquires a fresh CDP capability for every recording session", async () => {
   const acquired = [];
   const commandOrders = [];
