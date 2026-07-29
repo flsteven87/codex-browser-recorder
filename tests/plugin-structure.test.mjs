@@ -120,9 +120,9 @@ test("plugin manifest and repository marketplace stay aligned", () => {
   assert.equal(entry.category, "Developer Tools");
 });
 
-test("documents the v0.4.0 candidate product as a current-state contract", () => {
+test("documents the v0.4.0 release product as a current-state contract", () => {
   const changelog = readFileSync(join(repositoryRoot, "CHANGELOG.md"), "utf8");
-  const heading = "## [0.4.0] - Unreleased";
+  const heading = "## [0.4.0] - 2026-07-29";
   const releaseStart = changelog.indexOf(heading);
   const nextRelease = changelog.indexOf(
     "\n## [",

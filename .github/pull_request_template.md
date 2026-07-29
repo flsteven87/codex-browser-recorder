@@ -11,7 +11,7 @@ Describe the problem, the focused change, and the related issue when one exists.
 
 - [ ] `npm run check` (or explain why it does not apply)
 - [ ] Relevant focused tests or validators
-- [ ] `npm run check:release-candidate` when public docs, metadata, packaging, or release behavior changed
+- [ ] `npm run check:release-state` when public docs, metadata, packaging, or release behavior changed
 - [ ] `git diff --check`
 
 For behavior changes, list the failing test observed before implementation when

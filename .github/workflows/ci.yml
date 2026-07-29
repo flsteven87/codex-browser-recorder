@@ -63,8 +63,8 @@ jobs:
       - name: Verify isolated plugin installation
         run: npm run test:plugin-install
 
-      - name: Verify release candidate
-        run: npm run check:release-candidate
+      - name: Verify release state
+        run: npm run check:release-state
 
       - name: Check whitespace
         run: git show --check --format= HEAD
