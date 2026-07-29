@@ -24,6 +24,7 @@ function addOwnedTabInventory(browser) {
   browser.tabs.new = async function newTrackedTab(...args) {
     const tab = await Reflect.apply(createTab, this, args);
     tab.id ??= `owned-diagnostic-${nextId += 1}`;
+    tab.screenshot ??= async () => jpeg;
     const close = tab.close;
     tab.close = async function closeTrackedTab(...closeArgs) {
       const result = await Reflect.apply(close, this, closeArgs);
@@ -92,6 +93,10 @@ test("reports one direct Codex In-app Browser frame as diagnostic-only evidence"
     async goto(url) {
       calls.push(["tab.goto", url]);
     },
+    async screenshot(options) {
+      calls.push(["tab.screenshot", options]);
+      return jpeg;
+    },
   };
   const browser = {
     tabs: {
@@ -121,6 +126,12 @@ test("reports one direct Codex In-app Browser frame as diagnostic-only evidence"
     calls.some(([method]) => method === "Page.captureScreenshot"),
     false,
   );
+  assert.deepEqual(calls.slice(0, 4), [
+    ["tabs.new"],
+    ["tab.goto", "https://example.com/"],
+    ["tab.screenshot", { fullPage: false }],
+    ["capability", "cdp"],
+  ]);
   assert.equal(
     calls.filter(([method]) => method === "Page.screencastFrameAck").length,
     1,
@@ -220,6 +231,9 @@ test("retries transient inventory failure without closing the tab twice", async 
       closeCalls += 1;
     },
     async goto() {},
+    async screenshot() {
+      return jpeg;
+    },
   };
   const browser = {
     tabs: {

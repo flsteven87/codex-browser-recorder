@@ -71,8 +71,10 @@ must:
    `scripts/codex-in-app-browser-frame-diagnostic.mjs`, pass the acquired
    Browser as `browser`, and require diagnostic contract version 2,
    `releaseAcceptance: false`, one received and acknowledged frame, and exact
-   diagnostic-tab cleanup. This is a low-level CDP probe, not product
-   acceptance.
+   diagnostic-tab cleanup. The probe takes one in-memory Browser screenshot
+   before the first CDP command to initialize the runtime pixel pipeline, then
+   discards it; only a later `Page.screencastFrame` can satisfy the diagnostic.
+   This is a low-level CDP probe, not product acceptance.
 3. Prove that the runtime can present and hide the Browser on demand before
    spending a full qualification run. Import
    `probeCodexInAppBrowserVisibility()` from
@@ -119,9 +121,11 @@ must:
    to add both fresh pointer evidence and a fresh captured frame inside the
    same production action boundary. CDP page-visibility events are recorded as
    diagnostic evidence only; they are not the source of truth for whether the
-   Codex Browser panel is shown. The harness decodes the resulting MP4 through
-   FFmpeg and independently requires two visible click rings plus cursor
-   movement between distinct positions.
+   Codex Browser panel is shown. Production capture likewise uses one discarded
+   in-memory Browser screenshot to initialize pixel capture before the first
+   CDP command; it never uses that screenshot as a recording frame. The harness
+   decodes the resulting MP4 through FFmpeg and independently requires two
+   visible click rings plus cursor movement between distinct positions.
 5. The sequential flow is a second real action-driven recording. The gate runs
    it as an Unattended Recording and verifies at its first production action
    boundary that the Browser began and remained hidden. The cross-origin flow

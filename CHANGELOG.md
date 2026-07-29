@@ -30,6 +30,12 @@ silent H.264 MP4 on macOS.
   Saved Recording.
 - Cleanup is limited to the exact recording tab and private temporary files.
 
+### Fixed
+
+- Prime the Codex In-app Browser pixel pipeline with one discarded in-memory
+  viewport screenshot before starting the CDP screencast, avoiding a runtime
+  state where non-pixel CDP events work but no recording frames arrive.
+
 ## [0.3.3] - 2026-07-24
 
 This patch release makes Browser Recorder's public project surfaces easier to
