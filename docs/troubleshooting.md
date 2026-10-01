@@ -18,7 +18,9 @@ $codex-browser-recorder:record-browser Check whether this recording setup is rea
 A passing result begins with `Local recording preflight passed`. It checks the
 Mac, FFmpeg, destination folder, Codex In-app Browser, and full CDP access. It
 may briefly open one fresh diagnostic tab, which it closes after the bounded
-probe. It does not create a video, raw frame dump, or upload.
+probe. It does not create a video, raw frame dump, or upload. When a recording
+starts, ChatGPT may still ask you to approve full CDP access for the recording
+site.
 
 ## Installation and discovery
 
@@ -39,15 +41,15 @@ reinstall from the marketplace source instead.
 
 | Code | Meaning | What to do |
 | --- | --- | --- |
-| `unsupported_platform` | Recording requires macOS. | Run it in the Codex desktop app on macOS. |
-| `ffmpeg_missing` | `ffmpeg` was not found on `PATH`. | Install FFmpeg and ensure the Codex desktop runtime can resolve it. Homebrew users can run `brew install ffmpeg`. |
+| `unsupported_platform` | Recording requires macOS. | Run it in the ChatGPT desktop app on macOS. |
+| `ffmpeg_missing` | `ffmpeg` was not found on `PATH`. | Install FFmpeg and ensure the ChatGPT desktop runtime can resolve it. Homebrew users can run `brew install ffmpeg`. |
 | `ffmpeg_h264_unavailable` | FFmpeg does not expose the required `libx264` encoder. | Install an FFmpeg build that includes `libx264`. |
 | `ffmpeg_mp4_unavailable` | FFmpeg does not expose the required MP4 muxer. | Install an FFmpeg build with MP4 support. |
 | `ffprobe_missing` | `ffprobe` was not found on `PATH`. | Install the complete FFmpeg toolset and verify `ffprobe` resolves. |
 | `ffprobe_unusable` | `ffprobe` cannot produce the JSON metadata the validator needs. | Replace or repair the FFmpeg installation, then rerun preflight. |
 | `output_directory_not_writable` | The planned destination or its nearest existing parent is not writable. | Choose another absolute local directory or approve macOS file access. |
 | `browser_plugin_unavailable` | The Codex In-app Browser or its fresh-tab API is unavailable. | Confirm that the Browser plugin is available in this Codex task, then rerun the setup check. |
-| `cdp_unavailable` | The fresh diagnostic tab does not expose the required full CDP capability. | Enable **Developer mode > Enable full CDP access** in Codex Browser settings, then rerun the setup check. |
+| `cdp_unavailable` | The fresh diagnostic tab does not expose the required full CDP capability. | In **Settings > Browser**, enable **Developer mode > Enable full CDP access**, then rerun the setup check. |
 | `setup_cancelled` | The setup check was cancelled before it completed. | Run the setup check again when ready. |
 | `setup_timeout` | A bounded Codex In-app Browser readiness operation did not finish in time. | Keep Codex open, confirm the Codex In-app Browser is responsive, and rerun the setup check. |
 | `browser_tab_cleanup_failed` | The owned fresh diagnostic tab could not be verified as closed. | Close the fresh setup diagnostic tab manually, then rerun the setup check. |

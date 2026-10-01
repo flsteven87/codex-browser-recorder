@@ -1,6 +1,6 @@
 {
   "name": "codex-browser-recorder",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Save one approved Codex In-app Browser flow as a private local MP4 with visible cursor and click feedback.",
   "author": {
     "name": "Steven Wu",
@@ -19,7 +19,7 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Codex Browser Recorder",
-    "shortDescription": "Save an approved Codex In-app Browser flow as a local video.",
+    "shortDescription": "Record Codex Browser flows",
     "longDescription": "Check whether your Mac is ready, then record one short, approved Codex In-app Browser test flow as a private local MP4. Pointer actions include a visible cursor and click feedback. The plugin records no audio and does not upload your video.",
     "developerName": "Steven Wu",
     "category": "Developer Tools",
@@ -34,7 +34,7 @@
     "defaultPrompt": [
       "$codex-browser-recorder:record-browser Check recording setup on this Mac.",
       "$codex-browser-recorder:record-browser Record https://example.com for 5 seconds.",
-      "$codex-browser-recorder:record-browser Record clicking the link on https://example.com."
+      "$codex-browser-recorder:record-browser Record clicking the 1. Introduction link on https://www.w3.org/TR/pointerevents/"
     ],
     "brandColor": "#E5484D",
     "composerIcon": "./assets/icon.png",

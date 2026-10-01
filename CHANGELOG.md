@@ -3,6 +3,22 @@
 This file records release candidates and published versions. Versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - Unreleased
+
+Browser Recorder 0.4.1 keeps setup checks and recordings working in the ChatGPT
+desktop app.
+
+### Fixed
+
+- Connect to the Codex In-app Browser through the Browser runtime that current
+  ChatGPT desktop releases return, so setup checks and recordings start instead
+  of failing before the Recording Flow runs.
+- Replace a starter prompt that followed a link to another website, which always
+  stopped without saving a video, with a same-site example.
+- Shorten the plugin subtitle to the Plugin Directory's 30-character limit.
+- Point setup and support guidance at the ChatGPT desktop app, and note that
+  ChatGPT may ask to approve full CDP access for the recording site.
+
 ## [0.4.0] - 2026-07-29
 
 Browser Recorder 0.4.0 saves one approved Codex In-app Browser flow as a local

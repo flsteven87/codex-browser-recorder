@@ -65,7 +65,7 @@ npm run check:release-state
 Automated tests do not control a real browser. Before a release, a maintainer
 must:
 
-1. Install the candidate in a clean Codex desktop task and pass the local setup
+1. Install the candidate in a clean ChatGPT desktop Codex task and pass the local setup
    check.
 2. In the persistent Browser runtime, read the current Codex In-app Browser
    documentation and acquire only `agent.browsers.get("iab")`. Import

@@ -1,7 +1,9 @@
 # Support
 
-The latest published Browser Recorder for Codex release is `v0.4.0`. Start with
-the setup check, then choose the issue form that matches your question.
+The latest published Browser Recorder for Codex release is `v0.4.0`. Version
+`v0.4.1` is an unreleased candidate for recording one approved Codex In-app
+Browser flow as a local MP4. Start with the setup check, then choose the issue
+form that matches your question.
 
 ## Start with the setup check
 
@@ -36,7 +38,7 @@ Do not open a public issue for a vulnerability or sensitive recording content.
 For a bug, share only:
 
 - what you tried, what you expected, and what happened;
-- the plugin version, macOS version, and Codex desktop version;
+- the plugin version, macOS version, and ChatGPT desktop version;
 - the returned error code, such as `ffmpeg_missing`;
 - Browser plugin and redacted FFmpeg versions when relevant; and
 - minimal steps using a public synthetic test page.
