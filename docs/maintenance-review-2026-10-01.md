@@ -5,6 +5,14 @@ Plugin Directory as
 [`plugins_6a58f693814c8191b576ffaed4af2e78`](https://chatgpt.com/plugins/plugins_6a58f693814c8191b576ffaed4af2e78).
 This review changed no product code, tracker item, release, or dashboard.
 
+**Status (2026-10-01, after the review):**
+- Action 2 has landed as the `0.4.1` release candidate in
+  [#75](https://github.com/flsteven87/codex-browser-recorder/pull/75).
+- `interface.supportURL` was left out, because the pinned official plugin
+  validator in CI rejects it.
+- Tagging and the directory upload still wait on the real Browser qualification
+  (§2.4).
+
 ## Recommendation
 
 Keep the plugin alive in **compatibility-only mode**: ship one small `v0.4.1`
