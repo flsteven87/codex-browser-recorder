@@ -141,7 +141,7 @@ async function syncCandidateVersionReferences(repositoryRoot, version) {
 async function addCandidateReferences(repositoryRoot, version) {
   const canonicalVersion = version.split("+", 1)[0];
   const readmeMarker =
-    "> Browser Recorder is an experimental, community-developed plugin for the Codex\n" +
+    "> Browser Recorder is an experimental, community-developed plugin for the ChatGPT\n" +
     "> desktop app on macOS with the Codex In-app Browser.\n\n";
   await replaceText(
     repositoryRoot,
@@ -397,8 +397,11 @@ test("candidate compares oversized semantic version components losslessly", asyn
   await replaceText(
     repositoryRoot,
     "CHANGELOG.md",
-    "## [0.3.3] - 2026-07-24",
-    `## [${publishedVersion}] - 2026-07-24`,
+    new RegExp(
+      `^## \\[${previousPublishedVersion.replaceAll(".", "[.]")}\\](?= - )`,
+      "mu",
+    ),
+    `## [${publishedVersion}]`,
   );
 
   assert.deepEqual(

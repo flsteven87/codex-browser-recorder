@@ -100,9 +100,10 @@ test("plugin manifest and repository marketplace stay aligned", () => {
     plugin.description,
     /save one approved Codex In-app Browser flow.*private local MP4.*cursor.*click feedback/iu,
   );
-  assert.match(
-    plugin.interface.shortDescription,
-    /approved Codex In-app Browser flow.*local video/iu,
+  assert.match(plugin.interface.shortDescription, /record.*browser/iu);
+  assert.ok(
+    plugin.interface.shortDescription.length <= 30,
+    "directory subtitles must be at most 30 characters",
   );
   assert.doesNotMatch(
     JSON.stringify(plugin.interface),
@@ -176,6 +177,17 @@ test("public plugin metadata, listing assets, and community files are complete",
     ),
     "starter prompts must be complete explicit skill requests",
   );
+  const pointerEval = readJson(
+    join(repositoryRoot, "evals", "plugin-submission-cases.json"),
+  ).cases.find(({ id }) => id === "positive-pointer-click");
+  for (const prompt of manifest.interface.defaultPrompt.filter((prompt) =>
+    /\bclick/iu.test(prompt),
+  )) {
+    assert.ok(
+      prompt.includes(pointerEval.setup.targetUrl),
+      "pointer starter prompts must use the reviewer-verified same-site page",
+    );
+  }
   assert.equal(manifest.interface.composerIcon, "./assets/icon.png");
   assert.equal(manifest.interface.logo, "./assets/icon.png");
   assert.ok(

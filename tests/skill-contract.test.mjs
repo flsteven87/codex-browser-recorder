@@ -451,6 +451,20 @@ test("skill uses only the Codex In-app Browser on authorized paths", () => {
   );
 });
 
+test("skill binds the Browser runtime that setupBrowserRuntime returns", () => {
+  const setups = [...skill.matchAll(/await setupBrowserRuntime[(]([^)]*)[)]/gu)];
+  assert.equal(setups.length, 2);
+  for (const [, argumentsSource] of setups) {
+    assert.equal(argumentsSource, "");
+  }
+  assert.equal(
+    [...skill.matchAll(/const agent = await setupBrowserRuntime[(][)];/gu)]
+      .length,
+    2,
+  );
+  assert.doesNotMatch(skill, /globalThis|globals:/u);
+});
+
 test("Browser selection guard rejects non-IAB acquisition mutants", () => {
   for (const acquisition of [
     "agent.browsers.getForUrl(targetUrl)",

@@ -47,7 +47,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Include macOS, Codex desktop, Browser plugin, and redacted FFmpeg versions when relevant.
+      description: Include macOS, ChatGPT desktop, Browser plugin, and redacted FFmpeg versions when relevant.
     validations:
       required: true
   - type: checkboxes

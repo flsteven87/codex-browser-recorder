@@ -62,20 +62,16 @@ If `status` is `blocked`, report every Technical Blocker in order using only its
 
 ## Complete The Setup Check
 
-For `status: "preflight_prepared"`, follow the installed Browser control skill. Resolve its installed plugin root from its catalog entry, and pass one bounded Codex In-app Browser acquisition callback to the Recording Flow:
+For `status: "preflight_prepared"`, follow the installed Browser control skill. Resolve its installed plugin root from its catalog entry, and pass one bounded Codex In-app Browser acquisition callback to the Recording Flow. `setupBrowserRuntime()` returns the Browser runtime; keep it in a local binding and never store Browser bindings on the global object:
 
 ```js
 const acquireBrowser = async () => {
-  if (globalThis.agent?.browsers == null) {
-    const { setupBrowserRuntime } =
-      await import("<Browser plugin root>/scripts/browser-client.mjs");
-    await setupBrowserRuntime({ globals: globalThis });
-  }
-  if (globalThis.iab == null) {
-    globalThis.iab = await agent.browsers.get("iab");
-    nodeRepl.write(await iab.documentation());
-  }
-  return globalThis.iab;
+  const { setupBrowserRuntime } =
+    await import("<Browser plugin root>/scripts/browser-client.mjs");
+  const agent = await setupBrowserRuntime();
+  const iab = await agent.browsers.get("iab");
+  nodeRepl.write(await iab.documentation());
+  return iab;
 };
 
 const setupOutcome = await checkSetup(preparation, {
@@ -88,7 +84,7 @@ Do not use Chrome, `getForUrl`, `getDefault`, an existing arbitrary tab, or any 
 
 The setup check must not navigate to a requested recording site, start a Recording Session, create an MP4 or raw frame dump, or upload anything.
 
-If `status` is `blocked`, report every Technical Blocker in order using only its `code`, `summary`, and `remediation`, then stop. For `preflight_passed`, lead with `Local recording preflight passed`, report the planned destination, and state that the local media toolchain, destination, Codex In-app Browser, and full CDP access checks passed. Do not expose raw booleans. Stop after this setup result; do not request recording consent or start a recording.
+If `status` is `blocked`, report every Technical Blocker in order using only its `code`, `summary`, and `remediation`, then stop. For `preflight_passed`, lead with `Local recording preflight passed`, report the planned destination, and state that the local media toolchain, destination, Codex In-app Browser, and full CDP access checks passed. Add that ChatGPT may still ask to approve full CDP for the recording site when a recording starts. Do not expose raw booleans. Stop after this setup result; do not request recording consent or start a recording.
 
 ## Obtain One Consent
 
@@ -107,19 +103,14 @@ platform rejection nor a Technical Blocker.
 
 ## Record The Approved Plan
 
-After consent, follow the installed Browser control skill. Resolve its installed plugin root from its catalog entry, initialize `browser-client.mjs` once, and emit the Codex In-app Browser documentation once. Acquire only the Codex In-app Browser:
+After consent, follow the installed Browser control skill. Resolve its installed plugin root from its catalog entry, initialize `browser-client.mjs` once, and emit the Codex In-app Browser documentation once. Acquire only the Codex In-app Browser. If this Node session already holds `agent` and `iab` bindings from that skill, reuse them instead of declaring them again:
 
 ```js
-if (globalThis.agent?.browsers == null) {
-  const { setupBrowserRuntime } =
-    await import("<Browser plugin root>/scripts/browser-client.mjs");
-  await setupBrowserRuntime({ globals: globalThis });
-}
-if (globalThis.iab == null) {
-  globalThis.iab = await agent.browsers.get("iab");
-  nodeRepl.write(await iab.documentation());
-}
-const selectedBrowser = globalThis.iab;
+const { setupBrowserRuntime } =
+  await import("<Browser plugin root>/scripts/browser-client.mjs");
+const agent = await setupBrowserRuntime();
+const iab = await agent.browsers.get("iab");
+nodeRepl.write(await iab.documentation());
 ```
 
 Do not use Chrome, `getForUrl`, `getDefault`, an existing arbitrary tab, or any fallback Recording Surface.
@@ -133,7 +124,7 @@ Call `recordApproved()` once with the exact opaque preparation and selected Brow
 
 ```js
 const outcome = await recordApproved(preparation, {
-  browser: selectedBrowser,
+  browser: iab,
   signal,
 });
 ```

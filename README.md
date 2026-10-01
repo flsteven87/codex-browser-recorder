@@ -19,8 +19,12 @@ Recordings stay on your Mac. The plugin does not upload or share them, add
 telemetry, capture audio, or record your other tabs.
 
 > [!NOTE]
-> Browser Recorder is an experimental, community-developed plugin for the Codex
+> Browser Recorder is an experimental, community-developed plugin for the ChatGPT
 > desktop app on macOS with the Codex In-app Browser.
+
+Version `0.4.1` is an upcoming release candidate. The install and verification
+steps below remain pinned to the latest published release until that candidate
+completes the release transition.
 
 ## Before you record
 
@@ -49,7 +53,7 @@ cleanup, and failure behavior.
 
 You will need:
 
-- the Codex desktop app on macOS;
+- the ChatGPT desktop app on macOS;
 - the official **Browser** plugin available in Codex;
 - **Settings > Browser > Developer mode > Enable full CDP access** turned on;
 - FFmpeg and FFprobe with H.264 and MP4 support.
@@ -61,9 +65,10 @@ brew install ffmpeg
 ```
 
 In the ChatGPT desktop app, open **Codex > Plugins**, search for
-**Codex Browser Recorder**, and install it. Confirm that the official
-**Browser** plugin is available, then start a new task. If the recorder is not
-listed for your account or workspace, use the
+**Codex Browser Recorder**, and install it, or open its
+[Plugin Directory page](https://chatgpt.com/plugins/plugins_6a58f693814c8191b576ffaed4af2e78).
+Confirm that the official **Browser** plugin is available, then start a new
+task. If the recorder is not listed for your account or workspace, use the
 [local checkout](#install-from-a-local-checkout) below.
 
 ### 2. Check your setup
@@ -78,6 +83,8 @@ A successful check begins with `Local recording preflight passed`. It checks
 your Mac, media tools, output folder, Codex In-app Browser, and full CDP access.
 The check opens and closes one fresh diagnostic tab when needed, but it does not
 start a Recording Session, create a video or raw frame dump, or upload anything.
+When a recording starts, ChatGPT may still ask you to approve full CDP access
+for the recording site.
 
 ### 3. Record your first flow
 

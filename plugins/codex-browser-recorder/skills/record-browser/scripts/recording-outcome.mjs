@@ -93,7 +93,7 @@ const MESSAGE_GROUPS = [
   {
     codes: ["unsupported_platform"],
     summary: "Browser Recorder currently works only on macOS",
-    remediation: "Use the Codex desktop app on a Mac",
+    remediation: "Use the ChatGPT desktop app on a Mac",
   },
   {
     codes: ["ffmpeg_missing", "ffprobe_missing"],
