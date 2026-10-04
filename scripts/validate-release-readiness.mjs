@@ -11,8 +11,8 @@ const execFileAsync = promisify(execFile);
 const manifestPath = "plugins/codex-browser-recorder/.codex-plugin/plugin.json";
 const evalPath = "evals/plugin-submission-cases.json";
 const ciPath = ".github/workflows/ci.yml";
-const canonicalCiSha256 =
-  "30d4cce29d520dbe46bea6f55d6a8ede57cde068cd5b90ec91c2e1eb175eb8a2";
+const canonicalCiStructureSha256 =
+  "a4f84e7177fbb75dc1c288c464ad6f34a66fb49aaadc427520557db1e84050e2";
 const workflowPaths = [ciPath, ".github/workflows/codeql.yml"];
 const assetPaths = [
   "plugins/codex-browser-recorder/assets/icon.png",
@@ -481,8 +481,14 @@ async function validateCi(repositoryRoot, existing, failures) {
   if (!existing.has(ciPath)) return;
   const contents = await readFile(repositoryPath(repositoryRoot, ciPath));
   const source = contents.toString("utf8");
-  const sha256 = createHash("sha256").update(contents).digest("hex");
-  if (sha256 !== canonicalCiSha256) {
+  // Action revisions and their version comments may change through Dependabot.
+  // Keep every other byte pinned so updates cannot bypass release gates.
+  const structure = source.replace(
+    /^(\s*(?:-\s*)?uses:\s*[^\s@]+)@[0-9a-f]{40}(?:[ \t]+#[^\n]*)?$/gmu,
+    "$1@FULL_SHA",
+  );
+  const sha256 = createHash("sha256").update(structure).digest("hex");
+  if (sha256 !== canonicalCiStructureSha256) {
     addFailure(failures, "CI_WORKFLOW_HASH_INVALID", ciPath);
   }
   const codexCommandsPresent = [
@@ -501,7 +507,6 @@ async function validateCi(repositoryRoot, existing, failures) {
 
   const requiredFragments = [
     "node-version: 24",
-    "astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9",
     "version: 0.11.29",
     "enable-cache: false",
     "command -v ffmpeg >/dev/null || brew install ffmpeg",

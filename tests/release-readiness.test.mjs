@@ -881,6 +881,34 @@ test("rejects placeholder text in public materials", async () => {
   await assertOnlyFailure(repositoryRoot, "PLACEHOLDER_TEXT", "SUPPORT.md");
 });
 
+test("accepts action revision and version-comment updates without changing CI gates", async () => {
+  const repositoryRoot = await createFixture();
+  const path = join(repositoryRoot, ".github/workflows/ci.yml");
+  const source = await readFile(path, "utf8");
+  await writeFile(
+    path,
+    source.replace(/@[0-9a-f]{40} # v[^\n]+/gu, `@${"a".repeat(40)} # v99.0.0`),
+  );
+
+  await validateReleaseReadiness({ mode: "candidate", repositoryRoot });
+});
+
+test("rejects action repository changes even when pinned to a full SHA", async () => {
+  const repositoryRoot = await createFixture();
+  await replaceText(
+    repositoryRoot,
+    ".github/workflows/ci.yml",
+    "astral-sh/setup-uv@",
+    "untrusted/setup-uv@",
+  );
+
+  await assertOnlyFailure(
+    repositoryRoot,
+    "CI_WORKFLOW_HASH_INVALID",
+    ".github/workflows/ci.yml",
+  );
+});
+
 test("rejects workflow actions that are not pinned to full SHAs", async () => {
   const repositoryRoot = await createFixture();
   await replaceText(
