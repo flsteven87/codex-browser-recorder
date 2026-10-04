@@ -1749,6 +1749,129 @@ test("reverifies the top-level origin before successful finalization", async () 
   assert.equal(harness.sinkStopOptions.discard, true);
 });
 
+for (const originChanged of [true, false]) {
+  test(`cursor stream failure preserves ${originChanged ? "cross-origin" : "same-origin"} failure classification`, async () => {
+    const temporaryRoot = mkdtempSync(join(tmpdir(), "cursor-origin-race-"));
+    const frameTree = {
+      frameTree: { frame: { id: "main", url: "https://example.com/" } },
+    };
+    const cdp = createQueuedCdp({ frameTree });
+    const cursorCompletion = deferred();
+    const cursorError = Object.assign(new Error("Cursor stream failed"), {
+      code: "cursor_recording_failed",
+    });
+    const sink = createMemorySink();
+    let discarded;
+    const stopSink = sink.stop.bind(sink);
+    sink.stop = async (options) => {
+      discarded = options.discard;
+      return stopSink();
+    };
+    const session = await startTestBrowserRecording({
+      approvedOrigin: "https://example.com",
+      cdp,
+      ffmpegPath: "/unused/ffmpeg",
+      outputPath: join(temporaryRoot, "unused.mp4"),
+      adapters: {
+        sink: () => sink,
+        cursorCapture: async ({ now }) => ({
+          ...await createTestCursorCapture({ now }),
+          completion: cursorCompletion.promise,
+        }),
+      },
+    });
+    try {
+      cdp.publish(frameEvent());
+      await session.ready;
+      if (originChanged) frameTree.frameTree.frame.url = "https://other.example/";
+      cursorCompletion.resolve({ error: cursorError });
+      const outcome = await session.completion;
+      const expectedCode = originChanged
+        ? "origin_changed_during_recording"
+        : "cursor_recording_failed";
+      assert.equal(outcome.error.code, expectedCode);
+      await assert.rejects(session.stop(), (error) => error.code === expectedCode);
+      assert.equal(discarded, true);
+    } finally {
+      await session.stop().catch(() => {});
+      rmSync(temporaryRoot, { force: true, recursive: true });
+    }
+  });
+}
+
+for (const cancelled of [true, false]) {
+  test(`buffered navigation preserves ${cancelled ? "cancellation" : "cross-origin failure after an unavailable final origin check"}`, async () => {
+    const temporaryRoot = mkdtempSync(join(tmpdir(), "buffered-origin-race-"));
+    const cdp = createQueuedCdp();
+    const readEvents = cdp.readEvents.bind(cdp);
+    const send = cdp.send.bind(cdp);
+    const bufferedReadStarted = deferred();
+    const bufferedBatch = deferred();
+    const cursorCompletion = deferred();
+    const controller = new AbortController();
+    let armed = false;
+    let finalOriginCheck = false;
+    cdp.readEvents = async (options) => {
+      if (!armed) return readEvents(options);
+      bufferedReadStarted.resolve();
+      return bufferedBatch.promise;
+    };
+    cdp.send = async (method, params) => {
+      if (finalOriginCheck && method === "Page.getFrameTree") {
+        throw new Error("Frame tree unavailable");
+      }
+      return send(method, params);
+    };
+    const sink = createMemorySink();
+    let discarded;
+    sink.stop = async (options) => { discarded = options.discard; };
+    const session = await startTestBrowserRecording({
+      approvedOrigin: "https://example.com",
+      cdp,
+      ffmpegPath: "/unused/ffmpeg",
+      outputPath: join(temporaryRoot, "unused.mp4"),
+      signal: controller.signal,
+      adapters: {
+        sink: () => sink,
+        cursorCapture: async ({ now }) => ({
+          ...await createTestCursorCapture({ now }),
+          completion: cursorCompletion.promise,
+        }),
+      },
+    });
+    try {
+      cdp.publish(frameEvent());
+      await session.ready;
+      armed = true;
+      await bufferedReadStarted.promise;
+      finalOriginCheck = true;
+      if (cancelled) controller.abort();
+      else cursorCompletion.resolve({
+        error: Object.assign(new Error("Cursor stream failed"), {
+          code: "cursor_recording_failed",
+        }),
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      bufferedBatch.resolve({
+        cursor: 2,
+        events: [{
+          method: "Page.frameNavigated",
+          params: { frame: { id: "main-frame", url: "https://other.example/" } },
+        }],
+        hasMore: false,
+        truncated: false,
+      });
+      const outcome = await session.completion;
+      assert.equal(outcome.error.code, cancelled
+        ? "recording_cancelled" : "origin_changed_during_recording");
+      assert.equal(discarded, true);
+    } finally {
+      await session.stop().catch(() => {});
+      rmSync(temporaryRoot, { force: true, recursive: true });
+    }
+  });
+}
+
 test("preserves cross-origin failure when screencast cleanup also fails", async () => {
   const cleanupSecret = "private stop-screencast diagnostic";
   const harness = createNavigationSessionHarness({

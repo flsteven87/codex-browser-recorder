@@ -22,9 +22,7 @@ telemetry, capture audio, or record your other tabs.
 > Browser Recorder is an experimental, community-developed plugin for the ChatGPT
 > desktop app on macOS with the Codex In-app Browser.
 
-Version `0.4.1` is an upcoming release candidate. The install and verification
-steps below remain pinned to the latest published release until that candidate
-completes the release transition.
+Version `0.4.1` is the latest published release.
 
 ## Before you record
 
@@ -148,20 +146,20 @@ Start a new Codex task after installing. Do not copy files into the plugin cache
 or edit cache contents by hand.
 
 <details>
-<summary>Install and verify latest published version 0.4.0</summary>
+<summary>Install and verify latest published version 0.4.1</summary>
 
 Use a release tag when you need to reproduce the published plugin:
 
 ```sh
-git clone --branch v0.4.0 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
+git clone --branch v0.4.1 --depth 1 https://github.com/flsteven87/codex-browser-recorder.git
 codex plugin marketplace add /absolute/path/to/codex-browser-recorder
 ```
 
-The [v0.4.0 release page](https://github.com/flsteven87/codex-browser-recorder/releases/tag/v0.4.0)
+The [v0.4.1 release page](https://github.com/flsteven87/codex-browser-recorder/releases/tag/v0.4.1)
 lists the release commit. You can also verify the downloaded archive:
 
 ```sh
-recorder_release=v0.4.0
+recorder_release=v0.4.1
 recorder_archive="codex-browser-recorder-${recorder_release}.zip"
 curl --fail --location --remote-name \
   "https://github.com/flsteven87/codex-browser-recorder/releases/download/${recorder_release}/${recorder_archive}"

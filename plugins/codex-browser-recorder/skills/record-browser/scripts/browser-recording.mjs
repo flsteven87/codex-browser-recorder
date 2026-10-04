@@ -587,7 +587,11 @@ export async function startBrowserRecordingInternal({
     let pumpError = null;
     let renderedCursor = null;
 
-    if (terminationError === null && !signal?.aborted) {
+    if (
+      (terminationError === null ||
+        terminationError?.code === "cursor_recording_failed") &&
+      !signal?.aborted
+    ) {
       try {
         await inspectTopLevelFrame({ approvedOrigin, cdp });
       } catch (error) {
@@ -613,7 +617,8 @@ export async function startBrowserRecordingInternal({
     try {
       await pumpStop;
     } catch (error) {
-      pumpError ??= error;
+      if (error?.code === "origin_changed_during_recording") pumpError = error;
+      else pumpError ??= error;
     }
 
     try {
@@ -686,6 +691,12 @@ export async function startBrowserRecordingInternal({
       );
     }
 
+    if (
+      terminationError?.code === "cursor_recording_failed" &&
+      pumpError?.code === "origin_changed_during_recording"
+    ) {
+      throw pumpError;
+    }
     if (terminationError !== null) {
       throw terminationError;
     }

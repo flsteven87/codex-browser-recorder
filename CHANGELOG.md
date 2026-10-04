@@ -3,7 +3,7 @@
 This file records release candidates and published versions. Versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.1] - Unreleased
+## [0.4.1] - 2026-10-04
 
 Browser Recorder 0.4.1 keeps setup checks and recordings working in the ChatGPT
 desktop app.
@@ -16,6 +16,10 @@ desktop app.
 - Replace a starter prompt that followed a link to another website, which always
   stopped without saving a video, with a same-site example.
 - Shorten the plugin subtitle to the Plugin Directory's 30-character limit.
+- Preserve the cross-origin failure cause when navigation interrupts cursor capture,
+  while retaining cancellation and discarding failed recordings.
+- Recognize encoded cursor movement on scaled viewports during release qualification
+  and use the current same-site public fixture link.
 - Point setup and support guidance at the ChatGPT desktop app, and note that
   ChatGPT may ask to approve full CDP access for the recording site.
 
