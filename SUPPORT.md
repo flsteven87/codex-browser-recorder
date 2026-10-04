@@ -1,8 +1,7 @@
 # Support
 
-The latest published Browser Recorder for Codex release is `v0.4.0`. Version
-`v0.4.1` is an unreleased candidate for recording one approved Codex In-app
-Browser flow as a local MP4. Start with the setup check, then choose the issue
+The latest published Browser Recorder for Codex release is `v0.4.1`. It records
+one approved Codex In-app Browser flow as a local MP4. Start with the setup check, then choose the issue
 form that matches your question.
 
 ## Start with the setup check
