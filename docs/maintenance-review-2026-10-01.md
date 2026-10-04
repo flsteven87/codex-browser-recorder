@@ -15,6 +15,28 @@ This review changed no product code, tracker item, release, or dashboard.
 
 ## Recommendation
 
+### Maintenance follow-up — 2026-10-04
+
+- The v0.4.1 compatibility candidate is merged, but it has not passed real
+  Browser qualification or been published. This maintenance session exposes
+  Chrome connections only; the required In-app Browser selector is unavailable.
+  Resume the checklist in `CONTRIBUTING.md` in a ChatGPT desktop task that
+  exposes the In-app Browser. Chrome cannot satisfy that gate.
+- Routine action upgrades now preserve the CI workflow's integrity hash while
+  normalizing full-SHA action revisions and their version comments. All other
+  workflow bytes remain pinned, including action repositories, job placement,
+  failure handling, validator checksums, and the Codex CLI version.
+- The candidate includes the exact setup-uv v10.2.0 and CodeQL v4.38.2 updates
+  proposed by Dependabot PRs #74 and #71. PR #71's latest CI and CodeQL checks
+  passed; the earlier cancelled analysis is no longer an outstanding failure.
+- The default local test run exposed two timing-sensitive failures in existing
+  cleanup/backpressure tests. Both passed in isolation, and all 456 tests passed
+  with `node --test --test-concurrency=1 tests/*.test.mjs`. The final candidate
+  also passed `npm run check` at default concurrency (456/456). No product
+  regression was established; remote CI still needs observation.
+- The directory usage baseline remains unverified. Feature work stays deferred
+  until the owner records that baseline and makes the existing v0.5 decision.
+
 Keep the plugin alive in **compatibility-only mode**: ship one small `v0.4.1`
 that makes the listed plugin work on today's ChatGPT desktop. Do not build a
 `v0.5` yet. As a sample of whether a directory listing brings users, the plugin
