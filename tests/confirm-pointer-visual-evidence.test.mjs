@@ -139,6 +139,65 @@ test("confirms two encoded click rings with visible cursor movement", async () =
   );
 });
 
+test("finds intermediate cursors between coarse search points on a scaled viewport", async () => {
+  assert.deepEqual(
+    await renderEvidence({
+      baseVideo: { durationSeconds: 1.6, size: "640x640" },
+      durationMs: 1600,
+      events: [
+        {
+          atMs: 150,
+          button: 0,
+          buttons: 0,
+          frameId: "main",
+          type: "move",
+          x: 480,
+          y: 400,
+        },
+        {
+          atMs: 180,
+          button: 0,
+          buttons: 1,
+          frameId: "main",
+          type: "down",
+          x: 480,
+          y: 400,
+        },
+        {
+          atMs: 210,
+          button: 0,
+          buttons: 0,
+          frameId: "main",
+          type: "up",
+          x: 480,
+          y: 400,
+        },
+        {
+          atMs: 1093,
+          button: 0,
+          buttons: 0,
+          frameId: "main",
+          type: "move",
+          x: 80,
+          y: 400,
+        },
+        {
+          atMs: 1140,
+          button: 0,
+          buttons: 1,
+          frameId: "main",
+          type: "down",
+          x: 80,
+          y: 400,
+        },
+      ],
+      prefix: "pointer-scaled-search-",
+      viewport: { height: 800, width: 800 },
+    }),
+    { clickFeedbackVisible: true, pointerMovementVisible: true },
+  );
+});
+
 test("finds late movement after more than the bounded retained-frame window", async () => {
   assert.deepEqual(
     await renderEvidence({

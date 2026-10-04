@@ -22,7 +22,7 @@ export const DEFAULT_QUALIFICATION_FIXTURES = Object.freeze({
     targetUrl: "https://www.w3.org/TR/pointerevents/",
   }),
   sequential: Object.freeze({
-    linkName: "3. Examples",
+    linkName: "2. Conformance",
     targetUrl: "https://www.w3.org/TR/pointerevents/",
   }),
 });

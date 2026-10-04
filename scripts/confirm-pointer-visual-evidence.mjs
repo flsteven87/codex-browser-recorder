@@ -240,6 +240,7 @@ function bestCursorNear(frame, context, pointerX, pointerY, radius = 4) {
       const left = Math.round(pointerX) - 1 + deltaX;
       const top = Math.round(pointerY) - 1 + deltaY;
       const candidate = cursorScoreAt(frame, context, left, top);
+      if (cursorMatchPassed(candidate)) return candidate;
       if (
         candidate !== null &&
         (best === null || candidate.score > best.score)
@@ -267,11 +268,11 @@ function findIntermediateCursor(frames, context, first, second) {
   const deltaX = second.x - first.x;
   const deltaY = second.y - first.y;
   const perpendicularLength = Math.max(1, Math.hypot(deltaX, deltaY));
-  let best = null;
+  const steps = Math.ceil(perpendicularLength);
   for (const { frame, ring } of frames) {
     if (ring !== null) continue;
-    for (let step = 2; step <= 18; step += 1) {
-      const progress = step / 20;
+    for (let step = Math.ceil(steps * 0.1); step <= steps * 0.9; step += 1) {
+      const progress = step / steps;
       const lineX = first.x + deltaX * progress;
       const lineY = first.y + deltaY * progress;
       for (let perpendicular = -3; perpendicular <= 3; perpendicular += 1) {
@@ -280,13 +281,11 @@ function findIntermediateCursor(frames, context, first, second) {
         const pointerY =
           lineY + deltaX / perpendicularLength * perpendicular;
         const match = bestCursorNear(frame, context, pointerX, pointerY, 1);
-        if (match !== null && (best === null || match.score > best.score)) {
-          best = match;
-        }
+        if (cursorMatchPassed(match)) return match;
       }
     }
   }
-  return best;
+  return null;
 }
 
 async function inspectDimensions(outputPath) {
